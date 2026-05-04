@@ -22,10 +22,10 @@ class Option(Generic[T]):
 
     def is_none(self):
         return self._nac3_option is None
-    
+
     def is_some(self):
         return not self.is_none()
-    
+
     def unwrap(self):
         return self._nac3_option
 
@@ -34,7 +34,7 @@ class Option(Generic[T]):
             return "none"
         else:
             return "Some({})".format(repr(self._nac3_option))
-    
+
     def __str__(self) -> str:
         if self.is_none():
             return "none"
@@ -114,6 +114,9 @@ def patch(module):
     def output_int32_list(x):
         print([int(e) for e in x])
 
+    def output_refcount(x):
+        print(f"refcount: {sys.getrefcount(x) - 2}")
+
     def dbg_stack_address(_):
         return 0
 
@@ -141,6 +144,8 @@ def patch(module):
             "output_range",
         }:
             return print
+        elif name == "output_refcount":
+            return output_refcount
         elif name == "dbg_stack_address":
             return dbg_stack_address
         else:
@@ -252,7 +257,7 @@ def patch(module):
     module.np_linalg_pinv = np.linalg.pinv
     module.np_linalg_matrix_power = np.linalg.matrix_power
     module.np_linalg_det = np.linalg.det
-    
+
     module.sp_linalg_lu = lambda x: sp.linalg.lu(x, True)
     module.sp_linalg_schur = sp.linalg.schur
     module.sp_linalg_hessenberg = lambda x: sp.linalg.hessenberg(x, True)

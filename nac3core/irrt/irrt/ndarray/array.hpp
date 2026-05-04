@@ -1,11 +1,13 @@
 #pragma once
 
+#include "irrt/stdlib/cstdint.h"
+
 #include "irrt/debug.hpp"
 #include "irrt/exception.hpp"
-#include "irrt/int_types.hpp"
 #include "irrt/list.hpp"
 #include "irrt/ndarray/basic.hpp"
 #include "irrt/ndarray/def.hpp"
+#include "irrt/reference/array.hpp"
 
 namespace {
 namespace ndarray::array {
@@ -19,13 +21,16 @@ namespace ndarray::array {
  * of implementation details.
  */
 template<typename SizeT>
-void set_and_validate_list_shape_helper(SizeT axis, List<SizeT>* list, SizeT ndims, SizeT* shape) {
+void set_and_validate_list_shape_helper(__nac3_impl::stdlib::make_signed_t<SizeT> axis,
+                                        List<SizeT>* list,
+                                        __nac3_impl::stdlib::make_signed_t<SizeT> ndims,
+                                        __nac3_impl::stdlib::make_signed_t<SizeT>* shape) {
     if (shape[axis] == -1) {
         // Dimension is unspecified. Set it.
         shape[axis] = list->len;
     } else {
         // Dimension is specified. Check.
-        if (shape[axis] != list->len) {
+        if (shape[axis] != static_cast<__nac3_impl::stdlib::make_signed_t<SizeT>>(list->len)) {
             // Mismatch, throw an error.
             // NOTE: NumPy's error message is more complex and needs more PARAMS to display.
             raise_exception(SizeT, EXN_VALUE_ERROR,
@@ -40,7 +45,7 @@ void set_and_validate_list_shape_helper(SizeT axis, List<SizeT>* list, SizeT ndi
         // Do nothing
     } else {
         // `list` has type `list[list[...]]`
-        List<SizeT>** lists = (List<SizeT>**)(list->items);
+        auto** lists = list->items->template data<List<SizeT>*>();
         for (SizeT i = 0; i < list->len; i++) {
             set_and_validate_list_shape_helper<SizeT>(axis + 1, lists[i], ndims, shape);
         }
@@ -51,8 +56,10 @@ void set_and_validate_list_shape_helper(SizeT axis, List<SizeT>* list, SizeT ndi
  * @brief See `set_and_validate_list_shape_helper`.
  */
 template<typename SizeT>
-void set_and_validate_list_shape(List<SizeT>* list, SizeT ndims, SizeT* shape) {
-    for (SizeT axis = 0; axis < ndims; axis++) {
+void set_and_validate_list_shape(List<SizeT>* list,
+                                 __nac3_impl::stdlib::make_signed_t<SizeT> ndims,
+                                 __nac3_impl::stdlib::make_signed_t<SizeT>* shape) {
+    for (auto axis = 0; axis < ndims; axis++) {
         shape[axis] = -1;  // Sentinel to say this dimension is unspecified.
     }
     set_and_validate_list_shape_helper<SizeT>(0, list, ndims, shape);
@@ -75,24 +82,28 @@ void set_and_validate_list_shape(List<SizeT>* list, SizeT ndims, SizeT* shape) {
  *   - `ndarray->data` is written with contents from `<list>`.
  */
 template<typename SizeT>
-void write_list_to_array_helper(SizeT axis, SizeT* index, List<SizeT>* list, NDArray<SizeT>* ndarray) {
-    debug_assert_eq(SizeT, list->len, ndarray->shape[axis]);
+void write_list_to_array_helper(__nac3_impl::stdlib::make_signed_t<SizeT> axis,
+                                SizeT* index,
+                                List<SizeT>* list,
+                                NDArray<SizeT>* ndarray) {
+    debug_assert_eq(SizeT, static_cast<__nac3_impl::stdlib::make_signed_t<SizeT>>(list->len),
+                    ndarray->shape->data()[axis]);
     if (IRRT_DEBUG_ASSERT_BOOL) {
         if (!ndarray::basic::is_c_contiguous(ndarray)) {
-            raise_debug_assert(SizeT, "ndarray is not C-contiguous", ndarray->strides[0], ndarray->strides[1],
-                               NO_PARAM);
+            raise_debug_assert(SizeT, "ndarray is not C-contiguous", ndarray->strides->data()[0],
+                               ndarray->strides->data()[1], NO_PARAM);
         }
     }
 
     if (axis + 1 == ndarray->ndims) {
         // `list` has type `list[scalar]`
         // `ndarray` is contiguous, so we can do this, and this is fast.
-        uint8_t* dst = static_cast<uint8_t*>(ndarray->data) + (ndarray->itemsize * (*index));
-        __builtin_memcpy(dst, list->items, ndarray->itemsize * list->len);
+        auto* dst = ndarray->data->template data<uint8_t>() + ndarray->offset + (ndarray->itemsize * (*index));
+        __builtin_memcpy(dst, list->items->data(), ndarray->itemsize * list->len);
         *index += list->len;
     } else {
         // `list` has type `list[list[...]]`
-        List<SizeT>** lists = (List<SizeT>**)(list->items);
+        auto** lists = list->items->template data<List<SizeT>*>();
 
         for (SizeT i = 0; i < list->len; i++) {
             write_list_to_array_helper<SizeT>(axis + 1, index, lists[i], ndarray);
@@ -114,19 +125,19 @@ void write_list_to_array(List<SizeT>* list, NDArray<SizeT>* ndarray) {
 extern "C" {
 using namespace ndarray::array;
 
-void __nac3_ndarray_array_set_and_validate_list_shape(List<int32_t>* list, int32_t ndims, int32_t* shape) {
+void __nac3_ndarray_array_set_and_validate_list_shape(List<uint32_t>* list, int32_t ndims, int32_t* shape) {
     set_and_validate_list_shape(list, ndims, shape);
 }
 
-void __nac3_ndarray_array_set_and_validate_list_shape64(List<int64_t>* list, int64_t ndims, int64_t* shape) {
+void __nac3_ndarray_array_set_and_validate_list_shape64(List<uint64_t>* list, int64_t ndims, int64_t* shape) {
     set_and_validate_list_shape(list, ndims, shape);
 }
 
-void __nac3_ndarray_array_write_list_to_array(List<int32_t>* list, NDArray<int32_t>* ndarray) {
+void __nac3_ndarray_array_write_list_to_array(List<uint32_t>* list, NDArray<uint32_t>* ndarray) {
     write_list_to_array(list, ndarray);
 }
 
-void __nac3_ndarray_array_write_list_to_array64(List<int64_t>* list, NDArray<int64_t>* ndarray) {
+void __nac3_ndarray_array_write_list_to_array64(List<uint64_t>* list, NDArray<uint64_t>* ndarray) {
     write_list_to_array(list, ndarray);
 }
 }

@@ -6,10 +6,10 @@ use nac3parser::ast::StrRef;
 
 use crate::{
     codegen::{
-        CodeGenContext, bool_to_i1,
+        AllocationScope, CodeGenContext, bool_to_i1,
         macros::codegen_unreachable,
-        stmt::{gen_for_callback, gen_var},
-        types::{NDArrayType, NDArrayValue, NDIterValue, ProxyTypeExt, parse_numpy_int_sequence},
+        stmt::gen_for_callback,
+        types::{NDArrayType, NDArrayValue, NDIterValue, ProxyTypeBase, parse_numpy_int_sequence},
     },
     symbol_resolver::ValueEnum,
     toplevel::{
@@ -39,8 +39,8 @@ pub fn gen_ndarray_empty<'ctx>(
 
     let shape = parse_numpy_int_sequence(context, (shape_ty, shape_arg))?;
 
-    let ndarray =
-        NDArrayType::new(context, llvm_dtype, ndims).construct_numpy_empty(context, shape, None)?;
+    let ndarray = NDArrayType::create(context, llvm_dtype, ndims)
+        .construct_numpy_empty(context, shape, None)?;
     Ok(ndarray.value)
 }
 
@@ -63,7 +63,7 @@ pub fn gen_ndarray_zeros<'ctx>(
 
     let shape = parse_numpy_int_sequence(context, (shape_ty, shape_arg))?;
 
-    let ndarray = NDArrayType::new(context, llvm_dtype, ndims)
+    let ndarray = NDArrayType::create(context, llvm_dtype, ndims)
         .construct_numpy_zeros(context, dtype, shape, None)?;
     Ok(ndarray.value)
 }
@@ -87,7 +87,7 @@ pub fn gen_ndarray_ones<'ctx>(
 
     let shape = parse_numpy_int_sequence(context, (shape_ty, shape_arg))?;
 
-    let ndarray = NDArrayType::new(context, llvm_dtype, ndims)
+    let ndarray = NDArrayType::create(context, llvm_dtype, ndims)
         .construct_numpy_ones(context, dtype, shape, None)?;
     Ok(ndarray.value)
 }
@@ -113,7 +113,7 @@ pub fn gen_ndarray_full<'ctx>(
 
     let shape = parse_numpy_int_sequence(context, (shape_ty, shape_arg))?;
 
-    let ndarray = NDArrayType::new(context, llvm_dtype, ndims).construct_numpy_full(
+    let ndarray = NDArrayType::create(context, llvm_dtype, ndims).construct_numpy_full(
         context,
         shape,
         fill_value_arg,
@@ -207,7 +207,7 @@ pub fn gen_ndarray_eye<'ctx>(
         "",
     )?;
 
-    let ndarray = NDArrayType::new(context, llvm_dtype, 2)
+    let ndarray = NDArrayType::create(context, llvm_dtype, 2)
         .construct_numpy_eye(context, dtype, nrows, ncols, offset, None)?;
     Ok(ndarray.value)
 }
@@ -232,7 +232,7 @@ pub fn gen_ndarray_identity<'ctx>(
 
     let n =
         context.builder.build_int_s_extend_or_bit_cast(n_arg.into_int_value(), llvm_usize, "")?;
-    let ndarray = NDArrayType::new(context, llvm_dtype, 2)
+    let ndarray = NDArrayType::create(context, llvm_dtype, 2)
         .construct_numpy_identity(context, dtype, n, None)?;
     Ok(ndarray.value)
 }
@@ -296,8 +296,8 @@ pub fn ndarray_dot<'ctx>(
             let b = NDArrayType::from_unifier_type(ctx, x2_ty).map_value(n2, None);
 
             // TODO: General `np.dot()` https://numpy.org/doc/stable/reference/generated/numpy.dot.html.
-            assert_eq!(a.ty.ndims, 1);
-            assert_eq!(b.ty.ndims, 1);
+            assert_eq!(a.ty.object.ndims, 1);
+            assert_eq!(b.ty.object.ndims, 1);
             let common_dtype = arraylike_flatten_element_type(&mut ctx.unifier, x1_ty);
 
             // Check shapes.
@@ -314,7 +314,8 @@ pub fn ndarray_dot<'ctx>(
 
             let dtype_llvm = ctx.get_llvm_type(common_dtype);
 
-            let result = gen_var(ctx, dtype_llvm, Some("np_dot_result"))?;
+            let result =
+                ctx.build_allocate(AllocationScope::Default, dtype_llvm, Some("np_dot_result"))?;
             ctx.builder.build_store(result, dtype_llvm.const_zero())?;
 
             // Do dot product.
@@ -329,11 +330,11 @@ pub fn ndarray_dot<'ctx>(
                 },
                 |(), ctx, (a_iter, _b_iter)| {
                     // Only a_iter drives the condition, b_iter should have the same status.
-                    a_iter.has_element(ctx)
+                    a_iter.inner_value(ctx)?.has_element(ctx)
                 },
                 |(), ctx, _hooks, (a_iter, b_iter)| {
-                    let a_scalar = a_iter.get_scalar(ctx)?;
-                    let b_scalar = b_iter.get_scalar(ctx)?;
+                    let a_scalar = a_iter.inner_value(ctx)?.get_scalar(ctx)?;
+                    let b_scalar = b_iter.inner_value(ctx)?.get_scalar(ctx)?;
 
                     let old_result = ctx.builder.build_load(dtype_llvm, result, "")?;
                     let new_result: BasicValueEnum<'ctx> = match old_result {
@@ -360,8 +361,8 @@ pub fn ndarray_dot<'ctx>(
                     Ok(())
                 },
                 |(), ctx, (a_iter, b_iter)| {
-                    a_iter.next(ctx)?;
-                    b_iter.next(ctx)?;
+                    a_iter.inner_value(ctx)?.next(ctx)?;
+                    b_iter.inner_value(ctx)?.next(ctx)?;
                     Ok(())
                 },
                 |(), _| Ok(()),

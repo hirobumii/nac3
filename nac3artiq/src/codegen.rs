@@ -8,16 +8,16 @@ use std::{
 use anyhow::{anyhow, bail};
 use nac3core::{
     codegen::{
-        CodeGenContext, CodeGenerator, VarValue, basic_type_all, bool_to_i1,
+        CodeGenContext, CodeGenerator, VarValue,
+        allocator::AllocationScope,
+        basic_type_all, bool_to_i1,
         expr::{call_extern, destructure_range, gen_call},
         llvm_intrinsics::{call_int_smax, call_memcpy, call_stackrestore, call_stacksave},
-        stmt::{
-            gen_array_var, gen_block, gen_dyn_array_var, gen_for_callback_incrementing,
-            gen_if_callback, gen_var, gen_with,
-        },
+        stmt::{gen_block, gen_for_callback_incrementing, gen_if_callback, gen_with},
+        type_aligned_allocate,
         types::{
-            ArrayLikeIndexer, ArraySliceValue, ExceptionType, ListType, NDArrayType, ProxyTypeExt,
-            RangeType, field,
+            ArrayLikeIndexer, ClassType, ExceptionType, ListType, NDArrayType, ProxyTypeBase,
+            RangeType, field, is_refcounted_type,
         },
     },
     inkwell::{
@@ -453,7 +453,7 @@ fn format_rpc_arg<'ctx>(
             let ndims = extract_ndims(&ctx.unifier, ndims);
             let dtype = ctx.get_llvm_type(elem_ty);
             let ndarray =
-                NDArrayType::new(ctx, dtype, ndims).map_value(arg.into_pointer_value(), None);
+                NDArrayType::create(ctx, dtype, ndims).map_value(arg.into_pointer_value(), None);
 
             // `ndarray.data` is possibly not contiguous, and we need it to be contiguous for
             // the reader.
@@ -466,18 +466,28 @@ fn format_rpc_arg<'ctx>(
             let sizeof_buf = sizeof_buf_shape + sizeof_pdata;
 
             // buf = { data: void*, shape: [size_t; ndims]; }
-            let buf = gen_array_var(ctx, llvm_i8, sizeof_buf, Some("rpc.arg"))?;
+            let buf = ctx.build_array_allocate(
+                AllocationScope::Default,
+                llvm_i8,
+                sizeof_buf,
+                Some("rpc.arg"),
+            )?;
             let buf_data = buf.value.0;
             let sizeof_pdata_ = ctx.size_t.const_int(sizeof_pdata, false);
             let buf_shape = buf.ptr_offset_unchecked(ctx, &sizeof_pdata_, None)?;
 
             // Write to `buf->data`
-            let carray_data = carray.load(ctx, field!(data))?;
-            let carray_data = ctx.builder.build_pointer_cast(carray_data, llvm_pi8, "")?;
+            let carray_nbytes = ndarray.nbytes(ctx)?;
+            let carray_data = carray.inner_value(ctx)?.data(ctx)?;
+            let carray_data = ctx.builder.build_pointer_cast(
+                carray_data.inner_value(ctx, Some(carray_nbytes))?.value.0,
+                llvm_pi8,
+                "",
+            )?;
             call_memcpy(ctx, buf_data, carray_data, sizeof_pdata_)?;
 
             // Write to `buf->shape`
-            let carray_shape = ndarray.shape(ctx)?.value.0;
+            let carray_shape = ndarray.shape(ctx)?.inner_value(ctx, None)?.value.0;
             let sizeof_buf_shape_ = ctx.size_t.const_int(sizeof_buf_shape, false);
             call_memcpy(ctx, buf_shape, carray_shape, sizeof_buf_shape_)?;
 
@@ -485,7 +495,11 @@ fn format_rpc_arg<'ctx>(
         }
 
         _ => {
-            let arg_slot = gen_var(ctx, arg.get_type(), Some(&format!("rpc.arg{arg_idx}")))?;
+            let arg_slot = ctx.build_allocate(
+                AllocationScope::StackStartOfFunc,
+                arg.get_type(),
+                Some(&format!("rpc.arg{arg_idx}")),
+            )?;
             ctx.builder.build_store(arg_slot, arg)?;
 
             ctx.builder.build_bit_cast(arg_slot, llvm_pi8, "rpc.arg")?.into_pointer_value()
@@ -513,6 +527,7 @@ fn format_rpc_ret<'ctx>(
     // }
 
     let llvm_i32 = ctx.i32;
+    let llvm_i8_8 = ctx.ctx.struct_type(&[ctx.i8.array_type(8).into()], false);
     let llvm_pi8 = ctx.ptr;
 
     let rpc_recv =
@@ -560,7 +575,7 @@ fn format_rpc_ret<'ctx>(
             let (dtype, ndims) = unpack_ndarray_var_tys(&mut ctx.unifier, ret_ty);
             let dtype_llvm = ctx.get_llvm_type(dtype);
             let ndims = extract_ndims(&ctx.unifier, ndims);
-            let ndarray = NDArrayType::new(ctx, dtype_llvm, ndims).construct(ctx, None)?;
+            let ndarray = NDArrayType::create(ctx, dtype_llvm, ndims).construct(ctx, None)?;
 
             // NOTE: Current content of `ndarray`:
             //   - * `data` - **NOT YET** allocated.
@@ -571,18 +586,20 @@ fn format_rpc_ret<'ctx>(
 
             let stackptr = call_stacksave(ctx, None)?;
 
-            let itemsize = ctx.sizeof(ndarray.ty.dtype);
+            let itemsize = ctx.sizeof(ndarray.ty.object.dtype);
             let sizeof_ptr = ctx.sizeof(ctx.ptr);
             let sizeof_shape = ndims * ctx.sizeof(ctx.size_t);
             // Size of the buffer for the initial `rpc_recv()`.
             let unaligned_buffer_size = sizeof_ptr + sizeof_shape;
 
             // Force an aligned allocation.
-            let chunks = unaligned_buffer_size.div_ceil(8);
-            let aligned_alloc_ty = ctx.ctx.struct_type(&[ctx.i8.array_type(8).into()], false);
-            let ptr = gen_array_var(ctx, aligned_alloc_ty, chunks, Some("rpc.buffer"))?.value.0;
-            let buffer_bytes = ctx.size_t.const_int(chunks * 8, false);
-            let buffer = ArraySliceValue::new(ctx.i8.into(), ptr, buffer_bytes, None);
+            let buffer = type_aligned_allocate(
+                ctx,
+                AllocationScope::StackCurrentLoc,
+                llvm_i8_8,
+                ctx.size_t.const_int(unaligned_buffer_size, false),
+                Some("rpc.buffer"),
+            )?;
 
             // The first call to `rpc_recv` reads the top-level ndarray object: [pdata, shape]
             //
@@ -614,7 +631,7 @@ fn format_rpc_ret<'ctx>(
             // We need to skip the first `sizeof(uint8_t*)` bytes to skip the `pdata` in `[pdata, shape]`.
             let sizeof_ptr = ctx.size_t.const_int(sizeof_ptr, false);
             let pbuffer_shape = buffer.ptr_offset_unchecked(ctx, &sizeof_ptr, None)?;
-            ndarray.shape(ctx)?.memcpy_from(ctx, pbuffer_shape)?;
+            ndarray.shape(ctx)?.inner_value(ctx, None)?.memcpy_from(ctx, pbuffer_shape)?;
 
             // Restore stack from before allocation of buffer
             call_stackrestore(ctx, stackptr)?;
@@ -647,7 +664,16 @@ fn format_rpc_ret<'ctx>(
                 )?;
             }
 
-            let ndarray_data = ndarray.load(ctx, field!(data))?;
+            let ndarray_offset = ndarray.inner_value(ctx)?.load(ctx, field!(offset))?;
+            let ndarray_num_elements = ndarray.size(ctx)?;
+            let ndarray_data = ndarray
+                .inner_value(ctx)?
+                .base_data(ctx)?
+                .inner_value(ctx, Some(ndarray_num_elements))?
+                .value
+                .0;
+            let ndarray_data =
+                unsafe { ctx.builder.build_gep(ctx.i8, ndarray_data, &[ndarray_offset], "")? };
 
             let entry_bb = ctx.builder.get_insert_block().unwrap();
             ctx.builder.build_unconditional_branch(head_bb)?;
@@ -675,7 +701,15 @@ fn format_rpc_ret<'ctx>(
             // Align the allocation to sizeof(T)
             let alloc_size = round_up(ctx, alloc_size, itemsize)?;
             let size = ctx.builder.build_int_unsigned_div(alloc_size, itemsize, "")?;
-            let alloc_ptr = gen_dyn_array_var(ctx, dtype_llvm, size, Some("rpc.alloc"))?.value.0;
+            let alloc_ptr = ctx
+                .build_dyn_array_allocate(
+                    AllocationScope::Default,
+                    dtype_llvm,
+                    size,
+                    Some("rpc.alloc"),
+                )?
+                .value
+                .0;
             phi.add_incoming(&[(&alloc_ptr, alloc_bb)]);
             ctx.builder.build_unconditional_branch(head_bb)?;
 
@@ -684,7 +718,8 @@ fn format_rpc_ret<'ctx>(
         }
 
         _ => {
-            let slot = gen_var(ctx, llvm_ret_ty, Some("rpc.ret.slot"))?;
+            let slot =
+                ctx.build_allocate(AllocationScope::Default, llvm_ret_ty, Some("rpc.ret.slot"))?;
             let slotgen = ctx.builder.build_bit_cast(slot, llvm_pi8, "rpc.ret.ptr")?;
             ctx.builder.build_unconditional_branch(head_bb)?;
             ctx.builder.position_at_end(head_bb);
@@ -705,8 +740,15 @@ fn format_rpc_ret<'ctx>(
             ctx.builder.build_conditional_branch(is_done, tail_bb, alloc_bb)?;
             ctx.builder.position_at_end(alloc_bb);
 
-            let alloc_ptr =
-                gen_dyn_array_var(ctx, llvm_pi8, alloc_size, Some("rpc.alloc"))?.value.0;
+            let alloc_ptr = ctx
+                .build_dyn_array_allocate(
+                    AllocationScope::Default,
+                    llvm_pi8,
+                    alloc_size,
+                    Some("rpc.alloc"),
+                )?
+                .value
+                .0;
             phi.add_incoming(&[(&alloc_ptr, alloc_bb)]);
             ctx.builder.build_unconditional_branch(head_bb)?;
 
@@ -776,7 +818,12 @@ fn rpc_codegen_callback_fn<'ctx>(
     let arg_length = args.len() as u64 + u64::from(obj.is_some());
 
     let stackptr = call_stacksave(ctx, Some("rpc.stack"))?;
-    let args_ptr = gen_array_var(ctx, ctx.ptr, arg_length, Some("argptr"))?;
+    let args_ptr = ctx.build_array_allocate(
+        AllocationScope::StackCurrentLoc,
+        ctx.ptr,
+        arg_length,
+        Some("argptr"),
+    )?;
 
     // -- rpc args handling
     let mut keys = fun.0.args.clone();
@@ -892,21 +939,26 @@ pub fn attributes_writeback<'ctx>(
                         if gen_rpc_tag(ctx, *field_ty, &mut scratch_buffer).is_ok() {
                             attributes.push(name.to_string());
                             let (index, _) = ctx.get_attr_index(ty, *name);
-                            let obj_alloca_ty = ctx.get_alloca_type(ty);
-                            let field_llvm_ty = obj_alloca_ty
-                                .into_struct_type()
-                                .get_field_type_at_index(index as u32)
-                                .unwrap();
-                            values.push((
-                                *field_ty,
+
+                            let field_val = if is_refcounted_type(&mut ctx.unifier, ty) {
+                                let class_val = ClassType::from_unifier_type(ctx, ty)
+                                    .map_value(obj.into_pointer_value(), None);
+                                class_val.inner_value(ctx)?.load_field(ctx, index as u32)?
+                            } else {
+                                let obj_alloca_ty = ctx.get_alloca_type(ty);
+                                let field_llvm_ty = obj_alloca_ty
+                                    .into_struct_type()
+                                    .get_field_type_at_index(index as u32)
+                                    .unwrap();
                                 ctx.build_gep_and_load(
                                     obj_alloca_ty,
                                     obj.into_pointer_value(),
                                     &[zero, int32.const_int(index as u64, false)],
                                     None,
                                     field_llvm_ty,
-                                )?,
-                            ));
+                                )?
+                            };
+                            values.push((*field_ty, field_val));
                         }
                     }
                     if !attributes.is_empty() {
@@ -1042,7 +1094,11 @@ fn polymorphic_print<'ctx>(
         match &*ctx.unifier.get_ty_immutable(ty) {
             TypeEnum::TTuple { ty: tys, is_vararg_ctx: false } => {
                 let pvalue = {
-                    let pvalue = gen_var(ctx, value.get_type(), None)?;
+                    let pvalue = ctx.build_allocate(
+                        AllocationScope::StackStartOfFunc,
+                        value.get_type(),
+                        None,
+                    )?;
                     ctx.builder.build_store(pvalue, value)?;
                     pvalue
                 };
@@ -1153,7 +1209,7 @@ fn polymorphic_print<'ctx>(
 
                 let val = ListType::from_unifier_type(ctx, ty)
                     .map_value(value.into_pointer_value(), None);
-                let len = val.load(ctx, field!(len))?;
+                let len = val.inner_value(ctx)?.load(ctx, field!(len))?;
                 let last = ctx.builder.build_int_sub(len, llvm_usize.const_int(1, false), "")?;
 
                 gen_for_callback_incrementing(
@@ -1163,7 +1219,11 @@ fn polymorphic_print<'ctx>(
                     llvm_usize.const_zero(),
                     (len, false),
                     |(), ctx, _, i| {
-                        let elem = val.data(ctx)?.get_unchecked(ctx, &i, None)?;
+                        let elem = val
+                            .inner_value(ctx)?
+                            .data(ctx)?
+                            .inner_value(ctx, Some(len))?
+                            .get_unchecked(ctx, &i, None)?;
 
                         polymorphic_print(ctx, &[(elem_ty, elem)], "", None, true, as_rtio)?;
 
@@ -1203,8 +1263,8 @@ fn polymorphic_print<'ctx>(
 
                 // Print `ndarray` as a flat list delimited by interspersed with ", \0"
                 ndarray.foreach(ctx, |ctx, _, hdl| {
-                    let i = hdl.get_index(ctx)?;
-                    let scalar = hdl.get_scalar(ctx)?;
+                    let i = hdl.inner_value(ctx)?.get_index(ctx)?;
+                    let scalar = hdl.inner_value(ctx)?.get_scalar(ctx)?;
 
                     // if (i != 0) puts(", ");
                     gen_if_callback(

@@ -26,11 +26,13 @@ use inkwell::{
     debug_info::{
         AsDIScope, DICompileUnit, DIFlagsConstants, DIScope, DISubprogram, DebugInfoBuilder,
     },
-    module::Module,
+    module::{Linkage, Module},
     passes::PassBuilderOptions,
     targets::{CodeModel, RelocMode, Target, TargetMachine, TargetTriple},
     types::{BasicType, BasicTypeEnum, FloatType, IntType, PointerType},
-    values::{BasicValueEnum, FunctionValue, IntValue, PhiValue, PointerValue},
+    values::{
+        BasicValue, BasicValueEnum, FunctionValue, GlobalValue, IntValue, PhiValue, PointerValue,
+    },
 };
 use itertools::Itertools as _;
 use nac3parser::ast::{Location, Stmt, StrRef};
@@ -38,15 +40,18 @@ use parking_lot::{Condvar, Mutex};
 
 use crate::{
     codegen::{
+        allocator::AllocationScope,
         llvm_fns::FunctionStore,
-        stmt::{gen_dyn_array_var, get_personality},
+        stmt::{get_builtins, get_personality},
         types::{
-            EnumerateType, ExceptionType, ListType, NDArrayType, OptionType, ProxyType, RangeType,
-            RefType, StringType, TupleType,
+            ArraySliceValue, ClassType, EnumerateType, ExceptionType, OpaqueRefCountedType,
+            OptionType, ProxyType, ProxyTypeBase, RangeType, RawListType, RawNDArrayType,
+            RefCountedValue, RefType, StringType, TupleType, is_obj_id_refcounted,
+            is_refcounted_type,
         },
     },
     symbol_resolver::{StaticValue, SymbolResolver},
-    toplevel::{TopLevelContext, TopLevelDef, helper::PrimDef},
+    toplevel::{TopLevelContext, helper::PrimDef},
     typecheck::{
         type_inferencer::{CodeLocation, PrimitiveStore},
         typedef::{CallId, FuncArg, Type, TypeEnum, Unifier},
@@ -56,6 +61,7 @@ use concrete_type::{ConcreteType, ConcreteTypeEnum, ConcreteTypeStore};
 pub use generator::{CodeGenerator, DefaultCodeGenerator};
 pub use llvm_fns::FunctionDecl;
 
+pub mod allocator;
 pub mod builtin_fns;
 pub mod concrete_type;
 pub mod expr;
@@ -115,6 +121,9 @@ pub struct VarValue<'ctx> {
     /// The pointer to the variable's storage.
     pub ptr: PointerValue<'ctx>,
 
+    /// The unifier type of this variable.
+    pub ty: Type,
+
     /// The static value of the variable, if any.
     pub static_value: Option<Arc<dyn StaticValue + Send + Sync>>,
 
@@ -129,15 +138,16 @@ impl<'ctx> VarValue<'ctx> {
     #[must_use]
     pub fn new_static(
         ptr: PointerValue<'ctx>,
+        ty: Type,
         static_value: Arc<dyn StaticValue + Send + Sync>,
     ) -> Self {
-        Self { ptr, static_value: Some(static_value), counter: 0 }
+        Self { ptr, ty, static_value: Some(static_value), counter: 0 }
     }
 
     /// Creates a new [`VarValue`] with a dynamic value.
     #[must_use]
-    pub fn new(ptr: PointerValue<'ctx>) -> Self {
-        Self { ptr, static_value: None, counter: 0 }
+    pub fn new(ptr: PointerValue<'ctx>, ty: Type) -> Self {
+        Self { ptr, ty, static_value: None, counter: 0 }
     }
 }
 
@@ -268,9 +278,6 @@ pub struct CodeGenContext<'ctx, 'a> {
     pub unwind_target: Option<BasicBlock<'ctx>>,
 
     /// The target [`BasicBlock`] to jump to before returning from the function.
-    ///
-    /// If this field is [None] when generating a return from a function, `ret` with no argument can
-    /// be emitted.
     pub return_target: Option<BasicBlock<'ctx>>,
 
     /// The [`PointerValue`] containing the return value of the function.
@@ -511,44 +518,22 @@ fn get_alloca_type<'ctx>(ctx: &mut CodeGenContext<'ctx, '_>, ty: Type) -> BasicT
     if let Some(item) = ctx.alloca_type_cache.get(&ty) {
         return *item;
     }
-    let TypeEnum::TObj { obj_id, fields, .. } = &*ctx.unifier.get_ty(ty) else {
+    let TypeEnum::TObj { obj_id, .. } = &*ctx.unifier.get_ty(ty) else {
         unreachable!("type {} has no alloca type", ctx.unifier.stringify(ty))
     };
 
     let item = if *obj_id == PrimDef::Option.id() {
-        OptionType::from_unifier_type(ctx, ty).alloca_ty(ctx)
+        OptionType::from_unifier_type(ctx, ty).some_ty().alloca_ty(ctx)
     } else if *obj_id == PrimDef::NDArray.id() {
-        NDArrayType::from_unifier_type(ctx, ty).alloca_ty(ctx)
+        RawNDArrayType::from_unifier_type(ctx, ty).alloca_ty(ctx)
     } else if *obj_id == PrimDef::Range.id() {
         RangeType::from_unifier_type(ctx, ty).alloca_ty(ctx)
     } else if *obj_id == PrimDef::Exception.id() {
         ExceptionType::from_unifier_type(ctx, ty).alloca_ty(ctx)
     } else if *obj_id == PrimDef::List.id() {
-        ListType::from_unifier_type(ctx, ty).alloca_ty(ctx)
+        RawListType::from_unifier_type(ctx, ty).alloca_ty(ctx)
     } else {
-        // a struct with fields in the order of declaration
-        let top_level_defs = ctx.top_level.definitions.read();
-        let TopLevelDef::Class { fields: fields_list, .. } = &*top_level_defs[obj_id.0].read()
-        else {
-            unreachable!()
-        };
-
-        let name = ctx.unifier.stringify(ty);
-        if let Some(t) = ctx.module.get_struct_type(&name) {
-            t
-        } else {
-            let struct_type = ctx.ctx.opaque_struct_type(&name);
-            ctx.alloca_type_cache.insert(ty, struct_type.into());
-            let fields = fields_list
-                .iter()
-                .map(|f| {
-                    get_llvm_type(ctx.inner, &mut ctx.unifier, &mut ctx.type_cache, fields[&f.0].0)
-                })
-                .collect_vec();
-            struct_type.set_body(&fields, false);
-            struct_type
-        }
-        .as_basic_type_enum()
+        ClassType::from_unifier_type(ctx, ty).alloca_ty(ctx)
     };
 
     *ctx.alloca_type_cache.entry(ty).insert_entry(item).get()
@@ -570,6 +555,9 @@ fn get_llvm_type<'ctx>(
     type_cache.get(&unifier.get_representative(ty)).copied().unwrap_or_else(|| {
         let ty_enum = unifier.get_ty(ty);
         let result = match &*ty_enum {
+            TypeEnum::TObj { obj_id, .. } if is_obj_id_refcounted(*obj_id) => {
+                OpaqueRefCountedType::new(ctx).llvm_ty(ctx)
+            }
             TypeEnum::TObj { .. } => ctx.ptr.into(),
             TypeEnum::TTuple { ty, is_vararg_ctx } => {
                 // a struct with fields in the order present in the tuple
@@ -613,7 +601,10 @@ fn get_llvm_abi_type<'ctx>(
     if unifier.unioned(ty, primitives.bool) {
         ctx.i1.into()
     } else {
-        get_llvm_type(ctx, unifier, type_cache, ty)
+        match &*unifier.get_ty(ty) {
+            TypeEnum::TObj { obj_id, .. } if is_obj_id_refcounted(*obj_id) => ctx.ptr.into(),
+            _ => get_llvm_type(ctx, unifier, type_cache, ty),
+        }
     }
 }
 
@@ -660,6 +651,22 @@ where
         if f(v) { ControlFlow::Continue(()) } else { ControlFlow::Break(()) }
     })
     .is_continue()
+}
+
+/// Emits refcount decrements for all refcounted locals in
+/// [`var_assignment`][CodeGenContext::var_assignment] at the current builder location.
+fn emit_local_refcount_decrements(ctx: &mut CodeGenContext<'_, '_>) -> anyhow::Result<()> {
+    let opaque_refcounted_ty = OpaqueRefCountedType::new(ctx);
+
+    for (local_ptr, ty) in ctx.var_assignment.values().map(|v| (v.ptr, v.ty)).collect_vec() {
+        if !is_refcounted_type(&mut ctx.unifier, ty) {
+            continue;
+        }
+
+        let ptr = ctx.builder.build_load(ctx.ptr, local_ptr, "")?.into_pointer_value();
+        opaque_refcounted_ty.map_value(ptr, None).header(ctx).safe_decrement_refcount(ctx)?;
+    }
+    Ok(())
 }
 
 /// Implementation for generating LLVM IR for a function.
@@ -790,13 +797,18 @@ pub fn gen_func_impl<
     // so we must redefine the function from scratch.
     let (_, fn_val) = ctx.declare_internal(symbol, ret_type, &params_type, task.export_symbol);
 
-    if let Some(personality) = get_personality(&top_level_ctx, ctx) {
+    let personality = get_personality(&top_level_ctx, ctx);
+    if let Some(personality) = personality {
         fn_val.set_personality_function(personality);
     }
 
     let init_bb = ctx.ctx.append_basic_block(fn_val, "init");
     builder.position_at_end(init_bb);
     let body_bb = ctx.ctx.append_basic_block(fn_val, "body");
+    let finalize_bb = ctx.ctx.append_basic_block(fn_val, "finalize");
+    // Only construct the function-level cleanup landingpad if a personality function is available,
+    // otherwise the landingpad is unreachable
+    let cleanup_lp = personality.map(|_| ctx.ctx.append_basic_block(fn_val, "fn.cleanup.lp"));
 
     // Store non-vararg argument values into local variables
     let mut var_assignment = HashMap::new();
@@ -823,7 +835,7 @@ pub fn gen_func_impl<
         };
 
         builder.build_store(alloca, param)?;
-        var_assignment.insert(arg.name, VarValue::new(alloca));
+        var_assignment.insert(arg.name, VarValue::new(alloca, arg.ty));
     }
 
     // TODO: Save vararg parameters as list
@@ -916,10 +928,10 @@ pub fn gen_func_impl<
         top_level: top_level_ctx.as_ref(),
         calls: task.calls,
         loop_target: None,
-        return_target: None,
+        return_target: Some(finalize_bb),
         return_buffer,
         return_buffer_type: ret_type,
-        unwind_target: None,
+        unwind_target: cleanup_lp,
         outer_catch_clauses: None,
         const_strings: HashMap::default(),
         registry,
@@ -938,9 +950,42 @@ pub fn gen_func_impl<
 
     let result = codegen_function(generator, &mut code_gen_context).map(|()| fn_val);
 
-    // after static analysis, only void functions can have no return at the end.
+    // If the function body is not terminated, jump to `finalize_bb` to decrement refcounts
     if !code_gen_context.is_terminated() {
+        code_gen_context.builder.build_unconditional_branch(finalize_bb)?;
+    }
+
+    // Decrement refcounts of all locals in `finalize_bb`, and emit the final `ret`
+    code_gen_context.builder.position_at_end(finalize_bb);
+    emit_local_refcount_decrements(&mut code_gen_context)?;
+    if let Some((return_buffer, return_buffer_type)) =
+        code_gen_context.return_buffer.zip(code_gen_context.return_buffer_type)
+    {
+        let loaded =
+            code_gen_context.builder.build_load(return_buffer_type, return_buffer, "$ret")?;
+        code_gen_context.builder.build_return(Some(&loaded as &dyn BasicValue))?;
+    } else {
         code_gen_context.builder.build_return(None)?;
+    }
+
+    // Similarly for `cleanup.lp`: Decrement refcounts of all locals, then resume unwinding
+    if let Some(cleanup_lp) = cleanup_lp {
+        code_gen_context.builder.position_at_end(cleanup_lp);
+        let exception_type = code_gen_context.get_llvm_type(code_gen_context.primitives.exception);
+        let ptr_type = code_gen_context.ptr;
+        code_gen_context.builder.build_landing_pad(
+            code_gen_context.ctx.struct_type(&[ptr_type.into(), exception_type], false),
+            personality.unwrap(),
+            &[],
+            true,
+            "fn.cleanup.lp",
+        )?;
+        emit_local_refcount_decrements(&mut code_gen_context)?;
+        // Clear `unwind_target` before emitting the resume call to avoid infinite loop
+        code_gen_context.unwind_target = None;
+        let resume = get_builtins(&mut code_gen_context, "__nac3_resume");
+        code_gen_context.build_call_or_invoke(&resume, &[], "resume")?;
+        code_gen_context.builder.build_unreachable()?;
     }
 
     code_gen_context.builder.unset_current_debug_location();
@@ -1041,17 +1086,23 @@ fn gen_in_range_check<'ctx>(
     Ok(ctx.builder.build_int_compare(IntPredicate::SLT, lo, hi, "cmp")?)
 }
 
-/// Inserts an `alloca` instruction with allocation `size` given in bytes and the alignment of the
-/// given type.
+/// Inserts an `alloca` or `malloc` instruction with allocation `size` given in bytes and the
+/// alignment of the type.
 ///
 /// The returned [`PointerValue`] will have a type of `i8*`, a size of at least `size`, and will be
 /// aligned with the alignment of `align_ty`.
-pub fn type_aligned_alloca<'ctx>(
+///
+/// # Panics
+///
+/// Panics if `scope` is `AllocationScope::StackStartOfFunc` - See
+/// [`CodeGenContext::build_dyn_array_allocate`].
+pub fn type_aligned_allocate<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
+    scope: AllocationScope,
     align_ty: impl Into<BasicTypeEnum<'ctx>>,
     size: IntValue<'ctx>,
-    name: Option<&'static str>,
-) -> anyhow::Result<PointerValue<'ctx>> {
+    name: Option<&'ctx str>,
+) -> anyhow::Result<ArraySliceValue<'ctx>> {
     /// Round `val` up to its modulo `power_of_two`.
     fn round_up<'ctx>(
         ctx: &CodeGenContext<'ctx, '_>,
@@ -1114,8 +1165,11 @@ pub fn type_aligned_alloca<'ctx>(
     let aligned_slices = ctx.builder.build_int_unsigned_div(buffer_size, alignment, "")?;
 
     // Just to be absolutely sure, alloca in [i8 x alignment] slices
-    Ok(gen_dyn_array_var(ctx, align_ty, aligned_slices, name)?.value.0)
+    ctx.build_dyn_array_allocate(scope, align_ty, aligned_slices, name)
 }
+
+/// Name of the global variable marking the beginning of the module's global data.
+const MODULE_GLOBAL_BEGIN_NAME: &str = "__nac3_global_begin";
 
 /// Contains all global LLVM state that is attached to an LLVM [`Module`] and independent
 /// from Python.
@@ -1177,11 +1231,21 @@ impl<'ctx> ModuleContext<'ctx> {
             i32.const_int(4, false),
         );
 
+        let global_begin = module.add_global(i8, None, MODULE_GLOBAL_BEGIN_NAME);
+        global_begin.set_linkage(Linkage::WeakAny);
+        global_begin.set_constant(true);
+        global_begin.set_initializer(&i8.get_poison());
+
         Self { ctx, module, target, fn_store, size_t, i1, i8, i32, i64, f64, ptr }
     }
 
     pub fn sizeof(&self, ty: impl Copy + BasicType<'ctx>) -> u64 {
         self.target.get_target_data().get_abi_size(&ty)
+    }
+
+    /// Returns an `i8*` to the beginning of the module's global data.
+    pub fn global_begin_ptr(&self) -> PointerValue<'ctx> {
+        self.module.get_global(MODULE_GLOBAL_BEGIN_NAME).map(GlobalValue::as_pointer_value).unwrap()
     }
 }
 

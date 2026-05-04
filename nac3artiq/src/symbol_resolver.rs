@@ -12,13 +12,16 @@ use itertools::Itertools as _;
 use nac3core::{
     codegen::{
         CodeGenContext,
-        types::{EnumerateType, NDArrayType, RefType, make_contiguous_strides},
+        types::{
+            ClassType, EnumerateType, ListType, NDArrayType, RefCountedArrayType, RefType,
+            WithTypeinfo, make_contiguous_strides,
+        },
     },
     inkwell::{
         AddressSpace,
         module::Linkage,
-        types::{BasicType, BasicTypeEnum},
-        values::BasicValueEnum,
+        types::BasicTypeEnum,
+        values::{BasicValueEnum, GlobalValue},
     },
     nac3parser::ast::{self, StrRef},
     symbol_resolver::{StaticValue, SymbolResolver, SymbolValue, ValueEnum},
@@ -1155,12 +1158,18 @@ impl InnerResolver {
             } else {
                 ctx.get_llvm_type(elem_ty)
             };
-            let arr_ty = ctx.ctx.struct_type(&[ctx.ptr.into(), size_t.into()], false);
+
+            let list_ty = ListType::from_unifier_type(ctx, expected_ty);
+            let list_wrapper_ty = list_ty.alloca_ty(ctx).into_struct_type();
 
             {
                 if self.global_value_ids.read().contains_key(&id) {
                     let global = ctx.module.get_global(&id_str).unwrap_or_else(|| {
-                        ctx.module.add_global(arr_ty, Some(AddressSpace::default()), &id_str)
+                        ctx.module.add_global(
+                            list_wrapper_ty,
+                            Some(AddressSpace::default()),
+                            &id_str,
+                        )
                     });
                     return Ok(Some(global.as_pointer_value().into()));
                 }
@@ -1177,38 +1186,57 @@ impl InnerResolver {
                 .collect::<anyhow::Result<Option<Vec<_>>>>()?
                 .unwrap();
 
-            let arr_global = ctx.module.add_global(
-                ty.array_type(len as u32),
-                Some(AddressSpace::default()),
-                &(id_str.clone() + "_"),
-            );
-            let arr: BasicValueEnum = if ty.is_int_type() {
+            let elem_arr: BasicValueEnum = if ty.is_int_type() {
                 let arr: Vec<_> = arr.into_iter().map(BasicValueEnum::into_int_value).collect();
-                ty.into_int_type().const_array(&arr)
+                ty.into_int_type().const_array(&arr).into()
             } else if ty.is_float_type() {
                 let arr: Vec<_> = arr.into_iter().map(BasicValueEnum::into_float_value).collect();
-                ty.into_float_type().const_array(&arr)
+                ty.into_float_type().const_array(&arr).into()
             } else if ty.is_array_type() {
                 let arr: Vec<_> = arr.into_iter().map(BasicValueEnum::into_array_value).collect();
-                ty.into_array_type().const_array(&arr)
+                ty.into_array_type().const_array(&arr).into()
             } else if ty.is_struct_type() {
                 let arr: Vec<_> = arr.into_iter().map(BasicValueEnum::into_struct_value).collect();
-                ty.into_struct_type().const_array(&arr)
+                ty.into_struct_type().const_array(&arr).into()
             } else if ty.is_pointer_type() {
                 let arr: Vec<_> = arr.into_iter().map(BasicValueEnum::into_pointer_value).collect();
-                ty.into_pointer_type().const_array(&arr)
+                ty.into_pointer_type().const_array(&arr).into()
             } else {
                 unreachable!()
-            }
-            .into();
-            arr_global.set_initializer(&arr);
+            };
 
-            let val = arr_ty.const_named_struct(&[
+            // Build the data array global with `RefCountedArrayType` layout.
+            let arr_global = build_refcounted_array_global(
+                ctx,
+                ty,
+                len as u32,
+                elem_arr,
+                &(id_str.clone() + "_"),
+            );
+
+            // Build the list global with `ListType` layout.
+            let list_header_ty =
+                list_wrapper_ty.get_field_type_at_index(0).unwrap().into_struct_type();
+            let list_inner_ty =
+                list_wrapper_ty.get_field_type_at_index(1).unwrap().into_struct_type();
+            let list_inner_val = list_inner_ty.const_named_struct(&[
                 arr_global.as_pointer_value().into(),
                 size_t.const_int(len as u64, false).into(),
             ]);
+            let list_typeinfo_offset = list_ty
+                .object
+                .typeinfo(ctx)
+                .value
+                .const_to_int(ctx.size_t)
+                .const_sub(ctx.global_begin_ptr().const_to_int(ctx.size_t))
+                .const_truncate_or_bit_cast(ctx.i32);
+            let list_header_val = list_header_ty
+                .const_named_struct(&[ctx.i32.const_zero().into(), list_typeinfo_offset.into()]);
+            let val = list_wrapper_ty
+                .const_named_struct(&[list_header_val.into(), list_inner_val.into()]);
 
-            let global = ctx.module.add_global(arr_ty, Some(AddressSpace::default()), &id_str);
+            let global =
+                ctx.module.add_global(list_wrapper_ty, Some(AddressSpace::default()), &id_str);
             global.set_initializer(&val);
 
             Ok(Some(global.as_pointer_value().into()))
@@ -1332,23 +1360,26 @@ impl InnerResolver {
             };
             let (ndarray_dtype, _) = unpack_ndarray_var_tys(&mut ctx.unifier, ndarray_ty);
 
-            let llvm_pi8 = ctx.ptr;
             let llvm_usize = ctx.size_t;
             let llvm_ndarray = NDArrayType::from_unifier_type(ctx, ndarray_ty);
-            let dtype = llvm_ndarray.dtype;
+            let dtype = llvm_ndarray.object.dtype;
+            let ndarray_wrapper_ty = llvm_ndarray.alloca_ty(ctx).into_struct_type();
 
             {
                 if self.global_value_ids.read().contains_key(&id) {
                     let global = ctx.module.get_global(&id_str).unwrap_or_else(|| {
-                        let ndarray_ty = llvm_ndarray.alloca_ty(ctx);
-                        ctx.module.add_global(ndarray_ty, Some(AddressSpace::default()), &id_str)
+                        ctx.module.add_global(
+                            ndarray_wrapper_ty,
+                            Some(AddressSpace::default()),
+                            &id_str,
+                        )
                     });
                     return Ok(Some(global.as_pointer_value().into()));
                 }
                 self.global_value_ids.write().insert(id, obj.as_unbound().into_py_any(py)?);
             }
 
-            let ndims = llvm_ndarray.ndims;
+            let ndims = llvm_ndarray.object.ndims;
 
             // Obtain the shape of the ndarray
             let shape_tuple = obj.getattr("shape")?;
@@ -1379,15 +1410,16 @@ impl InnerResolver {
                     dim.get_zero_extended_constant().unwrap()
                 })
                 .collect_vec();
-            let shape_values = llvm_usize.const_array(&shape_values);
+            let shape_values_const = llvm_usize.const_array(&shape_values);
 
-            // create a global for ndarray.shape and initialize it using the shape
-            let shape_global = ctx.module.add_global(
-                llvm_usize.array_type(ndims as u32),
-                Some(AddressSpace::default()),
+            // create a `RefCountedArrayValue` global for ndarray.shape
+            let shape_global = build_refcounted_array_global(
+                ctx,
+                llvm_usize.into(),
+                ndims as u32,
+                shape_values_const.into(),
                 &(id_str.clone() + ".shape"),
             );
-            shape_global.set_initializer(&shape_values);
 
             // Obtain the (flattened) elements of the ndarray
             let sz: usize = obj.getattr("size")?.extract()?;
@@ -1406,54 +1438,43 @@ impl InnerResolver {
                 })
                 .collect::<anyhow::Result<Vec<_>>>()?;
             let data = data.into_iter();
-            let data = match dtype {
+            let data_const: BasicValueEnum = match dtype {
                 BasicTypeEnum::ArrayType(ty) => {
-                    ty.const_array(&data.map(BasicValueEnum::into_array_value).collect_vec())
+                    ty.const_array(&data.map(BasicValueEnum::into_array_value).collect_vec()).into()
                 }
 
                 BasicTypeEnum::FloatType(ty) => {
-                    ty.const_array(&data.map(BasicValueEnum::into_float_value).collect_vec())
+                    ty.const_array(&data.map(BasicValueEnum::into_float_value).collect_vec()).into()
                 }
 
                 BasicTypeEnum::IntType(ty) => {
-                    ty.const_array(&data.map(BasicValueEnum::into_int_value).collect_vec())
+                    ty.const_array(&data.map(BasicValueEnum::into_int_value).collect_vec()).into()
                 }
 
-                BasicTypeEnum::PointerType(ty) => {
-                    ty.const_array(&data.map(BasicValueEnum::into_pointer_value).collect_vec())
-                }
+                BasicTypeEnum::PointerType(ty) => ty
+                    .const_array(&data.map(BasicValueEnum::into_pointer_value).collect_vec())
+                    .into(),
 
-                BasicTypeEnum::StructType(ty) => {
-                    ty.const_array(&data.map(BasicValueEnum::into_struct_value).collect_vec())
-                }
+                BasicTypeEnum::StructType(ty) => ty
+                    .const_array(&data.map(BasicValueEnum::into_struct_value).collect_vec())
+                    .into(),
 
                 BasicTypeEnum::VectorType(_) | BasicTypeEnum::ScalableVectorType(_) => {
                     unreachable!()
                 }
             };
 
-            // create a global for ndarray.data and initialize it using the elements
-            //
-            // NOTE: NDArray's `data` is `u8*`. Here, `data_global` is an array of `dtype`.
-            // We will have to cast it to an `u8*` later.
-            let data_global = ctx.module.add_global(
-                dtype.array_type(sz as u32),
-                Some(AddressSpace::default()),
+            // create a `RefCountedArrayValue` global for ndarray.data
+            let data_global = build_refcounted_array_global(
+                ctx,
+                dtype,
+                sz as u32,
+                data_const,
                 &(id_str.clone() + ".data"),
             );
-            data_global.set_initializer(&data);
 
             // Get the constant itemsize.
-            //
-            // NOTE: dtype.size_of() may return a non-constant, where `TargetData::get_store_size`
-            // will always return a constant size.
-            let itemsize = ctx
-                .registry
-                .codegen_options
-                .target
-                .create_target_machine()
-                .get_target_data()
-                .get_store_size(&dtype);
+            let itemsize = ctx.sizeof(dtype);
             assert_ne!(itemsize, 0);
 
             // Create the strides needed for ndarray.strides
@@ -1462,58 +1483,49 @@ impl InnerResolver {
                 strides.into_iter().map(|stride| llvm_usize.const_int(stride, false)).collect_vec();
             let strides = llvm_usize.const_array(&strides);
 
-            // create a global for ndarray.strides and initialize it
-            let strides_global = ctx.module.add_global(
-                llvm_usize.array_type(ndims as u32),
-                Some(AddressSpace::default()),
+            // create a `RefCountedArrayValue` global for ndarray.strides
+            let strides_global = build_refcounted_array_global(
+                ctx,
+                llvm_usize.into(),
+                ndims as u32,
+                strides.into(),
                 &format!("${id_str}.strides"),
             );
-            strides_global.set_initializer(&strides);
 
-            // create a global for the ndarray object and initialize it
-
-            // NOTE: data_global is an array of dtype, we want a `u8*`.
-            let ndarray_data = data_global.as_pointer_value();
-            let ndarray_data = ctx.builder.build_pointer_cast(ndarray_data, llvm_pi8, "")?;
-
-            let ndarray_itemsize = llvm_usize.const_int(itemsize, false);
-
-            let ndarray_ndims = llvm_usize.const_int(ndims, false);
-
-            // calling as_pointer_value on shape and strides returns [i64 x ndims]*
-            // convert into i64* to conform with expected layout of ndarray
-
-            let ndarray_shape = shape_global.as_pointer_value();
-            let ndarray_shape = unsafe {
-                ctx.builder.build_in_bounds_gep(
-                    llvm_usize.array_type(ndims as u32),
-                    ndarray_shape,
-                    &[llvm_usize.const_zero(), llvm_usize.const_zero()],
-                    "",
-                )?
-            };
-
-            let ndarray_strides = strides_global.as_pointer_value();
-            let ndarray_strides = unsafe {
-                ctx.builder.build_in_bounds_gep(
-                    llvm_usize.array_type(ndims as u32),
-                    ndarray_strides,
-                    &[llvm_usize.const_zero(), llvm_usize.const_zero()],
-                    "",
-                )?
-            };
-
-            let ndarray_struct_ty = llvm_ndarray.alloca_ty(ctx).into_struct_type();
-            let ndarray = ndarray_struct_ty.const_named_struct(&[
-                ndarray_itemsize.into(),
-                ndarray_ndims.into(),
-                ndarray_shape.into(),
-                ndarray_strides.into(),
-                ndarray_data.into(),
+            // Build the inner `RawNDArrayValue` instance
+            let ndarray_header_ty = ndarray_wrapper_ty
+                .get_field_type_at_index(0)
+                .map(BasicTypeEnum::into_struct_type)
+                .unwrap();
+            let ndarray_inner_ty = ndarray_wrapper_ty
+                .get_field_type_at_index(1)
+                .map(BasicTypeEnum::into_struct_type)
+                .unwrap();
+            let ndarray_inner_val = ndarray_inner_ty.const_named_struct(&[
+                llvm_usize.const_int(itemsize, false).into(),
+                llvm_usize.const_int(ndims, false).into(),
+                shape_global.as_pointer_value().into(),
+                strides_global.as_pointer_value().into(),
+                data_global.as_pointer_value().into(),
+                ctx.ptr.const_null().into(),
+                llvm_usize.const_zero().into(),
             ]);
 
+            // Build the outer `NDArrayValue` instance
+            let ndarray_typeinfo_offset = llvm_ndarray
+                .object
+                .typeinfo(ctx)
+                .value
+                .const_to_int(ctx.size_t)
+                .const_sub(ctx.global_begin_ptr().const_to_int(ctx.size_t))
+                .const_truncate_or_bit_cast(ctx.i32);
+            let ndarray_header_val = ndarray_header_ty
+                .const_named_struct(&[ctx.i32.const_zero().into(), ndarray_typeinfo_offset.into()]);
+            let ndarray = ndarray_wrapper_ty
+                .const_named_struct(&[ndarray_header_val.into(), ndarray_inner_val.into()]);
+
             let ndarray_global =
-                ctx.module.add_global(ndarray_struct_ty, Some(AddressSpace::default()), &id_str);
+                ctx.module.add_global(ndarray_wrapper_ty, Some(AddressSpace::default()), &id_str);
             ndarray_global.set_initializer(&ndarray);
 
             Ok(Some(ndarray_global.as_pointer_value().into()))
@@ -1602,11 +1614,18 @@ impl InnerResolver {
                 &ctx.top_level.definitions.read(),
                 &ctx.primitives,
             )?;
-            let struct_ty = ctx.get_alloca_type(ty).into_struct_type();
+            // User-defined classes are reference-counted: the alloca type wraps the user struct
+            // with an `ObjectHeader` ({ refcount, typeinfo_offset }). We construct the global
+            // with the same wrapper layout so loads via `ClassType::inner_value` see the right
+            // offsets at runtime.
+            let class_ty = ClassType::from_unifier_type(ctx, ty);
+            let wrapper_ty = class_ty.alloca_ty(ctx).into_struct_type();
+            let header_ty = wrapper_ty.get_field_type_at_index(0).unwrap().into_struct_type();
+            let inner_ty = wrapper_ty.get_field_type_at_index(1).unwrap().into_struct_type();
             {
                 if self.global_value_ids.read().contains_key(&id) {
                     let global = ctx.module.get_global(&id_str).unwrap_or_else(|| {
-                        ctx.module.add_global(struct_ty, Some(AddressSpace::default()), &id_str)
+                        ctx.module.add_global(wrapper_ty, Some(AddressSpace::default()), &id_str)
                     });
                     return Ok(Some(global.as_pointer_value().into()));
                 }
@@ -1646,9 +1665,24 @@ impl InnerResolver {
                 })
                 .collect::<anyhow::Result<Option<Vec<_>>>>()?;
             if let Some(values) = values {
-                let val = struct_ty.const_named_struct(&values);
+                // Synthesize the object header constant. `refcount = 0` marks the object as
+                // non-refcounted so the runtime never frees this global. `typeinfo_offset` mirrors
+                // the IRRT formula `typeinfo - __nac3_global_begin`, expressed as an LLVM constant
+                // expression (resolved at link time).
+                let typeinfo = class_ty.object.typeinfo(ctx);
+                let typeinfo_offset = typeinfo
+                    .value
+                    .const_to_int(ctx.size_t)
+                    .const_sub(ctx.global_begin_ptr().const_to_int(ctx.size_t))
+                    .const_truncate_or_bit_cast(ctx.i32);
+                let header_val = header_ty
+                    .const_named_struct(&[ctx.i32.const_zero().into(), typeinfo_offset.into()]);
+
+                let inner_val = inner_ty.const_named_struct(&values);
+                let val = wrapper_ty.const_named_struct(&[header_val.into(), inner_val.into()]);
+
                 let global = ctx.module.get_global(&id_str).unwrap_or_else(|| {
-                    ctx.module.add_global(struct_ty, Some(AddressSpace::default()), &id_str)
+                    ctx.module.add_global(wrapper_ty, Some(AddressSpace::default()), &id_str)
                 });
                 global.set_initializer(&val);
                 Ok(Some(global.as_pointer_value().into()))
@@ -1933,4 +1967,46 @@ impl SymbolResolver for Resolver {
             })
         }).map(Some)
     }
+}
+
+/// Builds a global representing a [`RefCountedArrayType`].
+///
+/// The reference count of the global is set to 0 to indicate that it is not intended to be freed.
+///
+/// - `elements_const`: A constant array value containing the elements of the array.
+fn build_refcounted_array_global<'ctx>(
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    elem_ty: BasicTypeEnum<'ctx>,
+    len: u32,
+    elements_const: BasicValueEnum<'ctx>,
+    name: &str,
+) -> GlobalValue<'ctx> {
+    let arr_ref_ty = RefCountedArrayType::new(ctx, elem_ty, Some(len));
+    let arr_wrapper_ty = arr_ref_ty.alloca_ty(ctx).into_struct_type();
+    let arr_header_ty =
+        arr_wrapper_ty.get_field_type_at_index(0).map(BasicTypeEnum::into_struct_type).unwrap();
+    let arr_inner_ty =
+        arr_wrapper_ty.get_field_type_at_index(1).map(BasicTypeEnum::into_struct_type).unwrap();
+
+    let walk_size = if elem_ty.is_pointer_type() {
+        ctx.size_t.const_int(u64::from(len), false)
+    } else {
+        ctx.size_t.const_zero()
+    };
+    let arr_inner_val = arr_inner_ty.const_named_struct(&[walk_size.into(), elements_const]);
+
+    let typeinfo_offset = arr_ref_ty
+        .typeinfo(ctx)
+        .value
+        .const_to_int(ctx.size_t)
+        .const_sub(ctx.global_begin_ptr().const_to_int(ctx.size_t))
+        .const_truncate_or_bit_cast(ctx.i32);
+    let arr_header_val =
+        arr_header_ty.const_named_struct(&[ctx.i32.const_zero().into(), typeinfo_offset.into()]);
+
+    let arr_val = arr_wrapper_ty.const_named_struct(&[arr_header_val.into(), arr_inner_val.into()]);
+
+    let arr_global = ctx.module.add_global(arr_wrapper_ty, Some(AddressSpace::default()), name);
+    arr_global.set_initializer(&arr_val);
+    arr_global
 }

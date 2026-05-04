@@ -353,3 +353,308 @@ fn test_simple_call() {
     registry.add_task(task);
     registry.wait_tasks_complete(handles);
 }
+
+// ---------------------------------------------------------------------------
+// Type layout tests — assert LLVM struct layouts for refcounted types
+// ---------------------------------------------------------------------------
+
+mod layout {
+    use std::{collections::HashMap, sync::Arc};
+
+    use indexmap::IndexMap;
+    use inkwell::{
+        OptimizationLevel,
+        builder::Builder,
+        debug_info::{AsDIScope, DWARFEmissionKind, DWARFSourceLanguage},
+        targets::{InitializationConfig, Target},
+        types::BasicTypeEnum,
+    };
+    use nac3parser::ast::Location;
+    use parking_lot::RwLock;
+
+    use crate::{
+        codegen::{
+            CodeGenContext, CodeGenOptions, DefaultCodeGenerator, ModuleContext,
+            TargetMachineOptions, WithCall, WorkerRegistry,
+            types::{
+                ClassType, NDArrayType, ObjectHeaderType, OptionSomeType, ProxyType,
+                RefCountedArrayType, RefType, TupleType, TypeinfoType,
+            },
+        },
+        symbol_resolver::SymbolResolver,
+        toplevel::{
+            DefinitionId,
+            composer::{DefaultBuiltinRegistry, TopLevelComposer},
+        },
+        typecheck::typedef::{AttrKind, TypeEnum},
+    };
+
+    fn codegen_options() -> CodeGenOptions {
+        Target::initialize_native(&InitializationConfig::default()).unwrap();
+        // We don't really care about the options since we are just inspect the generated layouts
+        CodeGenOptions {
+            opt_level: String::from("0"),
+            debug: true,
+            target: TargetMachineOptions::from_host_triple(OptimizationLevel::None),
+        }
+    }
+
+    /// Formats an LLVM struct layout: type string, ABI size/alignment, and per-field offsets.
+    fn format_layout(ctx: &ModuleContext<'_>, ty: BasicTypeEnum<'_>, label: &str) -> String {
+        let dl = ctx.target.get_target_data();
+        let mut lines = Vec::new();
+
+        lines.push(format!("{label}:"));
+        lines.push(format!("  llvm_type: {}", ty.print_to_string().to_string_lossy()));
+        lines.push(format!("  abi_size: {}", dl.get_abi_size(&ty)));
+        lines.push(format!("  abi_alignment: {}", dl.get_abi_alignment(&ty)));
+
+        if let BasicTypeEnum::StructType(st) = ty {
+            lines.push(format!("  fields ({}):", st.count_fields()));
+            for i in 0..st.count_fields() {
+                let field_ty = unsafe { st.get_field_type_at_index_unchecked(i) };
+                let offset = dl.offset_of_element(&st, i).unwrap();
+                lines.push(format!(
+                    "    [{i}] offset={offset}, type={}",
+                    field_ty.print_to_string().to_string_lossy()
+                ));
+            }
+        }
+
+        lines.join("\n")
+    }
+
+    /// Formats a struct and its immediate sub-structs.
+    fn format_layout_recursive(
+        ctx: &ModuleContext<'_>,
+        ty: BasicTypeEnum<'_>,
+        label: &str,
+    ) -> String {
+        let mut parts = vec![format_layout(ctx, ty, label)];
+
+        if let BasicTypeEnum::StructType(st) = ty {
+            for i in 0..st.count_fields() {
+                let field_ty = unsafe { st.get_field_type_at_index_unchecked(i) };
+                if let BasicTypeEnum::StructType(_) = field_ty {
+                    parts.push(format_layout(ctx, field_ty, &format!("{label}.field[{i}]")));
+                }
+            }
+        }
+
+        parts.join("\n")
+    }
+
+    fn create_module_context_64(ctx_ref: inkwell::context::ContextRef<'_>) -> ModuleContext<'_> {
+        Target::initialize_x86(&InitializationConfig::default());
+        let options = TargetMachineOptions {
+            triple: "x86_64-unknown-linux-gnu".to_string(),
+            cpu: String::new(),
+            features: String::new(),
+            reloc_mode: inkwell::targets::RelocMode::Default,
+            code_model: inkwell::targets::CodeModel::Default,
+            target_opt_level: OptimizationLevel::None,
+        };
+        ModuleContext::new(ctx_ref, "test_layout_64", &options)
+    }
+
+    fn create_module_context_32(ctx_ref: inkwell::context::ContextRef<'_>) -> ModuleContext<'_> {
+        Target::initialize_x86(&InitializationConfig::default());
+        let options = TargetMachineOptions {
+            triple: "i686-unknown-linux-gnu".to_string(),
+            cpu: String::new(),
+            features: String::new(),
+            reloc_mode: inkwell::targets::RelocMode::Default,
+            code_model: inkwell::targets::CodeModel::Default,
+            target_opt_level: OptimizationLevel::None,
+        };
+        ModuleContext::new(ctx_ref, "test_layout_32", &options)
+    }
+
+    fn create_codegen_context<'ctx, 'a>(
+        ctx: &'a mut ModuleContext<'ctx>,
+        builder: &'a Builder<'ctx>,
+        registry: &'a WorkerRegistry,
+        composer: &TopLevelComposer,
+    ) -> CodeGenContext<'ctx, 'a> {
+        let (dibuilder, compile_unit) = ctx.module.create_debug_info_builder(
+            true,
+            DWARFSourceLanguage::Python,
+            "<dummy>",
+            "",
+            "NAC3",
+            false,
+            "",
+            0,
+            "",
+            DWARFEmissionKind::Full,
+            0,
+            true,
+            false,
+            "",
+            "",
+        );
+        let scope = compile_unit.as_debug_info_scope();
+        let resolver = Arc::new(super::Resolver {
+            id_to_type: HashMap::new(),
+            id_to_def: RwLock::new(HashMap::new()),
+        }) as Arc<dyn SymbolResolver + Send + Sync>;
+        let (_, fn_val) = ctx.declare_internal("dummy", None, &[], false);
+        let init_bb = ctx.ctx.append_basic_block(fn_val, "init");
+        let exception_val = ctx.ptr.const_null();
+
+        CodeGenContext {
+            inner: ctx,
+            builder,
+            debug_info: (dibuilder, compile_unit, scope),
+            top_level: &registry.top_level_ctx,
+            unifier: composer.unifier.clone(),
+            resolver,
+            static_value_store: registry.static_value_store.clone(),
+            var_assignment: HashMap::new(),
+            type_cache: HashMap::new(),
+            alloca_type_cache: HashMap::new(),
+            primitives: composer.primitives_ty,
+            calls: Arc::new(HashMap::new()),
+            registry,
+            const_strings: HashMap::new(),
+            init_bb,
+            exception_val,
+            loop_target: None,
+            unwind_target: None,
+            return_target: None,
+            return_buffer: None,
+            return_buffer_type: None,
+            outer_catch_clauses: None,
+            current_loc: Location::default(),
+        }
+    }
+
+    /// Generates the layout snapshot string for all refcounted types.
+    fn generate_layouts(ctx: &mut CodeGenContext<'_, '_>) -> String {
+        let mut sections = Vec::new();
+
+        // ObjectHeader
+        let header_ty = ObjectHeaderType::new(ctx);
+        sections.push(format_layout(ctx, header_ty.alloca_ty(ctx), "ObjectHeader"));
+
+        // Typeinfo
+        let typeinfo_ty = TypeinfoType::new(ctx);
+        sections.push(format_layout(ctx, typeinfo_ty.llvm_ty(ctx), "Typeinfo"));
+
+        // RefCountedArray<i32> (e.g., list[int32] data backing)
+        let rc_array_i32 = RefCountedArrayType::new(ctx, ctx.i32, Some(0));
+        sections.push(format_layout_recursive(
+            ctx,
+            rc_array_i32.alloca_ty(ctx),
+            "RefCountedArray<i32>",
+        ));
+
+        // List: { ObjectHeader, { ptr items, size_t len } }
+        // Built manually since ListType::create requires a unifier Type.
+        let list_inner = ctx.ctx.struct_type(&[ctx.ptr.into(), ctx.size_t.into()], false);
+        let list_header = header_ty.alloca_ty(ctx).into_struct_type();
+        let list_outer = ctx.ctx.struct_type(&[list_header.into(), list_inner.into()], false);
+        sections.push(format_layout_recursive(ctx, list_outer.into(), "List"));
+
+        // NDArray<i32, ndims=1>
+        let ndarray_ty = NDArrayType::create(ctx, ctx.i32.into(), 1);
+        sections.push(format_layout_recursive(ctx, ndarray_ty.alloca_ty(ctx), "NDArray<i32, 1>"));
+
+        // OptionSome<i32>
+        let option_some_i32 = OptionSomeType::new(ctx, ctx.i32.into());
+        sections.push(format_layout_recursive(
+            ctx,
+            option_some_i32.alloca_ty(ctx),
+            "OptionSome<i32>",
+        ));
+
+        // OptionSome<ptr> (refcounted element)
+        let option_some_ptr = OptionSomeType::new(ctx, ctx.ptr.into());
+        sections.push(format_layout_recursive(
+            ctx,
+            option_some_ptr.alloca_ty(ctx),
+            "OptionSome<ptr>",
+        ));
+
+        // Tuple<i32, i32>
+        let tuple_i32_i32 = TupleType::new(ctx, &[ctx.i32.into(), ctx.i32.into()]);
+        sections.push(format_layout_recursive(ctx, tuple_i32_i32.llvm_ty(ctx), "Tuple<i32, i32>"));
+
+        // Tuple<ptr, i32> (one refcounted field)
+        let tuple_ptr_i32 = TupleType::new(ctx, &[ctx.ptr.into(), ctx.i32.into()]);
+        sections.push(format_layout_recursive(ctx, tuple_ptr_i32.llvm_ty(ctx), "Tuple<ptr, i32>"));
+
+        // Class with two i32 fields (like Point)
+        let point_inner = ctx.ctx.struct_type(&[ctx.i32.into(), ctx.i32.into()], false);
+        let point_ty = ctx.unifier.add_ty(TypeEnum::TObj {
+            obj_id: DefinitionId(100),
+            fields: HashMap::from([
+                ("x".into(), (ctx.primitives.int32, AttrKind::Field { mutable: true })),
+                ("y".into(), (ctx.primitives.int32, AttrKind::Field { mutable: true })),
+            ]),
+            params: IndexMap::new(),
+        });
+        let point_class = ClassType::create(ctx, point_inner, point_ty, "Class<i32, i32>".into());
+        sections.push(format_layout_recursive(ctx, point_class.alloca_ty(ctx), "Class<i32, i32>"));
+
+        // Class with two ptr fields (like Container)
+        let container_inner = ctx.ctx.struct_type(&[ctx.ptr.into(), ctx.ptr.into()], false);
+        let container_ty = ctx.unifier.add_ty(TypeEnum::TObj {
+            obj_id: DefinitionId(101),
+            fields: HashMap::from([
+                ("l1".into(), (ctx.primitives.list, AttrKind::Field { mutable: true })),
+                ("l2".into(), (ctx.primitives.list, AttrKind::Field { mutable: true })),
+            ]),
+            params: IndexMap::new(),
+        });
+        let container_class =
+            ClassType::create(ctx, container_inner, container_ty, "Class<ptr, ptr>".into());
+        sections.push(format_layout_recursive(
+            ctx,
+            container_class.alloca_ty(ctx),
+            "Class<ptr, ptr>",
+        ));
+
+        sections.join("\n\n")
+    }
+
+    #[test]
+    fn test_type_layouts_64bit() {
+        crate::codegen::context_ref!(ctx_ref);
+        let mut ctx = create_module_context_64(ctx_ref);
+        let composer =
+            TopLevelComposer::new(Vec::new(), Vec::new(), Arc::new(DefaultBuiltinRegistry), 64).0;
+        let top_level = Arc::new(composer.make_top_level_context());
+        let registry = WorkerRegistry::create_workers(
+            Vec::<Box<DefaultCodeGenerator>>::new(),
+            top_level,
+            &codegen_options(),
+            &Arc::new(WithCall::new(Box::new(|_| {}))),
+        )
+        .0;
+
+        let builder = ctx.ctx.create_builder();
+        let mut ctx = create_codegen_context(&mut ctx, &builder, &registry, &composer);
+        insta::assert_snapshot!(generate_layouts(&mut ctx));
+    }
+
+    #[test]
+    fn test_type_layouts_32bit() {
+        crate::codegen::context_ref!(ctx_ref);
+        let mut ctx = create_module_context_32(ctx_ref);
+        let composer =
+            TopLevelComposer::new(Vec::new(), Vec::new(), Arc::new(DefaultBuiltinRegistry), 32).0;
+        let top_level = Arc::new(composer.make_top_level_context());
+        let registry = WorkerRegistry::create_workers(
+            Vec::<Box<DefaultCodeGenerator>>::new(),
+            top_level,
+            &codegen_options(),
+            &Arc::new(WithCall::new(Box::new(|_| {}))),
+        )
+        .0;
+
+        let builder = ctx.ctx.create_builder();
+        let mut ctx = create_codegen_context(&mut ctx, &builder, &registry, &composer);
+        insta::assert_snapshot!(generate_layouts(&mut ctx));
+    }
+}

@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use inkwell::values::{IntValue, PointerValue};
 use itertools::Itertools as _;
 use nac3core_derive::{ProxyType, StructFields};
@@ -6,15 +8,16 @@ use nac3parser::ast::{Expr, ExprKind};
 use crate::{
     codegen::{
         CodeGenContext, CodeGenerator, ModuleContext,
+        allocator::AllocationScope,
         expr::call_extern,
         irrt::get_usize_dependent_function_name,
-        stmt::{gen_array_var, gen_var},
         types::{
-            ProxyTypeExt, RefType, Value,
+            NDArrayType, ProxyTypeBase, RawNDArrayValue, RefType, Value, WithTypeinfo,
             array::{ArrayLikeIndexer, ArraySliceValue},
             builtin::BuiltinStruct,
             field,
-            ndarray::{NDArrayType, NDArrayValue},
+            ndarray::NDArrayValue,
+            refcounted_fields_for_struct,
             structure::StructField,
         },
     },
@@ -32,7 +35,17 @@ pub struct NDIndexStructFields<'ctx> {
 #[derive(Clone, Copy, ProxyType)]
 #[llvm_ref(self.inner.llvm_ty)]
 pub struct NDIndexType<'ctx> {
-    pub(crate) inner: BuiltinStruct<'ctx, NDIndexStructFields<'ctx>>,
+    inner: BuiltinStruct<'ctx, NDIndexStructFields<'ctx>>,
+}
+
+impl<'ctx> WithTypeinfo<'ctx> for NDIndexType<'ctx> {
+    fn typename(&self) -> Cow<'static, str> {
+        Cow::Borrowed("__nac3_ndindex")
+    }
+
+    fn refcounted_fields_data(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> Vec<IntValue<'ctx>> {
+        refcounted_fields_for_struct(ctx, Vec::new())
+    }
 }
 
 impl<'ctx> NDIndexType<'ctx> {
@@ -49,7 +62,12 @@ impl<'ctx> NDIndexType<'ctx> {
     ) -> anyhow::Result<ArraySliceValue<'ctx>> {
         // Allocate the LLVM ndindices.
         let ty = self.alloca_ty(ctx);
-        let ndindices = gen_array_var(ctx, ty, in_ndindices.len() as u64, None)?;
+        let ndindices = ctx.build_array_allocate(
+            AllocationScope::Default,
+            ty,
+            in_ndindices.len() as u64,
+            None,
+        )?;
 
         // Initialize all of them.
         for (i, in_ndindex) in in_ndindices.iter().enumerate() {
@@ -84,6 +102,16 @@ struct SliceStructFields<'ctx> {
 #[llvm_ref(self.inner.llvm_ty)]
 pub struct SliceType<'ctx> {
     inner: BuiltinStruct<'ctx, SliceStructFields<'ctx>>,
+}
+
+impl<'ctx> WithTypeinfo<'ctx> for SliceType<'ctx> {
+    fn typename(&self) -> Cow<'static, str> {
+        Cow::Borrowed("__nac3_slice")
+    }
+
+    fn refcounted_fields_data(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> Vec<IntValue<'ctx>> {
+        refcounted_fields_for_struct(ctx, Vec::new())
+    }
 }
 
 impl<'ctx> SliceType<'ctx> {
@@ -126,7 +154,7 @@ impl<'ctx> SliceValue<'ctx> {
         }
 
         let ty = SliceType::new(ctx);
-        let result = ty.alloca(ctx, None)?;
+        let result = ty.allocate(ctx, None)?;
 
         write_value(generator, ctx, lower, result, field!(start_defined), field!(start))?;
         write_value(generator, ctx, upper, result, field!(stop_defined), field!(stop))?;
@@ -224,7 +252,7 @@ impl<'ctx> RustNDIndex<'ctx> {
         // Set `dst_ndindex_ptr->data`
         match *self {
             RustNDIndex::SingleElement(in_index) => {
-                let index_ptr = gen_var(ctx, ctx.i32, None)?;
+                let index_ptr = ctx.build_allocate(AllocationScope::Default, ctx.i32, None)?;
                 ctx.builder.build_store(index_ptr, in_index)?;
                 dst_ndindex.store(ctx, field!(data), index_ptr)?;
             }
@@ -238,7 +266,7 @@ impl<'ctx> RustNDIndex<'ctx> {
     }
 }
 
-impl<'ctx> NDArrayValue<'ctx> {
+impl<'ctx> RawNDArrayValue<'ctx> {
     /// Get the expected `ndims` after indexing with `indices`.
     #[must_use]
     fn deduce_ndims_after_indexing_with(&self, indices: &[RustNDIndex<'ctx>]) -> u64 {
@@ -255,7 +283,9 @@ impl<'ctx> NDArrayValue<'ctx> {
         }
         ndims
     }
+}
 
+impl<'ctx> NDArrayValue<'ctx> {
     /// Index into the ndarray, and return a newly-allocated view on this ndarray.
     ///
     /// This function behaves like NumPy's ndarray indexing, but if the indices index
@@ -265,8 +295,9 @@ impl<'ctx> NDArrayValue<'ctx> {
         ctx: &mut CodeGenContext<'ctx, '_>,
         indices: &[RustNDIndex<'ctx>],
     ) -> anyhow::Result<Self> {
-        let dst_ndims = self.deduce_ndims_after_indexing_with(indices);
-        let dst = NDArrayType::new(ctx, self.ty.dtype, dst_ndims).construct(ctx, None)?;
+        let dst_ndims = self.inner_value(ctx)?.deduce_ndims_after_indexing_with(indices);
+        let dst = NDArrayType::create(ctx, self.inner_value(ctx)?.ty.dtype, dst_ndims)
+            .construct(ctx, None)?;
         let indices = NDIndexType::new(ctx).construct(ctx, indices)?;
 
         let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_index");

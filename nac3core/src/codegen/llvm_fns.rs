@@ -214,7 +214,7 @@ impl<'ctx> FunctionStore<'ctx> {
         builder: &Builder<'ctx>,
         args: &[T],
         call: impl FnOnce(FunctionValue<'ctx>, &[T]) -> anyhow::Result<CallSiteValue<'ctx>>,
-        mut alloca: impl FnMut(BasicTypeEnum<'ctx>) -> anyhow::Result<PointerValue<'ctx>>,
+        mut allocate_fn: impl FnMut(BasicTypeEnum<'ctx>) -> anyhow::Result<PointerValue<'ctx>>,
     ) -> anyhow::Result<Option<BasicValueEnum<'ctx>>>
     where
         T: Copy + TryInto<BasicValueEnum<'ctx>, Error: Debug>,
@@ -234,7 +234,7 @@ impl<'ctx> FunctionStore<'ctx> {
 
                 let slot = match *ret {
                     Some(TyAndCallConv { ty, call_conv: ArgCallConv::Indirect(attr) }) => {
-                        Some((alloca(ty)?, ty, attr))
+                        Some((allocate_fn(ty)?, ty, attr))
                     }
                     _ => None,
                 };
@@ -247,15 +247,14 @@ impl<'ctx> FunctionStore<'ctx> {
                         }
 
                         if let ArgCallConv::Indirect(attr) = call_conv {
-                            let p = alloca(ty)?;
-                            let next_bve: BasicValueEnum = next.try_into().unwrap();
-                            builder.build_store(p, next_bve)?;
+                            let p = allocate_fn(ty)?;
+                            builder.build_store(p, next.try_into().unwrap())?;
                             anyhow::Ok((ptr_to_t(p), attr))
                         } else {
                             Ok((next, None))
                         }
                     })
-                    .collect::<Result<Vec<_>, _>>()?;
+                    .collect::<anyhow::Result<Vec<_>>>()?;
 
                 let normal_slot = slot.map(|(p, _ty, attr)| (ptr_to_t(p), attr));
                 let (mut llvm_args, attrs): (Vec<_>, Vec<_>) =

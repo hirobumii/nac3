@@ -13,16 +13,20 @@ use nac3parser::ast::{ExcepthandlerKind, Expr, ExprKind, Location, Stmt, StmtKin
 
 use crate::{
     codegen::{
-        CodeGenContext, CodeGenerator, ModuleContext, VarValue, bool_to_i1, bool_to_i8,
+        CodeGenContext, CodeGenerator, ModuleContext, VarValue,
+        allocator::AllocationScope,
+        bool_to_i1, bool_to_i8,
         expr::{destructure_range, gen_binop_expr},
         gen_in_range_check,
-        irrt::{handle_slice_indices, list_slice_assignment},
+        irrt::{calculate_len_for_slice_range, handle_slice_indices, list_slice_assignment},
         llvm_fns::FunctionDecl,
+        llvm_intrinsics,
         macros::codegen_unreachable,
         types::{
-            ArrayLikeIndexer, ArraySliceValue, EnumerateType, ExceptionType, ExceptionValue,
-            ListType, ListValue, NDArrayType, ProxyTypeExt, RangeType, RustNDIndex,
-            ScalarOrNDArray, StringType, TupleType, TupleValue, broadcast, field,
+            ArrayLikeIndexer, ArraySliceValue, ClassType, EnumerateType, ExceptionType,
+            ExceptionValue, ListType, ListValue, NDArrayType, OpaqueRefCountedType, ProxyTypeBase,
+            RangeType, RawListType, RefCountedValue, RustNDIndex, ScalarOrNDArray, StringType,
+            TupleType, TupleValue, TypedRefCountedType, broadcast, field, is_refcounted_type,
         },
     },
     symbol_resolver::{SymbolValue, ValueEnum},
@@ -50,34 +54,6 @@ pub(crate) fn get_personality<'ctx>(
     )
 }
 
-fn get_var_builder<'ctx, T>(
-    ctx: &CodeGenContext<'ctx, '_>,
-    late: bool,
-    b: impl FnOnce(&Builder<'ctx>) -> anyhow::Result<T>,
-) -> anyhow::Result<T> {
-    // Restore debug location
-    let di_loc = ctx.debug_info.0.create_debug_location(
-        ctx.ctx,
-        ctx.current_loc.row as u32,
-        ctx.current_loc.column as u32,
-        ctx.debug_info.2,
-        None,
-    );
-
-    let new_builder;
-    let builder = if late {
-        ctx.builder
-    } else {
-        new_builder = ctx.ctx.create_builder();
-        // position before the last branching instruction...
-        new_builder.position_before(&ctx.init_bb.get_last_instruction().unwrap());
-        &new_builder
-    };
-
-    builder.set_current_debug_location(di_loc);
-    b(builder)
-}
-
 /// Allocates an LLVM stack variable for temporary storage. The variable is stored
 /// at the beginning of the function.
 ///
@@ -85,24 +61,24 @@ fn get_var_builder<'ctx, T>(
 /// loops and branches. If you are possibly within a scope where the number of allocations
 /// performed may depend on control flow (e.g. allocating objects within a comprehension),
 /// use [`gen_dyn_var`] instead.
+#[deprecated = "Use `CodeGenContext::build_allocate` instead"]
 pub fn gen_var<'ctx, T: BasicType<'ctx> + Copy>(
     ctx: &CodeGenContext<'ctx, '_>,
     ty: T,
     name: Option<&str>,
 ) -> anyhow::Result<PointerValue<'ctx>> {
-    let ty = ty.as_basic_type_enum();
-    get_var_builder(ctx, false, |builder| Ok(builder.build_alloca(ty, name.unwrap_or(""))?))
+    ctx.build_allocate(AllocationScope::StackStartOfFunc, ty, name)
 }
 
 /// Allocates an LLVM stack variable for temporary storage. The alloca is inserted
 /// at the current insertion point.
+#[deprecated = "Use `CodeGenContext::build_allocate` instead"]
 pub fn gen_dyn_var<'ctx, T: BasicType<'ctx> + Copy>(
     ctx: &CodeGenContext<'ctx, '_>,
     ty: T,
     name: Option<&str>,
 ) -> anyhow::Result<PointerValue<'ctx>> {
-    let ty = ty.as_basic_type_enum();
-    get_var_builder(ctx, true, |builder| Ok(builder.build_alloca(ty, name.unwrap_or(""))?))
+    ctx.build_allocate(AllocationScope::StackCurrentLoc, ty, name)
 }
 
 /// Allocates an LLVM stack array for temporary storage. The variable is stored
@@ -111,37 +87,28 @@ pub fn gen_dyn_var<'ctx, T: BasicType<'ctx> + Copy>(
 /// This function takes a fixed (compile-time) size for the array, because if the
 /// size is dynamic and not known at the beginning of the function, it should be
 /// allocated at the current insertion point instead.
+#[deprecated = "Use `CodeGenContext::build_array_allocate` instead"]
 pub fn gen_array_var<'ctx, 'a, T: BasicType<'ctx> + Copy>(
     ctx: &CodeGenContext<'ctx, 'a>,
     ty: T,
     size: u64,
-    name: Option<&'static str>,
+    name: Option<&'ctx str>,
 ) -> anyhow::Result<ArraySliceValue<'ctx>> {
-    let size = ctx.size_t.const_int(size, false);
-    let ty = ty.as_basic_type_enum();
-    let ptr = get_var_builder(ctx, false, |builder| {
-        Ok(builder.build_array_alloca(ty, size, name.unwrap_or(""))?)
-    })?;
-    let ptr = ctx.builder.build_pointer_cast(ptr, ctx.ptr, name.unwrap_or(""))?;
-    Ok(ArraySliceValue::new(ty, ptr, size, name))
+    ctx.build_array_allocate(AllocationScope::StackStartOfFunc, ty, size, name)
 }
 
 /// Allocates an LLVM stack array for temporary storage.
 ///
 /// This happens at the current insertion point instead of the function's entry block,
 /// which allows for dynamically sized arrays.
+#[deprecated = "Use `CodeGenContext::build_dyn_array_allocate` instead"]
 pub fn gen_dyn_array_var<'ctx, 'a, T: BasicType<'ctx> + Copy>(
-    ctx: &mut CodeGenContext<'ctx, 'a>,
+    ctx: &CodeGenContext<'ctx, 'a>,
     ty: T,
     size: IntValue<'ctx>,
-    name: Option<&'static str>,
+    name: Option<&'ctx str>,
 ) -> anyhow::Result<ArraySliceValue<'ctx>> {
-    let ty = ty.as_basic_type_enum();
-    let ptr = get_var_builder(ctx, true, |builder| {
-        Ok(builder.build_array_alloca(ty, size, name.unwrap_or(""))?)
-    })?;
-    let ptr = ctx.builder.build_pointer_cast(ptr, ctx.ptr, name.unwrap_or(""))?;
-    Ok(ArraySliceValue::new(ty, ptr, size, name))
+    ctx.build_dyn_array_allocate(AllocationScope::StackCurrentLoc, ty, size, name)
 }
 
 /// See [`CodeGenerator::gen_store_target`].
@@ -157,13 +124,16 @@ pub fn gen_store_target<'ctx, G: CodeGenerator>(
         ExprKind::Name { id, .. } => match ctx.var_assignment.get(id) {
             None => {
                 let ptr_ty = ctx.get_llvm_type(pattern.custom.unwrap());
-                let ptr = gen_var(ctx, ptr_ty, name)?;
-                ctx.var_assignment.insert(*id, VarValue::new(ptr));
+                // Variable allocas are always stack-allocated at the function start.
+                // For refcounted types, ptr_ty is a pointer (holding a reference to the
+                // heap object); for value types like tuples, ptr_ty is the struct itself.
+                let ptr = ctx.build_allocate(AllocationScope::StackStartOfFunc, ptr_ty, name)?;
+                ctx.var_assignment.insert(*id, VarValue::new(ptr, pattern.custom.unwrap()));
                 ptr
             }
             Some(v) => {
-                let VarValue { ptr, counter, .. } = *v;
-                ctx.var_assignment.insert(*id, VarValue { ptr, static_value: None, counter });
+                let VarValue { ptr, ty, counter, .. } = *v;
+                ctx.var_assignment.insert(*id, VarValue { ptr, ty, static_value: None, counter });
                 ptr
             }
         },
@@ -174,14 +144,21 @@ pub fn gen_store_target<'ctx, G: CodeGenerator>(
             let BasicValueEnum::PointerValue(ptr) = val else {
                 codegen_unreachable!(ctx);
             };
-            let alloca_ty = ctx.get_alloca_type(value.custom.unwrap());
-            unsafe {
-                ctx.builder.build_in_bounds_gep(
-                    alloca_ty,
-                    ptr,
-                    &[ctx.i32.const_zero(), ctx.i32.const_int(index as u64, false)],
-                    name.unwrap_or(""),
-                )?
+            let is_refcounted = is_refcounted_type(&mut ctx.unifier, value.custom.unwrap());
+            if is_refcounted {
+                let class_val =
+                    ClassType::from_unifier_type(ctx, value.custom.unwrap()).map_value(ptr, None);
+                class_val.inner_value(ctx)?.gep_field(ctx, index as u32)?
+            } else {
+                let alloca_ty = ctx.get_alloca_type(value.custom.unwrap());
+                unsafe {
+                    ctx.builder.build_in_bounds_gep(
+                        alloca_ty,
+                        ptr,
+                        &[ctx.i32.const_zero(), ctx.i32.const_int(index as u64, false)],
+                        name.unwrap_or(""),
+                    )?
+                }
             }
         }
         ExprKind::Tuple { elts, .. } => {
@@ -195,7 +172,7 @@ pub fn gen_store_target<'ctx, G: CodeGenerator>(
                 .collect::<Result<Vec<_>, _>>()?;
             let struct_ty =
                 ctx.ctx.struct_type(&elts.iter().map(|p| p.get_type().into()).collect_vec(), false);
-            let struct_ptr = gen_var(ctx, struct_ty, name)?;
+            let struct_ptr = ctx.build_allocate(AllocationScope::Default, struct_ty, name)?;
             for (i, elt) in elts.iter().enumerate() {
                 ctx.builder.build_store(
                     unsafe {
@@ -261,7 +238,46 @@ pub fn gen_assign<'ctx, G: CodeGenerator>(
                 val
             };
 
+            // Handle reference counting:
+            // The order of operations is roughly:
+            //   - Store a pointer to the old value
+            //   - Increment the refcount of the new value
+            //   - Perform the assignment
+            //   - Decrement the refcount of the old value
+            // This order ensures that self-assignments work correctly.
+
+            let target = if is_refcounted_type(&mut ctx.unifier, value_ty) {
+                gen_if_else_expr_callback(
+                    generator,
+                    ctx,
+                    |_, ctx| Ok(ctx.builder.build_is_not_null(ptr, "")?),
+                    |_, ctx| {
+                        let target_ty = ctx.get_llvm_type(target.custom.unwrap());
+                        Ok(Some(ctx.builder.build_load(target_ty, ptr, "")?.into_pointer_value()))
+                    },
+                    |_, ctx| Ok(Some(ctx.ptr.const_null())),
+                )?
+            } else {
+                None
+            };
+
+            if let BasicValueEnum::PointerValue(val) = val
+                && is_refcounted_type(&mut ctx.unifier, value_ty)
+            {
+                OpaqueRefCountedType::new(ctx)
+                    .map_value(val, None)
+                    .header(ctx)
+                    .safe_increment_refcount(ctx)?;
+            }
             ctx.builder.build_store(ptr, val)?;
+            if let Some(target) = target
+                && is_refcounted_type(&mut ctx.unifier, value_ty)
+            {
+                OpaqueRefCountedType::new(ctx)
+                    .map_value(target, None)
+                    .header(ctx)
+                    .safe_decrement_refcount(ctx)?;
+            }
         }
     }
     Ok(())
@@ -309,7 +325,7 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
                     let elem = tuple.extract(ctx, i as u32)?;
                     anyhow::Ok((*ty, elem))
                 })
-                .collect::<Result<Vec<_>, _>>()?;
+                .collect::<anyhow::Result<Vec<_>>>()?;
 
             // Unlike in python we require the starred target to consume one or more items when the
             // RHS is a tuple. Otherwise, it would be impossible type the starred target.
@@ -339,11 +355,30 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
                 "Starred target must have same type for all items"
             );
             let tup_mid_len = ctx.size_t.const_int(tup_mid.len() as u64, false);
-            let starred_list =
-                ListType::new(ctx, tup_mid_ty).construct(ctx, tup_mid_len, Some("starred_list"))?;
-            let starred_list_data = starred_list.data(ctx)?;
+            let starred_list = ListType::create(ctx, tup_mid_ty).construct(
+                ctx,
+                tup_mid_len,
+                Some("starred_list"),
+            )?;
+            let starred_list_data = starred_list.inner_value(ctx)?.data(ctx)?;
             for (i, &(_, val)) in tup_mid.iter().enumerate() {
-                starred_list_data.set(ctx, &ctx.size_t.const_int(i as u64, false), val, None)?;
+                // Use set_unchecked: the array's internal length tracks refcounted
+                // element count (0 for non-pointer elements), not the actual capacity.
+                starred_list_data.inner_value(ctx, Some(tup_mid_len))?.set_unchecked(
+                    ctx,
+                    &ctx.size_t.const_int(i as u64, false),
+                    val,
+                    None,
+                )?;
+                // Increment refcount: existing reference copied into new list
+                if let BasicValueEnum::PointerValue(p) = val
+                    && is_refcounted_type(&mut ctx.unifier, tup_mid_ty)
+                {
+                    OpaqueRefCountedType::new(ctx)
+                        .map_value(p, None)
+                        .header(ctx)
+                        .safe_increment_refcount(ctx)?;
+                }
             }
             do_assign_list(generator, ctx, mid, &starred_list)?;
 
@@ -351,13 +386,15 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
         }
         TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::List.id() => {
             let list = value.to_basic_value_enum(ctx, value_ty)?.into_pointer_value();
-            let list = ListType::from_unifier_type(ctx, value_ty).map_value(list, None);
-            let list_data = list.data(ctx)?;
-            let elem_ty = list.ty.item_ty;
-            let rhs_size = list_data.value.1;
+            let list_ty = ListType::from_unifier_type(ctx, value_ty);
+            let list = list_ty.map_value(list, None);
+            let list_data = list.inner_value(ctx)?.data(ctx)?;
+            let elem_ty = list.ty.object.item_ty;
+            let rhs_size = list.inner_value(ctx)?.load(ctx, field!(len))?;
 
             let do_read = |ctx: &mut CodeGenContext<'ctx, '_>, at: _| {
-                let elem: BasicValueEnum<'ctx> = list_data.get_unchecked(ctx, &at, None)?;
+                let elem: BasicValueEnum<'ctx> =
+                    list_data.inner_value(ctx, Some(rhs_size))?.get_unchecked(ctx, &at, None)?;
                 Ok((elem_ty, elem))
             };
             let read_fixed = |ctx: &mut CodeGenContext<'ctx, '_>, to: usize| {
@@ -409,16 +446,53 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
             let head_values = read_fixed(ctx, head.len())?;
             do_assign(generator, ctx, head, &head_values)?;
 
-            // Here we just share data with the previous list.
             let head_len = ctx.size_t.const_int(head.len() as u64, false);
             let mid_len = ctx.builder.build_int_sub(rhs_size, min_size_, "mid_len")?;
-            let mid_begin = list_data.ptr_offset_unchecked(ctx, &head_len, Some("mid_begin"))?;
+            let mid_begin = list_data.inner_value(ctx, Some(rhs_size))?.ptr_offset_unchecked(
+                ctx,
+                &head_len,
+                Some("mid_begin"),
+            )?;
             let tail_len = ctx.size_t.const_int(tail.len() as u64, false);
             let tail_begin = ctx.builder.build_int_sub(rhs_size, tail_len, "tail_begin")?;
 
-            let mid_list = ListType::new(ctx, elem_ty).alloca(ctx, None)?;
-            mid_list.store(ctx, field!(items), mid_begin)?;
-            mid_list.store(ctx, field!(len), mid_len)?;
+            let mid_list =
+                ListType::create(ctx, elem_ty).construct(ctx, mid_len, Some("mid_list"))?;
+            let mid_list_data = mid_list.inner_value(ctx)?.data(ctx)?;
+            let llvm_list_elem_ty = ctx.get_llvm_type(elem_ty);
+            let sizeof_elem = ctx.builder.build_int_truncate_or_bit_cast(
+                llvm_list_elem_ty.size_of().unwrap(),
+                ctx.size_t,
+                "",
+            )?;
+            llvm_intrinsics::call_memcpy(
+                ctx,
+                mid_list_data.inner_value(ctx, Some(mid_len))?.value.0,
+                mid_begin,
+                ctx.builder.build_int_mul(mid_len, sizeof_elem, "")?,
+            )?;
+            // Increment refcount for each copied element in the new mid_list
+            if is_refcounted_type(&mut ctx.unifier, elem_ty) {
+                let mid_list_data_inner = mid_list_data.inner_value(ctx, Some(mid_len))?;
+                gen_for_callback_incrementing(
+                    &mut (),
+                    ctx,
+                    None,
+                    ctx.size_t.const_zero(),
+                    (mid_len, false),
+                    |(), ctx, _, i| {
+                        let elem: PointerValue<'ctx> =
+                            mid_list_data_inner.get_unchecked(ctx, &i, None)?;
+                        OpaqueRefCountedType::new(ctx)
+                            .map_value(elem, None)
+                            .header(ctx)
+                            .safe_increment_refcount(ctx)?;
+                        Ok(())
+                    },
+                    ctx.size_t.const_int(1, false),
+                    |(), _| Ok(()),
+                )?;
+            }
             do_assign_list(generator, ctx, mid, &mid_list)?;
 
             let list_tail = (0..tail.len())
@@ -456,41 +530,163 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
 
             let target = generator.gen_expr(ctx, target)?;
             let target_val = target.to_basic_value_enum(ctx)?.into_pointer_value();
-            let target = ListType::from_unifier_type(ctx, target_ty).map_value(target_val, None);
+            let target = {
+                let list_ty = RawListType::from_unifier_type(ctx, target_ty);
+                TypedRefCountedType::new(ctx, list_ty).map_value(target_val, None)
+            };
 
             if let ExprKind::Slice { .. } = &key.node {
                 // Handle assigning to a slice
                 let ExprKind::Slice { lower, upper, step } = &key.node else {
                     codegen_unreachable!(ctx)
                 };
-                let size = target.load(ctx, field!(len))?;
+                let target_size = target.inner_value(ctx)?.load(ctx, field!(len))?;
                 let Some((start, end, step)) =
-                    handle_slice_indices(lower, upper, step, ctx, generator, size)?
+                    handle_slice_indices(lower, upper, step, ctx, generator, target_size)?
                 else {
                     return Ok(());
                 };
 
                 let value_val = value.to_basic_value_enum(ctx, value_ty)?.into_pointer_value();
-                let value = ListType::from_unifier_type(ctx, value_ty).map_value(value_val, None);
+                let value = {
+                    let list_ty = RawListType::from_unifier_type(ctx, target_ty);
+                    TypedRefCountedType::new(ctx, list_ty).map_value(value_val, None)
+                };
 
-                let target_item_ty = ctx.get_llvm_type(target_item_ty);
-                let size = value.load(ctx, field!(len))?;
+                let target_item_llvm_ty = ctx.get_llvm_type(target_item_ty);
+                let size = value.inner_value(ctx)?.load(ctx, field!(len))?;
                 let Some(src_ind) =
                     handle_slice_indices(&None, &None, &None, ctx, generator, size)?
                 else {
                     return Ok(());
                 };
+
+                // Decrement refcounts of destination elements being overwritten
+                if is_refcounted_type(&mut ctx.unifier, target_item_ty) {
+                    let dest_data =
+                        target.inner_value(ctx)?.data(ctx)?.inner_value(ctx, Some(target_size))?;
+                    let llvm_i32 = ctx.i32;
+                    let one = llvm_i32.const_int(1, false);
+                    let zero = llvm_i32.const_zero();
+                    let dest_end = ctx
+                        .builder
+                        .build_select(
+                            ctx.builder.build_int_compare(
+                                IntPredicate::SLT,
+                                step,
+                                zero,
+                                "is_neg",
+                            )?,
+                            ctx.builder.build_int_sub(end, one, "")?,
+                            ctx.builder.build_int_add(end, one, "")?,
+                            "",
+                        )?
+                        .into_int_value();
+                    let dest_slice_len = calculate_len_for_slice_range(ctx, start, dest_end, step)?;
+                    let dest_slice_len = ctx.builder.build_int_z_extend_or_bit_cast(
+                        dest_slice_len,
+                        ctx.size_t,
+                        "",
+                    )?;
+                    gen_for_callback_incrementing(
+                        &mut (),
+                        ctx,
+                        None,
+                        ctx.size_t.const_zero(),
+                        (dest_slice_len, false),
+                        |(), ctx, _, i| {
+                            let actual_idx = {
+                                let step_ext = ctx
+                                    .builder
+                                    .build_int_s_extend_or_bit_cast(step, ctx.size_t, "")?;
+                                let start_ext = ctx
+                                    .builder
+                                    .build_int_s_extend_or_bit_cast(start, ctx.size_t, "")?;
+                                let offset = ctx.builder.build_int_mul(i, step_ext, "")?;
+                                ctx.builder.build_int_add(start_ext, offset, "")?
+                            };
+                            let elem: PointerValue<'ctx> =
+                                dest_data.get_unchecked(ctx, &actual_idx, None)?;
+                            OpaqueRefCountedType::new(ctx)
+                                .map_value(elem, None)
+                                .header(ctx)
+                                .safe_decrement_refcount(ctx)?;
+                            Ok(())
+                        },
+                        ctx.size_t.const_int(1, false),
+                        |(), _| Ok(()),
+                    )?;
+                }
+
                 list_slice_assignment(
                     ctx,
-                    target_item_ty,
+                    target_item_llvm_ty,
                     target,
                     (start, end, step),
                     value,
                     src_ind,
                 )?;
+
+                // Increment refcounts of source elements that were copied into dest
+                if is_refcounted_type(&mut ctx.unifier, target_item_ty) {
+                    let src_data =
+                        value.inner_value(ctx)?.data(ctx)?.inner_value(ctx, Some(size))?;
+                    let llvm_i32 = ctx.i32;
+                    let one = llvm_i32.const_int(1, false);
+                    let zero = llvm_i32.const_zero();
+                    let src_end = ctx
+                        .builder
+                        .build_select(
+                            ctx.builder.build_int_compare(
+                                IntPredicate::SLT,
+                                src_ind.2,
+                                zero,
+                                "is_neg",
+                            )?,
+                            ctx.builder.build_int_sub(src_ind.1, one, "")?,
+                            ctx.builder.build_int_add(src_ind.1, one, "")?,
+                            "",
+                        )?
+                        .into_int_value();
+                    let src_slice_len =
+                        calculate_len_for_slice_range(ctx, src_ind.0, src_end, src_ind.2)?;
+                    let src_slice_len = ctx.builder.build_int_z_extend_or_bit_cast(
+                        src_slice_len,
+                        ctx.size_t,
+                        "",
+                    )?;
+                    gen_for_callback_incrementing(
+                        &mut (),
+                        ctx,
+                        None,
+                        ctx.size_t.const_zero(),
+                        (src_slice_len, false),
+                        |(), ctx, _, i| {
+                            let actual_idx = {
+                                let step_ext = ctx
+                                    .builder
+                                    .build_int_s_extend_or_bit_cast(src_ind.2, ctx.size_t, "")?;
+                                let start_ext = ctx
+                                    .builder
+                                    .build_int_s_extend_or_bit_cast(src_ind.0, ctx.size_t, "")?;
+                                let offset = ctx.builder.build_int_mul(i, step_ext, "")?;
+                                ctx.builder.build_int_add(start_ext, offset, "")?
+                            };
+                            let elem: PointerValue<'ctx> =
+                                src_data.get_unchecked(ctx, &actual_idx, None)?;
+                            OpaqueRefCountedType::new(ctx)
+                                .map_value(elem, None)
+                                .header(ctx)
+                                .safe_increment_refcount(ctx)?;
+                            Ok(())
+                        },
+                        ctx.size_t.const_int(1, false),
+                        |(), _| Ok(()),
+                    )?;
+                }
             } else {
                 // Handle assigning to an index
-                let len = target.load(ctx, field!(len))?;
+                let len = target.inner_value(ctx)?.load(ctx, field!(len))?;
 
                 let index =
                     generator.gen_expr(ctx, key)?.to_basic_value_enum(ctx)?.into_int_value();
@@ -523,7 +719,27 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
 
                 // Write value to index on list
                 let value = value.to_basic_value_enum(ctx, value_ty)?;
-                target.data(ctx)?.set(ctx, &index, value, Some("list_item"))?;
+                let list_data = target.inner_value(ctx)?.data(ctx)?;
+                let list_data_inner = list_data.inner_value(ctx, Some(len))?;
+
+                if is_refcounted_type(&mut ctx.unifier, target_item_ty) {
+                    // Load old element and increment new value before store
+                    let old_elem: PointerValue<'ctx> =
+                        list_data_inner.get_unchecked(ctx, &index, None)?;
+                    OpaqueRefCountedType::new(ctx)
+                        .map_value(value.into_pointer_value(), None)
+                        .header(ctx)
+                        .safe_increment_refcount(ctx)?;
+                    // Bounds already verified above; array metadata tracks refcount
+                    // element count (0 for non-pointer elements), not actual capacity.
+                    list_data_inner.set_unchecked(ctx, &index, value, Some("list_item"))?;
+                    OpaqueRefCountedType::new(ctx)
+                        .map_value(old_elem, None)
+                        .header(ctx)
+                        .safe_decrement_refcount(ctx)?;
+                } else {
+                    list_data_inner.set_unchecked(ctx, &index, value, Some("list_item"))?;
+                }
             }
         }
         TypeEnum::TObj { obj_id, .. }
@@ -768,7 +984,8 @@ where
         None,
         |_, ctx| {
             let element_struct = ctx.ctx.struct_type(&[int32.into(), default_element_ty], false);
-            let iv_pair = gen_var(ctx, element_struct, Some("for.v.addr"))?;
+            let iv_pair =
+                ctx.build_allocate(AllocationScope::Default, element_struct, Some("for.v.addr"))?;
             let i = ctx.builder.build_struct_gep(element_struct, iv_pair, 0, "i")?;
             ctx.builder.build_store(i, start)?;
             if element_ty.is_some() {
@@ -818,10 +1035,14 @@ where
                     ctx.builder.build_store(addr_2, v_val)?;
                 }
                 ExprKind::Name { .. } => {
-                    ctx.builder.build_store(
-                        target_i,
-                        ctx.builder.build_load(element_struct, iv_pair, "iv")?,
-                    )?;
+                    // Load i and v from the internal iv_pair struct
+                    let i = ctx.builder.build_struct_gep(element_struct, iv_pair, 0, "i")?;
+                    let i_val = ctx.builder.build_load(int32, i, "i_val")?;
+                    let v = ctx.builder.build_struct_gep(element_struct, iv_pair, 1, "v")?;
+                    let v_val = ctx.builder.build_load(default_element_ty, v, "v_val")?;
+                    // Construct a proper tuple (with ObjectHeader) from the values
+                    let tuple_val = TupleValue::new(ctx, &[i_val, v_val], Some("iv"))?;
+                    ctx.builder.build_store(target_i, tuple_val.value)?;
                 }
                 _ => codegen_unreachable!(
                     ctx,
@@ -891,7 +1112,8 @@ pub fn gen_for<G: CodeGenerator>(
                 None,
                 |generator, ctx| {
                     // Internal variable for loop; Cannot be assigned
-                    let i = gen_var(ctx, int32, Some("for.i.addr"))?;
+                    let i =
+                        ctx.build_allocate(AllocationScope::Default, int32, Some("for.i.addr"))?;
                     // Variable declared in "target" expression of the loop; Can be reassigned *or* shadowed
                     let Some(target_i) =
                         generator.gen_store_target(ctx, target, Some("for.target.addr"))?
@@ -971,10 +1193,11 @@ pub fn gen_for<G: CodeGenerator>(
                 TypeEnum::TObj { obj_id, .. }
                     if *obj_id == ctx.primitives.list.obj_id(&ctx.unifier).unwrap() =>
                 {
-                    let iterable = ListType::from_unifier_type(ctx, iterable_ty)
+                    let list_ty = RawListType::from_unifier_type(ctx, iterable_ty);
+                    let iterable = TypedRefCountedType::new(ctx, list_ty)
                         .map_value(iterable_val.into_pointer_value(), Some("list"));
-                    let length = iterable.load(ctx, field!(len))?;
-                    let length = ctx.builder.build_int_truncate(length, int32, "length")?;
+                    let length_sizet = iterable.inner_value(ctx)?.load(ctx, field!(len))?;
+                    let length = ctx.builder.build_int_truncate(length_sizet, int32, "length")?;
                     let val = arraylike_flatten_element_type(&mut ctx.unifier, iterable_ty);
                     let element_ty =
                         if ctx.unifier.is_concrete(val, &[]) { Some(val) } else { None };
@@ -987,18 +1210,22 @@ pub fn gen_for<G: CodeGenerator>(
                         &target.node,
                         target_i,
                         |ctx| {
-                            iterable.data(ctx)?.get_unchecked(
-                                ctx,
-                                &int32.const_int(0, false),
-                                Some("first_v"),
-                            )
+                            iterable
+                                .inner_value(ctx)?
+                                .data(ctx)?
+                                .inner_value(ctx, Some(length_sizet))?
+                                .get_unchecked(ctx, &int32.const_int(0, false), Some("first_v"))
                         },
                         |ctx, next_i| {
-                            iterable.data(ctx)?.get_unchecked(
-                                ctx,
-                                &ctx.builder.build_int_sub(next_i, start, "sub")?,
-                                Some("next_v"),
-                            )
+                            iterable
+                                .inner_value(ctx)?
+                                .data(ctx)?
+                                .inner_value(ctx, Some(length_sizet))?
+                                .get_unchecked(
+                                    ctx,
+                                    &ctx.builder.build_int_sub(next_i, start, "sub")?,
+                                    Some("next_v"),
+                                )
                         },
                         body,
                         orelse,
@@ -1041,17 +1268,22 @@ pub fn gen_for<G: CodeGenerator>(
             if *obj_id == ctx.primitives.list.obj_id(&ctx.unifier).unwrap() =>
         {
             let list_elem_ty = iter_type_vars(list_params).next().unwrap().ty;
-            let iter_val = ListType::new(ctx, list_elem_ty)
+            let list_ty = RawListType::new(ctx, list_elem_ty);
+            let iter_val = TypedRefCountedType::new(ctx, list_ty)
                 .map_value(iter_val.into_pointer_value(), Some("list"));
 
-            let len = iter_val.load(ctx, field!(len))?;
+            let len = iter_val.inner_value(ctx)?.load(ctx, field!(len))?;
 
             gen_for_callback(
                 generator,
                 ctx,
                 None,
                 |_, ctx| {
-                    let index_addr = gen_var(ctx, size_t, Some("for.index.addr"))?;
+                    let index_addr = ctx.build_allocate(
+                        AllocationScope::Default,
+                        size_t,
+                        Some("for.index.addr"),
+                    )?;
                     ctx.builder.build_store(index_addr, size_t.const_zero())?;
 
                     Ok(index_addr)
@@ -1071,8 +1303,11 @@ pub fn gen_for<G: CodeGenerator>(
                         .builder
                         .build_load(size_t, index_addr, "for.index")
                         .map(BasicValueEnum::into_int_value)?;
-                    let val: BasicValueEnum =
-                        iter_val.data(ctx)?.get_unchecked(ctx, &index, Some("val"))?;
+                    let val: BasicValueEnum = iter_val
+                        .inner_value(ctx)?
+                        .data(ctx)?
+                        .inner_value(ctx, Some(len))?
+                        .get_unchecked(ctx, &index, Some("val"))?;
                     let val_ty = iter_type_vars(list_params).next().unwrap().ty;
                     generator.gen_assign(ctx, target, &val.into(), val_ty)?;
                     generator.gen_block(ctx, body.iter())?;
@@ -1107,7 +1342,11 @@ pub fn gen_for<G: CodeGenerator>(
                 ctx,
                 None,
                 |_, ctx| {
-                    let index_addr = gen_var(ctx, size_t, Some("for.index.addr"))?;
+                    let index_addr = ctx.build_allocate(
+                        AllocationScope::Default,
+                        size_t,
+                        Some("for.index.addr"),
+                    )?;
                     ctx.builder.build_store(index_addr, size_t.const_zero())?;
 
                     Ok(index_addr)
@@ -1168,7 +1407,6 @@ pub fn gen_for<G: CodeGenerator>(
                     let inc =
                         ctx.builder.build_int_add(index, size_t.const_int(1, false), "inc")?;
                     ctx.builder.build_store(index_addr, inc)?;
-
                     Ok(())
                 },
                 |generator, ctx| generator.gen_block(ctx, orelse.iter()),
@@ -1253,7 +1491,7 @@ where
         ctx,
         label,
         |_, ctx| {
-            let i_addr = gen_var(ctx, init_val_t, None)?;
+            let i_addr = ctx.build_allocate(AllocationScope::Default, init_val_t, None)?;
             ctx.builder.build_store(i_addr, init_val)?;
 
             Ok(i_addr)
@@ -1345,7 +1583,7 @@ where
         ctx,
         label,
         |generator, ctx| {
-            let i_addr = gen_var(ctx, init_val_t, None)?;
+            let i_addr = ctx.build_allocate(AllocationScope::Default, init_val_t, None)?;
 
             let start = start_fn(generator, ctx)?;
             ctx.builder.build_store(i_addr, start)?;
@@ -1578,14 +1816,14 @@ where
     let then_val = then_fn(generator, ctx)?;
     let then_end_bb = ctx.builder.get_insert_block().unwrap();
     if !ctx.is_terminated() {
-        ctx.builder.build_unconditional_branch(end_bb).unwrap();
+        ctx.builder.build_unconditional_branch(end_bb)?;
     }
 
     ctx.builder.position_at_end(else_bb);
     let else_val = else_fn(generator, ctx)?;
     let else_end_bb = ctx.builder.get_insert_block().unwrap();
     if !ctx.is_terminated() {
-        ctx.builder.build_unconditional_branch(end_bb).unwrap();
+        ctx.builder.build_unconditional_branch(end_bb)?;
     }
 
     ctx.builder.position_at_end(end_bb);
@@ -1875,7 +2113,8 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
     let mut final_data = None;
     let has_cleanup = !finalbody.is_empty();
     if has_cleanup {
-        let final_state = gen_var(ctx, ptr_type, Some("try.final_state.addr"))?;
+        let final_state =
+            ctx.build_allocate(AllocationScope::Default, ptr_type, Some("try.final_state.addr"))?;
         final_data = Some((final_state, Vec::new(), Vec::new()));
         if let Some((continue_target, break_target)) = ctx.loop_target {
             let break_proxy = ctx.ctx.append_basic_block(current_fun, "try.break");
@@ -1885,20 +2124,8 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
             old_loop_target = ctx.loop_target.replace((continue_proxy, break_proxy));
         }
         let return_proxy = ctx.ctx.append_basic_block(current_fun, "try.return");
-        if let Some(return_target) = ctx.return_target {
-            final_proxy(ctx, return_target, return_proxy, final_data.as_mut().unwrap())?;
-        } else {
-            let return_target = ctx.ctx.append_basic_block(current_fun, "try.return_target");
-            ctx.builder.position_at_end(return_target);
-            let return_value = ctx
-                .return_buffer
-                .zip(ctx.return_buffer_type)
-                .map(|(v, ty)| anyhow::Ok(ctx.builder.build_load(ty, v, "$ret")?))
-                .transpose()?;
-            ctx.builder.build_return(return_value.as_ref().map(|v| v as &dyn BasicValue))?;
-            ctx.builder.position_at_end(current_block);
-            final_proxy(ctx, return_target, return_proxy, final_data.as_mut().unwrap())?;
-        }
+        let return_target = ctx.return_target.unwrap();
+        final_proxy(ctx, return_target, return_proxy, final_data.as_mut().unwrap())?;
         old_return = ctx.return_target.replace(return_proxy);
         cleanup = Some(ctx.ctx.append_basic_block(current_fun, "try.cleanup"));
     }
@@ -1953,7 +2180,9 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
     let (all_clauses, _, _) = ctx.outer_catch_clauses.take().unwrap();
     ctx.outer_catch_clauses = old_clauses;
     ctx.unwind_target = old_unwind;
-    ctx.return_target = old_return;
+    if has_cleanup {
+        ctx.return_target = old_return;
+    }
     ctx.loop_target = old_loop_target.or(ctx.loop_target);
 
     let old_unwind = if finalbody.is_empty() {
@@ -2018,20 +2247,7 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
     let return_proxy = ctx.ctx.append_basic_block(current_fun, "try.return");
     ctx.builder.position_at_end(return_proxy);
     ctx.build_call(&end_catch, &[], "end_catch")?;
-    let return_target = ctx.return_target.take().map_or_else(
-        || {
-            let doreturn = ctx.ctx.append_basic_block(current_fun, "try.doreturn");
-            ctx.builder.position_at_end(doreturn);
-            let return_value = ctx
-                .return_buffer
-                .zip(ctx.return_buffer_type)
-                .map(|(v, ty)| anyhow::Ok(ctx.builder.build_load(ty, v, "$ret")?))
-                .transpose()?;
-            ctx.builder.build_return(return_value.as_ref().map(|v| v as &dyn BasicValue))?;
-            anyhow::Ok(doreturn)
-        },
-        Ok,
-    )?;
+    let return_target = ctx.return_target.take().unwrap();
     redirect(ctx, return_target, return_proxy)?;
     ctx.return_target = Some(return_proxy);
     old_return = Some(return_target);
@@ -2053,8 +2269,10 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
         ctx.builder.position_at_end(handler_bb);
         if let Some(name) = name {
             let exn_ty = ctx.get_llvm_type(type_.as_ref().unwrap().custom.unwrap());
-            let exn_store = gen_var(ctx, exn_ty, Some("try.exn_store.addr"))?;
-            ctx.var_assignment.insert(*name, VarValue::new(exn_store));
+            let exn_store =
+                ctx.build_allocate(AllocationScope::Default, exn_ty, Some("try.exn_store.addr"))?;
+            ctx.var_assignment
+                .insert(*name, VarValue::new(exn_store, type_.as_ref().unwrap().custom.unwrap()));
             ctx.builder.build_store(exn_store, exn.as_basic_value())?;
         }
         generator.gen_block(ctx, body.iter())?;
@@ -2131,7 +2349,7 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
         }
         if matches!(cleanup, Some(cleanup) if cleanup.get_terminator().is_none()) {
             ctx.builder.position_at_end(cleanup.unwrap());
-            ctx.builder.build_unconditional_branch(tail).unwrap();
+            ctx.builder.build_unconditional_branch(tail)?;
         }
         for post_handler in post_handlers {
             if post_handler.get_terminator().is_none() {
@@ -2291,7 +2509,8 @@ pub fn gen_with<'ctx, 'a, G: CodeGenerator>(
     ctx.builder.position_at_end(current_block);
 
     let mut old_loop_target = None;
-    let final_state = gen_var(ctx, ptr_type, Some("with.final_state.addr"))?;
+    let final_state =
+        ctx.build_allocate(AllocationScope::Default, ptr_type, Some("with.final_state.addr"))?;
     let mut final_data = Some((final_state, Vec::new(), Vec::new()));
     if let Some((continue_target, break_target)) = ctx.loop_target {
         let break_proxy = ctx.ctx.append_basic_block(current_fun, "with.break");
@@ -2301,20 +2520,8 @@ pub fn gen_with<'ctx, 'a, G: CodeGenerator>(
         old_loop_target = ctx.loop_target.replace((continue_proxy, break_proxy));
     }
     let return_proxy = ctx.ctx.append_basic_block(current_fun, "with.return");
-    if let Some(return_target) = ctx.return_target {
-        final_proxy(ctx, return_target, return_proxy, final_data.as_mut().unwrap())?;
-    } else {
-        let return_target = ctx.ctx.append_basic_block(current_fun, "with.return_target");
-        ctx.builder.position_at_end(return_target);
-        let return_value = ctx
-            .return_buffer
-            .zip(ctx.return_buffer_type)
-            .map(|(v, ty)| anyhow::Ok(ctx.builder.build_load(ty, v, "$ret")?))
-            .transpose()?;
-        ctx.builder.build_return(return_value.as_ref().map(|v| v as &dyn BasicValue))?;
-        ctx.builder.position_at_end(current_block);
-        final_proxy(ctx, return_target, return_proxy, final_data.as_mut().unwrap())?;
-    }
+    let return_target = ctx.return_target.unwrap();
+    final_proxy(ctx, return_target, return_proxy, final_data.as_mut().unwrap())?;
     let old_return = ctx.return_target.replace(return_proxy);
     let cleanup = ctx.ctx.append_basic_block(current_fun, "with.cleanup");
 
@@ -2369,20 +2576,7 @@ pub fn gen_with<'ctx, 'a, G: CodeGenerator>(
     let return_proxy = ctx.ctx.append_basic_block(current_fun, "with.return");
     ctx.builder.position_at_end(return_proxy);
     ctx.build_call(&end_catch, &[], "end_catch")?;
-    let return_target = ctx.return_target.take().map_or_else(
-        || {
-            let doreturn = ctx.ctx.append_basic_block(current_fun, "with.doreturn");
-            ctx.builder.position_at_end(doreturn);
-            let return_value = ctx
-                .return_buffer
-                .zip(ctx.return_buffer_type)
-                .map(|(v, ty)| anyhow::Ok(ctx.builder.build_load(ty, v, "$ret")?))
-                .transpose()?;
-            ctx.builder.build_return(return_value.as_ref().map(|v| v as &dyn BasicValue))?;
-            anyhow::Ok(doreturn)
-        },
-        Ok,
-    )?;
+    let return_target = ctx.return_target.take().unwrap();
     redirect(ctx, return_target, return_proxy)?;
     ctx.return_target = Some(return_proxy);
     let old_return = Some(return_target);
@@ -2477,15 +2671,11 @@ pub fn gen_return<G: CodeGenerator>(
         })
     }).transpose()?;
 
-    if let Some(return_target) = ctx.return_target {
-        if let Some(value) = value {
-            ctx.builder.build_store(ctx.return_buffer.unwrap(), value)?;
-        }
-        ctx.builder.build_unconditional_branch(return_target)?;
-    } else {
-        let value = value.as_ref().map(|v| v as &dyn BasicValue);
-        ctx.builder.build_return(value)?;
+    let return_target = ctx.return_target.unwrap();
+    if let Some(value) = value {
+        ctx.builder.build_store(ctx.return_buffer.unwrap(), value)?;
     }
+    ctx.builder.build_unconditional_branch(return_target)?;
     Ok(())
 }
 

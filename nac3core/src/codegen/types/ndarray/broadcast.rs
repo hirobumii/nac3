@@ -1,5 +1,7 @@
+use std::borrow::Cow;
+
 use inkwell::{
-    types::BasicTypeEnum,
+    types::{BasicTypeEnum, IntType},
     values::{BasicValueEnum, IntValue, PointerValue},
 };
 use nac3core_derive::{ProxyType, StructFields};
@@ -8,13 +10,15 @@ use crate::codegen::{
     CodeGenContext, ModuleContext,
     expr::call_extern,
     irrt::get_usize_dependent_function_name,
-    stmt::{gen_array_var, gen_for_callback},
+    stmt::gen_for_callback,
     types::{
-        ProxyTypeExt,
-        array::{ArrayLikeIndexer, ArraySliceValue},
+        NDArrayValue, ProxyTypeBase, RefCountedArrayType, RefCountedArrayValue,
+        TypedRefCountedValue, WithTypeinfo,
+        array::ArrayLikeIndexer,
         builtin::BuiltinStruct,
         field,
-        ndarray::{NDArrayOut, NDArrayType, NDArrayValue, ScalarOrNDArray, iter::NDIterValue},
+        ndarray::{NDArrayOut, NDArrayType, RawNDArrayType, ScalarOrNDArray, iter::NDIterValue},
+        refcounted_fields_for_struct,
         structure::StructField,
     },
 };
@@ -32,6 +36,16 @@ struct ShapeEntryStructFields<'ctx> {
 #[llvm_ref(self.inner.llvm_ty)]
 struct ShapeEntryType<'ctx> {
     inner: BuiltinStruct<'ctx, ShapeEntryStructFields<'ctx>>,
+}
+
+impl<'ctx> WithTypeinfo<'ctx> for ShapeEntryType<'ctx> {
+    fn typename(&self) -> Cow<'static, str> {
+        Cow::Borrowed("__nac3_shape_entry")
+    }
+
+    fn refcounted_fields_data(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> Vec<IntValue<'ctx>> {
+        refcounted_fields_for_struct(ctx, Vec::new())
+    }
 }
 
 impl<'ctx> ShapeEntryType<'ctx> {
@@ -54,14 +68,18 @@ impl<'ctx> NDArrayValue<'ctx> {
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         target_ndims: u64,
-        target_shape: ArraySliceValue<'ctx>,
+        target_shape: RefCountedArrayValue<'ctx, IntType<'ctx>>,
     ) -> anyhow::Result<Self> {
-        assert!(self.ty.ndims <= target_ndims);
-        assert_eq!(target_shape.ty.item_ty, ctx.size_t.into());
+        assert!(self.ty.object.ndims <= target_ndims);
+        assert_eq!(target_shape.ty.elem, ctx.size_t);
 
         let broadcast_ndarray =
-            NDArrayType::new(ctx, self.ty.dtype, target_ndims).construct(ctx, None)?;
-        broadcast_ndarray.shape(ctx)?.memcpy_from(ctx, target_shape.value.0)?;
+            NDArrayType::create(ctx, self.inner_value(ctx)?.ty.dtype, target_ndims)
+                .construct(ctx, None)?;
+        broadcast_ndarray.shape(ctx)?.inner_value(ctx, None)?.memcpy_from(
+            ctx,
+            target_shape.inner_value(ctx, Some(ctx.size_t.const_int(target_ndims, false)))?.value.0,
+        )?;
 
         let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_broadcast_to");
         call_extern!(ctx: void _ = name(self.value, broadcast_ndarray.value))?;
@@ -76,14 +94,14 @@ pub struct BroadcastAllResult<'ctx> {
     pub ndims: u64,
 
     /// The broadcasting shape.
-    pub shape: ArraySliceValue<'ctx>,
+    pub shape: RefCountedArrayValue<'ctx, IntType<'ctx>>,
 
     /// Broadcasted views on the inputs.
     ///
     /// All of them will have `shape` [`BroadcastAllResult::shape`] and
     /// `ndims` [`BroadcastAllResult::ndims`]. The length of the vector
     /// is the same as the input.
-    pub ndarrays: Vec<NDArrayValue<'ctx>>,
+    pub ndarrays: Vec<TypedRefCountedValue<'ctx, RawNDArrayType<'ctx>>>,
 }
 
 /// Broadcast ndarrays according to
@@ -93,32 +111,34 @@ pub struct BroadcastAllResult<'ctx> {
 /// broadcast operation.
 pub fn broadcast<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
-    ndarrays: &[NDArrayValue<'ctx>],
+    ndarrays: &[TypedRefCountedValue<'ctx, RawNDArrayType<'ctx>>],
 ) -> anyhow::Result<BroadcastAllResult<'ctx>> {
     let shape_entry_ty = ShapeEntryType::new(ctx);
     let shape_entries = ctx.size_t.const_int(ndarrays.len() as _, false);
-    let arr = gen_array_var(ctx, shape_entry_ty.inner.llvm_ty, ndarrays.len() as _, None)?;
+    let arr =
+        RefCountedArrayType::new(ctx, shape_entry_ty.inner.llvm_ty, Some(ndarrays.len() as _))
+            .alloca(ctx, ctx.size_t.const_int(ndarrays.len() as _, false), None)?;
 
     // Store shapes into memory.
     for (i, ndarray) in ndarrays.iter().enumerate() {
         let idx = ctx.size_t.const_int(i as _, false);
-        let pshape_entry = arr.ptr_offset_unchecked(ctx, &idx, None)?;
+        let pshape_entry = arr.inner_value(ctx, None)?.ptr_offset_unchecked(ctx, &idx, None)?;
         let shape_entry = shape_entry_ty.map_value(pshape_entry, None);
-        let ndims = ndarray.ty.ndims_val(ctx);
-        let shape = ndarray.shape(ctx)?.value.0;
+        let ndims = ndarray.inner_value(ctx)?.ty.ndims_val(ctx);
+        let shape = ndarray.shape(ctx)?.value;
         shape_entry.store(ctx, field!(ndims), ndims)?;
         shape_entry.store(ctx, field!(shape), shape)?;
     }
 
-    let ndims = ndarrays.iter().map(|ndarray| ndarray.ty.ndims).max().unwrap();
-    let new_shape_ptr = gen_array_var(ctx, ctx.size_t, ndims, None)?.value.0;
-
+    let ndims = ndarrays.iter().map(|ndarray| ndarray.ty.object.ndims).max().unwrap();
     let ndims_v = ctx.size_t.const_int(ndims, false);
-    let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_broadcast_shapes");
-    call_extern!(ctx: void _ = name(shape_entries, arr.value.0, ndims_v, new_shape_ptr))?;
+    let new_shape = RefCountedArrayType::new(ctx, ctx.size_t, Some(ndims as u32))
+        .allocate(ctx, ndims_v, None)?;
 
-    // Now this new shape is initialized.
-    let new_shape = ArraySliceValue::new(ctx.size_t.into(), new_shape_ptr, ndims_v, None);
+    let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_broadcast_shapes");
+    call_extern!(ctx: void _ = name(shape_entries, arr.value, ndims_v, new_shape.value))?;
+
+    // new_shape_ptr is now initialized with the broadcast result shape.
     let new_ndarrays = ndarrays
         .iter()
         .map(|ndarray| ndarray.broadcast_to(ctx, ndims, new_shape))
@@ -149,7 +169,8 @@ where
 {
     // Broadcast inputs
     let broadcast_result = broadcast(ctx, ndarrays)?;
-    let out_ndarray = out.resolve(ctx, broadcast_result.ndims, broadcast_result.shape)?;
+    let out_ndarray =
+        out.resolve(ctx, broadcast_result.ndims, broadcast_result.shape.inner_value(ctx, None)?)?;
 
     // Map element-wise and store results into `mapped_ndarray`.
     let nditer = NDIterValue::new(ctx, out_ndarray)?;
@@ -169,28 +190,28 @@ where
         |(), ctx, (out_nditer, _in_nditers)| {
             // We can simply use `out_nditer`'s `has_element()`.
             // `in_nditers`' `has_element()`s should return the same value.
-            out_nditer.has_element(ctx)
+            out_nditer.inner_value(ctx)?.has_element(ctx)
         },
         |(), ctx, _hooks, (out_nditer, in_nditers)| {
             // Get all the scalars from the broadcasted input ndarrays, pass them to `mapping`,
             // and write to `out_ndarray`.
             let in_scalars = in_nditers
                 .iter()
-                .map(|nditer| nditer.get_scalar(ctx))
+                .map(|nditer| nditer.inner_value(ctx)?.get_scalar(ctx))
                 .collect::<anyhow::Result<Vec<_>>>()?;
 
             let result = mapping(ctx, &in_scalars)?;
 
-            let p = out_nditer.curr_ptr(ctx)?;
+            let p = out_nditer.inner_value(ctx)?.curr_ptr(ctx)?;
             ctx.builder.build_store(p, result)?;
 
             Ok(())
         },
         |(), ctx, (out_nditer, in_nditers)| {
             // Advance all iterators
-            out_nditer.next(ctx)?;
+            out_nditer.inner_value(ctx)?.next(ctx)?;
             for nditer in &in_nditers {
-                nditer.next(ctx)?;
+                nditer.inner_value(ctx)?.next(ctx)?;
             }
             Ok(())
         },

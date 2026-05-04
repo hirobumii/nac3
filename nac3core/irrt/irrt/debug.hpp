@@ -1,5 +1,7 @@
 #pragma once
 
+#include "irrt/exception.hpp"
+
 // Set in nac3core/build.rs
 #ifdef IRRT_DEBUG_ASSERT
 #define IRRT_DEBUG_ASSERT_BOOL true

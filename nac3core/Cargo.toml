@@ -5,9 +5,10 @@ authors = ["M-Labs"]
 edition = "2024"
 
 [features]
-default = ["derive"]
+default = ["derive", "malloc"]
 derive = ["dep:nac3core_derive"]
-no-escape-analysis = []
+escape-analysis = []
+malloc = []
 
 [dependencies]
 anyhow = "1.0"

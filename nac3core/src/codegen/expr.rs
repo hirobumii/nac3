@@ -21,8 +21,9 @@ use nac3parser::ast::{
 
 use crate::{
     codegen::{
-        CodeGenContext, CodeGenTask, CodeGenerator, VarValue, bool_to_i1, bool_to_i8,
-        bool_to_int_type,
+        CodeGenContext, CodeGenTask, CodeGenerator, VarValue,
+        allocator::AllocationScope,
+        bool_to_i1, bool_to_i8, bool_to_int_type,
         concrete_type::{ConcreteFuncArg, ConcreteTypeEnum, ConcreteTypeStore},
         gen_in_range_check, get_alloca_type, get_llvm_abi_type, get_llvm_type,
         irrt::{
@@ -35,13 +36,14 @@ use crate::{
         },
         macros::codegen_unreachable,
         stmt::{
-            gen_dyn_var, gen_for_callback_incrementing, gen_if_callback, gen_if_else_expr_callback,
-            gen_raise, gen_var,
+            gen_for_callback_incrementing, gen_if_callback, gen_if_else_expr_callback, gen_raise,
         },
         types::{
-            ArrayLikeIndexer, ExceptionType, ListType, ListValue, NDArrayOut, NDArrayType,
-            OptionType, ProxyTypeExt, RangeField, RangeType, RangeValue, RustNDIndex,
-            ScalarOrNDArray, StringType, TupleType, TupleValue, broadcast_starmap, field,
+            ArrayLikeIndexer, ClassType, ExceptionType, ListType, ListValue, NDArrayOut,
+            NDArrayType, OpaqueRefCountedType, OptionType, ProxyTypeBase, RangeField, RangeType,
+            RangeValue, RawListType, RefCountedValue, RustNDIndex, ScalarOrNDArray, StringType,
+            TupleType, TupleValue, TypedRefCountedType, broadcast_starmap, field,
+            is_refcounted_type,
         },
     },
     symbol_resolver::{StaticValue, SymbolValue, ValueEnum},
@@ -426,7 +428,7 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
         );
         self.builder.set_current_debug_location(loc);
 
-        let alloca = |ty| gen_var(self, ty, Some(call_name));
+        let allocate = |ty| self.build_allocate(AllocationScope::Default, ty, Some(call_name));
 
         unwind_target.map_or_else(
             || {
@@ -436,7 +438,7 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
                     self.builder,
                     &args,
                     |value, args| Ok(self.builder.build_call(value, args, call_name)?),
-                    alloca,
+                    allocate,
                 )
             },
             |target| {
@@ -451,7 +453,7 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
                     |value, args| {
                         Ok(self.builder.build_invoke(value, args, then_block, target, call_name)?)
                     },
-                    alloca,
+                    allocate,
                 );
                 self.builder.position_at_end(then_block);
                 result
@@ -563,9 +565,9 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
 }
 
 /// See [`CodeGenerator::gen_constructor`].
-pub fn gen_constructor<'ctx, 'a, G: CodeGenerator>(
+pub fn gen_constructor<'ctx, G: CodeGenerator>(
     generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, 'a>,
+    ctx: &mut CodeGenContext<'ctx, '_>,
     signature: &FunSignature,
     def: &TopLevelDef,
     params: Vec<(Option<StrRef>, ValueEnum<'ctx>)>,
@@ -574,15 +576,26 @@ pub fn gen_constructor<'ctx, 'a, G: CodeGenerator>(
 
     // TODO: what about other fields that require alloca?
     let fun_id = methods.iter().find(|method| method.0 == "__init__".into()).map(|method| method.2);
-    let ty = ctx.get_alloca_type(signature.ret);
-    let zelf: BasicValueEnum<'ctx> = gen_dyn_var(ctx, ty, Some("alloca"))?.into();
+    let class_ty = ClassType::from_unifier_type(ctx, signature.ret);
+    let zelf = {
+        #[cfg(feature = "malloc")]
+        let scope = AllocationScope::Default;
+        #[cfg(not(feature = "malloc"))]
+        let scope = AllocationScope::StackCurrentLoc;
+        class_ty.allocate(ctx, scope, Some("alloca"))?
+    };
     // call `__init__` if there is one
     if let Some(fun_id) = fun_id {
         let mut sign = signature.clone();
         sign.ret = ctx.primitives.none;
-        generator.gen_call(ctx, Some((signature.ret, zelf.into())), (&sign, fun_id), params)?;
+        generator.gen_call(
+            ctx,
+            Some((signature.ret, zelf.value.into())),
+            (&sign, fun_id),
+            params,
+        )?;
     }
-    Ok(zelf)
+    Ok(zelf.value.into())
 }
 
 /// See [`CodeGenerator::gen_func_instance`].
@@ -788,18 +801,48 @@ pub fn gen_call<'ctx, G: CodeGenerator>(
         .map(|(v, t)| {
             anyhow::Ok(if ctx.unifier.unioned(ctx.primitives.bool, t) {
                 // Convert boolean parameter values into i1
-                bool_to_i1(ctx, v.into_int_value())?.into()
+                (bool_to_i1(ctx, v.into_int_value())?.into(), false)
             } else if let BasicValueEnum::PointerValue(p) = v {
-                ctx.builder.build_pointer_cast(p, ctx.ptr, "ptr_cast")?.into()
+                (
+                    ctx.builder.build_pointer_cast(p, ctx.ptr, "ptr_cast")?.into(),
+                    is_refcounted_type(&mut ctx.unifier, t),
+                )
             } else {
-                v
+                (v, false)
             })
         })
         .collect::<Result<Vec<_>, _>>()?;
 
     // The function instance should have already been constructed (at least declared) here.
 
-    ctx.build_call_or_invoke(&f, &param_vals, "call")
+    // TODO(Derppening): Investigate how Python manages refcounts for C functions
+    // increment the refcount for all values
+    for p in
+        param_vals.iter().filter_map(|(v, refcounted)| if *refcounted { Some(*v) } else { None })
+    {
+        OpaqueRefCountedType::new(ctx)
+            .map_value(p.into_pointer_value(), None)
+            .header(ctx)
+            .safe_increment_refcount(ctx)?;
+    }
+
+    let call_result =
+        ctx.build_call_or_invoke(&f, &param_vals.iter().map(|p| p.0).collect_vec(), "call")?;
+
+    // if the function call is an extern function, we need to manually decrement the refcount
+    if is_extern {
+        for p in param_vals
+            .iter()
+            .filter_map(|(v, refcounted)| if *refcounted { Some(*v) } else { None })
+        {
+            OpaqueRefCountedType::new(ctx)
+                .map_value(p.into_pointer_value(), None)
+                .header(ctx)
+                .safe_decrement_refcount(ctx)?;
+        }
+    }
+
+    Ok(call_result)
 }
 
 /// Generates three LLVM variables representing the start, stop, and step values of a [range] class
@@ -843,7 +886,7 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
     let zero_size_t = size_t.const_zero();
     let zero_32 = int32.const_zero();
 
-    let index = gen_var(ctx, size_t, Some("index.addr"))?;
+    let index = ctx.build_allocate(AllocationScope::Default, size_t, Some("index.addr"))?;
     ctx.builder.build_store(index, zero_size_t)?;
 
     let elem_ty = elt.custom.unwrap();
@@ -872,7 +915,7 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
                 zero_size_t,
                 "listcomp.alloc_size",
             )?;
-            list = ListType::new(ctx, elem_ty).construct(
+            list = ListType::create(ctx, elem_ty).construct(
                 ctx,
                 list_alloc_size.into_int_value(),
                 Some("listcomp"),
@@ -906,12 +949,14 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
         TypeEnum::TObj { obj_id, .. }
             if *obj_id == ctx.primitives.list.obj_id(&ctx.unifier).unwrap() =>
         {
-            let iter_val = ListType::from_unifier_type(ctx, iter_ty)
+            let llvm_list_ty = RawListType::from_unifier_type(ctx, iter_ty);
+            let iter_val = TypedRefCountedType::new(ctx, llvm_list_ty)
                 .map_value(iter_val.into_pointer_value(), Some("list"));
-            let length = iter_val.load(ctx, field!(len))?;
-            list = ListType::new(ctx, elem_ty).construct(ctx, length, Some("listcomp"))?;
+            let length = iter_val.inner_value(ctx)?.load(ctx, field!(len))?;
+            list = ListType::create(ctx, elem_ty).construct(ctx, length, Some("listcomp"))?;
 
-            let counter = gen_var(ctx, size_t, Some("counter.addr"))?;
+            let counter =
+                ctx.build_allocate(AllocationScope::Default, size_t, Some("counter.addr"))?;
             // counter = -1
             ctx.builder.build_store(counter, size_t.const_all_ones())?;
             ctx.builder.build_unconditional_branch(test_bb)?;
@@ -924,8 +969,12 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
             ctx.builder.build_conditional_branch(cmp, body_bb, cont_bb)?;
 
             ctx.builder.position_at_end(body_bb);
-            let val = iter_val.data(ctx)?.get_unchecked(ctx, &tmp, Some("val"))?;
-            generator.gen_assign(ctx, target, &val, elt.custom.unwrap())?;
+            let val = iter_val
+                .inner_value(ctx)?
+                .data(ctx)?
+                .inner_value(ctx, Some(length))?
+                .get_unchecked(ctx, &tmp, Some("val"))?;
+            generator.gen_assign(ctx, target, &val, target.custom.unwrap())?;
         }
         _ => {
             bail!(
@@ -938,11 +987,12 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
     // Emits the content of `cont_bb`
     let emit_cont_bb = |ctx: &mut CodeGenContext<'ctx, '_>, list: ListValue<'ctx>| {
         ctx.builder.position_at_end(cont_bb);
-        list.store(
+        list.inner_value(ctx)?.store(
             ctx,
             field!(len),
             ctx.builder.build_load(size_t, index, "index")?.into_int_value(),
-        )
+        )?;
+        anyhow::Ok(())
     };
 
     for cond in ifs {
@@ -955,7 +1005,12 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
     }
 
     let i = ctx.builder.build_load(size_t, index, "i")?.into_int_value();
-    let elem_ptr = list.data(ctx)?.ptr_offset_unchecked(ctx, &i, Some("elem_ptr"))?;
+    let list_cap = list.inner_value(ctx)?.load(ctx, field!(len))?;
+    let elem_ptr = list
+        .inner_value(ctx)?
+        .data(ctx)?
+        .inner_value(ctx, Some(list_cap))?
+        .ptr_offset_unchecked(ctx, &i, Some("elem_ptr"))?;
     let val = generator.gen_expr(ctx, elt)?.to_basic_value_enum(ctx)?;
     ctx.builder.build_store(elem_ptr, val)?;
     ctx.builder
@@ -1016,20 +1071,55 @@ pub fn gen_prim_binop_expr<'ctx>(
                 debug_assert_eq!(ty2.obj_id(&ctx.unifier), Some(PrimDef::List.id()));
 
                 let list_ty = ListType::from_unifier_type(ctx, ty1);
-                let [left, right] = [left_val, right_val]
-                    .map(|val| list_ty.map_value(val.into_pointer_value(), None).data(ctx));
+                let [left_list, right_list] = [left_val, right_val]
+                    .map(|val| list_ty.map_value(val.into_pointer_value(), None));
+                let left_len = left_list.inner_value(ctx)?.load(ctx, field!(len))?;
+                let right_len = right_list.inner_value(ctx)?.load(ctx, field!(len))?;
+                let [left, right] = [left_list, right_list]
+                    .map(|list| list.inner_value(ctx).and_then(|inner| inner.data(ctx)));
                 let [left, right] = [left?, right?];
-                let new_len = ctx.builder.build_int_add(left.value.1, right.value.1, "")?;
+                let new_len = ctx.builder.build_int_add(left_len, right_len, "")?;
                 let new_list = list_ty.construct(ctx, new_len, None)?;
-                let new_list_data = new_list.data(ctx)?;
+                let new_list_data = new_list.inner_value(ctx)?.data(ctx)?;
 
-                let left_chunk =
-                    new_list_data.ty.map_value((new_list_data.value.0, left.value.1), None);
-                left_chunk.memcpy_from(ctx, left.value.0)?;
+                let left_chunk = new_list_data.inner_value(ctx, Some(new_len))?.ty.map_value(
+                    (new_list_data.inner_value(ctx, Some(new_len))?.value.0, left_len),
+                    None,
+                );
+                left_chunk.memcpy_from(ctx, left.inner_value(ctx, Some(left_len))?.value.0)?;
 
-                let right_pos = new_list_data.ptr_offset_unchecked(ctx, &left.value.1, None)?;
-                let right_chunk = new_list_data.ty.map_value((right_pos, right.value.1), None);
-                right_chunk.memcpy_from(ctx, right.value.0)?;
+                let right_pos = new_list_data
+                    .inner_value(ctx, Some(new_len))?
+                    .ptr_offset_unchecked(ctx, &left_len, None)?;
+                let right_chunk = new_list_data
+                    .inner_value(ctx, Some(new_len))?
+                    .ty
+                    .map_value((right_pos, right_len), None);
+                right_chunk.memcpy_from(ctx, right.inner_value(ctx, Some(right_len))?.value.0)?;
+
+                // Increment refcount for each copied element (they gain a new reference
+                // from the new list)
+                if is_refcounted_type(&mut ctx.unifier, list_ty.object.item_ty) {
+                    let new_list_data_inner = new_list_data.inner_value(ctx, Some(new_len))?;
+                    gen_for_callback_incrementing(
+                        &mut (),
+                        ctx,
+                        None,
+                        llvm_usize.const_zero(),
+                        (new_len, false),
+                        |(), ctx, _, i| {
+                            let elem: PointerValue<'ctx> =
+                                new_list_data_inner.get_unchecked(ctx, &i, None)?;
+                            OpaqueRefCountedType::new(ctx)
+                                .map_value(elem, None)
+                                .header(ctx)
+                                .safe_increment_refcount(ctx)?;
+                            Ok(())
+                        },
+                        llvm_usize.const_int(1, false),
+                        |(), _| Ok(()),
+                    )?;
+                }
 
                 Ok(new_list.value.into())
             }
@@ -1050,10 +1140,12 @@ pub fn gen_prim_binop_expr<'ctx>(
                 // [...] * (i where i < 0) => []
                 let int_val = call_int_smax(ctx, int_val, llvm_usize.const_zero(), None)?;
 
-                let (old_list_ptr, size) = list_val.data(ctx)?.value;
+                let size = list_val.inner_value(ctx)?.load(ctx, field!(len))?;
+                let (old_list_ptr, _) =
+                    list_val.inner_value(ctx)?.data(ctx)?.inner_value(ctx, Some(size))?.value;
                 let new_list =
                     list_ty.construct(ctx, ctx.builder.build_int_mul(size, int_val, "")?, None)?;
-                let new_list_data = new_list.data(ctx)?;
+                let new_list_data = new_list.inner_value(ctx)?.data(ctx)?;
 
                 gen_for_callback_incrementing(
                     &mut (),
@@ -1062,15 +1154,45 @@ pub fn gen_prim_binop_expr<'ctx>(
                     llvm_usize.const_zero(),
                     (int_val, false),
                     |(), ctx, _, i| {
+                        let total_len = ctx.builder.build_int_mul(size, int_val, "")?;
                         let offset = ctx.builder.build_int_mul(i, size, "")?;
-                        let ptr = new_list_data.ptr_offset_unchecked(ctx, &offset, None)?;
-                        let dest = new_list_data.ty.map_value((ptr, size), None);
+                        let ptr = new_list_data
+                            .inner_value(ctx, Some(total_len))?
+                            .ptr_offset_unchecked(ctx, &offset, None)?;
+                        let dest = new_list_data
+                            .inner_value(ctx, Some(total_len))?
+                            .ty
+                            .map_value((ptr, size), None);
                         dest.memcpy_from(ctx, old_list_ptr)?;
                         Ok(())
                     },
                     llvm_usize.const_int(1, false),
                     |(), _| Ok(()),
                 )?;
+
+                // Increment refcount for each copied element in the new list
+                if is_refcounted_type(&mut ctx.unifier, list_ty.object.item_ty) {
+                    let total_len = ctx.builder.build_int_mul(size, int_val, "")?;
+                    let new_list_data_inner = new_list_data.inner_value(ctx, Some(total_len))?;
+                    gen_for_callback_incrementing(
+                        &mut (),
+                        ctx,
+                        None,
+                        llvm_usize.const_zero(),
+                        (total_len, false),
+                        |(), ctx, _, i| {
+                            let elem: PointerValue<'ctx> =
+                                new_list_data_inner.get_unchecked(ctx, &i, None)?;
+                            OpaqueRefCountedType::new(ctx)
+                                .map_value(elem, None)
+                                .header(ctx)
+                                .safe_increment_refcount(ctx)?;
+                            Ok(())
+                        },
+                        llvm_usize.const_int(1, false),
+                        |(), _| Ok(()),
+                    )?;
+                }
 
                 Ok(new_list.value.into())
             }
@@ -1347,7 +1469,7 @@ pub fn gen_unaryop_expr_with_values<'ctx>(
 
         let mapped_ndarray = ndarray.map(
             ctx,
-            NDArrayOut::NewNDArray { dtype: ndarray.ty.dtype },
+            NDArrayOut::NewNDArray { dtype: ndarray.ty.object.dtype },
             |ctx, scalar| gen_unaryop_expr_with_values(ctx, op, (&Some(ndarray_dtype), scalar)),
         )?;
 
@@ -1537,12 +1659,14 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                         todo!("Only __eq__ and __ne__ is implemented for lists")
                     }
 
-                    let left = ListType::from_unifier_type(ctx, left_ty)
+                    let left_list_ty = RawListType::from_unifier_type(ctx, left_ty);
+                    let left = TypedRefCountedType::new(ctx, left_list_ty)
                         .map_value(lhs.into_pointer_value(), None);
-                    let right = ListType::from_unifier_type(ctx, right_ty)
+                    let right_list_ty = RawListType::from_unifier_type(ctx, right_ty);
+                    let right = TypedRefCountedType::new(ctx, right_list_ty)
                         .map_value(rhs.into_pointer_value(), None);
-                    let left_size = left.load(ctx, field!(len))?;
-                    let right_size = right.load(ctx, field!(len))?;
+                    let left_size = left.inner_value(ctx)?.load(ctx, field!(len))?;
+                    let right_size = right.inner_value(ctx)?.load(ctx, field!(len))?;
 
                     let eq_len = ctx
                         .builder
@@ -1553,7 +1677,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                         ctx,
                         |_, _ctx| Ok(eq_len),
                         |generator, ctx| {
-                            let acc_addr = gen_var(ctx, ctx.i8, None)?;
+                            let acc_addr = ctx.build_allocate(AllocationScope::Default, ctx.i8, None)?;
                             ctx.builder.build_store(acc_addr, ctx.i8.const_all_ones())?;
 
                             gen_for_callback_incrementing(
@@ -1563,15 +1687,15 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                                 llvm_usize.const_zero(),
                                 (left_size, false),
                                 |(), ctx, hooks, i| {
-                                    let left_v = left.data(ctx)?.get_unchecked(ctx, &i, None)?;
-                                    let right_v = right.data(ctx)?.get_unchecked(ctx, &i, None)?;
+                                    let left_v = left.inner_value(ctx)?.data(ctx)?.inner_value(ctx, Some(left_size))?.get_unchecked(ctx, &i, None)?;
+                                    let right_v = right.inner_value(ctx)?.data(ctx)?.inner_value(ctx, Some(right_size))?.get_unchecked(ctx, &i, None)?;
 
                                     let res = gen_cmpop_expr_with_values(
                                         generator,
                                         ctx,
-                                        (Some(left.ty.item_ty), left_v),
+                                        (Some(left_list_ty.item_ty), left_v),
                                         &[Cmpop::Eq],
-                                        &[(Some(right.ty.item_ty), right_v)],
+                                        &[(Some(right_list_ty.item_ty), right_v)],
                                     )?
                                     .into_int_value();
                                     let bool_res = ctx.builder.build_int_compare(
@@ -1639,7 +1763,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                 let llvm_i8 = ctx.i8;
 
                 // Assume `true` by default
-                let cmp_addr = gen_var(ctx, llvm_i8, None)?;
+                let cmp_addr = ctx.build_allocate(AllocationScope::Default, llvm_i8, None)?;
                 ctx.builder.build_store(cmp_addr, llvm_i8.const_all_ones())?;
 
                 let current_bb = ctx.builder.get_insert_block().unwrap();
@@ -1791,10 +1915,15 @@ fn gen_list_expr<'ctx, G: CodeGenerator>(
     let len = ctx.size_t.const_int(elements.len() as u64, false);
     let val = ListType::from_unifier_type(ctx, ty).construct(ctx, len, None)?;
 
-    let data = val.data(ctx)?;
+    let data = val.inner_value(ctx)?.data(ctx)?;
     for (i, v) in elements.iter().enumerate() {
         let v = v.to_basic_value_enum(ctx)?;
-        data.set_unchecked(ctx, &ctx.size_t.const_int(i as u64, false), v, None)?;
+        data.inner_value(ctx, Some(len))?.set_unchecked(
+            ctx,
+            &ctx.size_t.const_int(i as u64, false),
+            v,
+            None,
+        )?;
     }
     Ok(RtValue::dynamic(ty, val.value.into()))
 }
@@ -1869,6 +1998,15 @@ fn gen_attr_expr<'ctx, G: CodeGenerator>(
     let result = generator.gen_expr(ctx, value)?;
     let load_dyn = |ctx: &mut CodeGenContext<'ctx, '_>, v: BasicValueEnum<'ctx>| {
         let (index, _) = ctx.get_attr_index(value.custom.unwrap(), attr);
+        let is_refcounted = is_refcounted_type(&mut ctx.unifier, value.custom.unwrap());
+
+        if is_refcounted {
+            let class_val = ClassType::from_unifier_type(ctx, value.custom.unwrap())
+                .map_value(v.into_pointer_value(), None);
+            return class_val.inner_value(ctx)?.load_field(ctx, index as u32);
+        }
+
+        let ptr = v.into_pointer_value();
         let alloca_type = ctx.get_alloca_type(result.ty);
         let field_ty = match alloca_type {
             BasicTypeEnum::StructType(s) => s.get_field_type_at_index(index as u32).unwrap(),
@@ -1877,7 +2015,7 @@ fn gen_attr_expr<'ctx, G: CodeGenerator>(
         };
         ctx.build_gep_and_load(
             alloca_type,
-            v.into_pointer_value(),
+            ptr,
             &[ctx.i32.const_int(0, false), ctx.i32.const_int(index as u64, false)],
             None,
             field_ty,
@@ -1979,7 +2117,7 @@ fn gen_ifexp_expr<'ctx, G: CodeGenerator>(
         None
     } else {
         let llvm_ty = ctx.get_llvm_type(body_ty);
-        Some(gen_var(ctx, llvm_ty, Some("if_exp_result"))?)
+        Some(ctx.build_allocate(AllocationScope::Default, llvm_ty, Some("if_exp_result"))?)
     };
     let current = ctx.builder.get_insert_block().and_then(BasicBlock::get_parent).unwrap();
     let then_bb = ctx.ctx.append_basic_block(current, "then");
@@ -2163,7 +2301,7 @@ fn gen_call_expr<'ctx, G: CodeGenerator>(
                         }
                     }
                     ValueEnum::Dynamic(BasicValueEnum::PointerValue(ptr)) => {
-                        let option = OptionType::new(ctx, ty).map_value(ptr, None);
+                        let option = OptionType::from_unifier_type(ctx, key).map_value(ptr, None);
                         let not_null = option.is_some(ctx)?;
                         ctx.make_assert(
                             not_null,
@@ -2211,38 +2349,35 @@ fn gen_subscript_expr<'ctx, G: CodeGenerator>(
             let v = list_ty.map_value(v, None);
             if let ExprKind::Slice { lower, upper, step } = &slice.node {
                 let one = ctx.i32.const_int(1, false);
-                let size = v.load(ctx, field!(len))?;
+                let size = v.inner_value(ctx)?.load(ctx, field!(len))?;
                 let Some((start, end, step)) =
                     handle_slice_indices(lower, upper, step, ctx, generator, size)?
                 else {
                     return Ok(RtValue::none(ty));
                 };
-                let cond = ctx
-                    .builder
-                    .build_int_compare(
-                        IntPredicate::SLT,
-                        step,
-                        ctx.i32.const_int(0, false),
-                        "is_neg",
-                    )
-                    .unwrap();
+                let cond = ctx.builder.build_int_compare(
+                    IntPredicate::SLT,
+                    step,
+                    ctx.i32.const_int(0, false),
+                    "is_neg",
+                )?;
                 let then = ctx.builder.build_int_sub(end, one, "e_min_one")?;
                 let else_ = ctx.builder.build_int_add(end, one, "e_add_one")?;
                 let end_slice =
                     ctx.builder.build_select(cond, then, else_, "final_e")?.into_int_value();
                 let length = calculate_len_for_slice_range(ctx, start, end_slice, step)?;
                 let res_array_ret = list_ty.construct(ctx, length, Some("ret"))?;
-                let size = res_array_ret.load(ctx, field!(len))?;
+                let size = res_array_ret.inner_value(ctx)?.load(ctx, field!(len))?;
                 let Some(res_ind) =
                     handle_slice_indices(&None, &None, &None, ctx, generator, size)?
                 else {
                     return Ok(RtValue::none(ty));
                 };
-                let elem_ty = ctx.get_llvm_type(list_ty.item_ty);
+                let elem_ty = ctx.get_llvm_type(list_ty.object.item_ty);
                 list_slice_assignment(ctx, elem_ty, res_array_ret, res_ind, v, (start, end, step))?;
                 RtValue::dynamic(ty, res_array_ret.value.into())
             } else {
-                let len = v.load(ctx, field!(len))?;
+                let len = v.inner_value(ctx)?.load(ctx, field!(len))?;
                 let raw_index =
                     generator.gen_expr(ctx, slice)?.to_basic_value_enum(ctx)?.into_int_value();
                 let raw_index = ctx.builder.build_int_s_extend(raw_index, ctx.size_t, "sext")?;
@@ -2269,7 +2404,11 @@ fn gen_subscript_expr<'ctx, G: CodeGenerator>(
                     [Some(raw_index), Some(len), None],
                     expr.location,
                 )?;
-                let result = v.data(ctx)?.get(ctx, &index, None)?;
+                let result = v
+                    .inner_value(ctx)?
+                    .data(ctx)?
+                    .inner_value(ctx, Some(len))?
+                    .get_unchecked(ctx, &index, None)?;
                 RtValue::dynamic(ty, result)
             }
         }
@@ -2294,7 +2433,13 @@ fn gen_subscript_expr<'ctx, G: CodeGenerator>(
             match rt_val.val {
                 Some(ValueEnum::Dynamic(v)) => {
                     let v = v.into_struct_value();
-                    let result = ctx.builder.build_extract_value(v, index, "tup_elem")?;
+                    // Extract inner fields struct (index 1), then extract element
+                    let inner = ctx.builder.build_extract_value(v, 1, "tup_inner")?;
+                    let result = ctx.builder.build_extract_value(
+                        inner.into_struct_value(),
+                        index,
+                        "tup_elem",
+                    )?;
                     RtValue::dynamic(ty, result)
                 }
                 Some(ValueEnum::Static(v)) => {
@@ -2304,7 +2449,13 @@ fn gen_subscript_expr<'ctx, G: CodeGenerator>(
                     } else {
                         let tup =
                             v.to_basic_value_enum(ctx, value.custom.unwrap())?.into_struct_value();
-                        let result = ctx.builder.build_extract_value(tup, index, "tup_elem")?;
+                        // Extract inner fields struct (index 1), then extract element
+                        let inner = ctx.builder.build_extract_value(tup, 1, "tup_inner")?;
+                        let result = ctx.builder.build_extract_value(
+                            inner.into_struct_value(),
+                            index,
+                            "tup_elem",
+                        )?;
                         RtValue::dynamic(ty, result)
                     }
                 }
@@ -2353,6 +2504,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
             match ctx.var_assignment.get(id) {
                 Some(VarValue { ptr, static_value: None, .. }) => {
                     let val = ctx.builder.build_load(llvm_ty, *ptr, id.to_string().as_str())?;
+                    // TODO(Derppening): Add refcount incr here instead(?)
                     Ok(RtValue::dynamic(ty, val))
                 }
                 Some(VarValue { static_value: Some(static_value), .. }) => {

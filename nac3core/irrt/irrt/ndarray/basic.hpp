@@ -1,8 +1,9 @@
 #pragma once
 
+#include "irrt/stdlib/cstdint.h"
+
 #include "irrt/debug.hpp"
 #include "irrt/exception.hpp"
-#include "irrt/int_types.hpp"
 #include "irrt/ndarray/def.hpp"
 
 namespace {
@@ -90,7 +91,7 @@ void set_indices_by_nth(SizeT ndims, const SizeT* shape, SizeT* indices, SizeT n
  */
 template<typename SizeT>
 SizeT size(const NDArray<SizeT>* ndarray) {
-    return calc_size_from_shape(ndarray->ndims, ndarray->shape);
+    return calc_size_from_shape(ndarray->ndims, ndarray->shape->data());
 }
 
 /**
@@ -113,7 +114,7 @@ SizeT nbytes(const NDArray<SizeT>* ndarray) {
 template<typename SizeT>
 SizeT len(const NDArray<SizeT>* ndarray) {
     if (ndarray->ndims != 0) {
-        return ndarray->shape[0];
+        return ndarray->shape->data()[0];
     }
 
     // numpy prohibits `__len__` on unsized objects
@@ -158,13 +159,14 @@ bool is_c_contiguous(const NDArray<SizeT>* ndarray) {
         return true;
     }
 
-    if (ndarray->strides[ndarray->ndims - 1] != ndarray->itemsize) {
+    if (ndarray->strides->data()[ndarray->ndims - 1] != ndarray->itemsize) {
         return false;
     }
 
-    for (SizeT i = 1; i < ndarray->ndims; i++) {
-        SizeT axis_i = ndarray->ndims - i - 1;
-        if (ndarray->strides[axis_i] != ndarray->shape[axis_i + 1] * ndarray->strides[axis_i + 1]) {
+    for (auto i = 1; i < ndarray->ndims; i++) {
+        auto axis_i = ndarray->ndims - i - 1;
+        if (ndarray->strides->data()[axis_i]
+            != ndarray->shape->data()[axis_i + 1] * ndarray->strides->data()[axis_i + 1]) {
             return false;
         }
     }
@@ -178,10 +180,10 @@ bool is_c_contiguous(const NDArray<SizeT>* ndarray) {
  * This function does no bound check.
  */
 template<typename SizeT>
-void* get_pelement_by_indices(const NDArray<SizeT>* ndarray, const SizeT* indices) {
-    void* element = ndarray->data;
-    for (SizeT dim_i = 0; dim_i < ndarray->ndims; dim_i++)
-        element = static_cast<uint8_t*>(element) + indices[dim_i] * ndarray->strides[dim_i];
+void* get_pelement_by_indices(const NDArray<SizeT>* ndarray, const __nac3_impl::stdlib::make_signed_t<SizeT>* indices) {
+    auto* element = static_cast<void*>(ndarray->data->template data<uint8_t>() + ndarray->offset);
+    for (auto dim_i = 0; dim_i < ndarray->ndims; dim_i++)
+        element = static_cast<uint8_t*>(element) + indices[dim_i] * ndarray->strides->data()[dim_i];
     return element;
 }
 
@@ -191,12 +193,12 @@ void* get_pelement_by_indices(const NDArray<SizeT>* ndarray, const SizeT* indice
  * This function does no bound check.
  */
 template<typename SizeT>
-void* get_nth_pelement(const NDArray<SizeT>* ndarray, SizeT nth) {
-    void* element = ndarray->data;
-    for (SizeT i = 0; i < ndarray->ndims; i++) {
-        SizeT axis = ndarray->ndims - i - 1;
-        SizeT dim = ndarray->shape[axis];
-        element = static_cast<uint8_t*>(element) + ndarray->strides[axis] * (nth % dim);
+void* get_nth_pelement(const NDArray<SizeT>* ndarray, __nac3_impl::stdlib::make_signed_t<SizeT> nth) {
+    auto* element = static_cast<void*>(ndarray->data->template data<uint8_t>() + ndarray->offset);
+    for (auto i = 0; i < ndarray->ndims; i++) {
+        auto axis = ndarray->ndims - i - 1;
+        auto dim = ndarray->shape->data()[axis];
+        element = static_cast<uint8_t*>(element) + ndarray->strides->data()[axis] * (nth % dim);
         nth /= dim;
     }
     return element;
@@ -209,11 +211,11 @@ void* get_nth_pelement(const NDArray<SizeT>* ndarray, SizeT nth) {
  */
 template<typename SizeT>
 void set_strides_by_shape(NDArray<SizeT>* ndarray) {
-    SizeT stride_product = 1;
-    for (SizeT i = 0; i < ndarray->ndims; i++) {
-        SizeT axis = ndarray->ndims - i - 1;
-        ndarray->strides[axis] = stride_product * ndarray->itemsize;
-        stride_product *= ndarray->shape[axis];
+    __nac3_impl::stdlib::make_signed_t<SizeT> stride_product = 1;
+    for (auto i = 0; i < ndarray->ndims; i++) {
+        auto axis = ndarray->ndims - i - 1;
+        ndarray->strides->data()[axis] = stride_product * ndarray->itemsize;
+        stride_product *= ndarray->shape->data()[axis];
     }
 }
 
@@ -274,67 +276,67 @@ void __nac3_ndarray_util_assert_output_shape_same64(int64_t ndarray_ndims,
     assert_output_shape_same(ndarray_ndims, ndarray_shape, output_ndims, output_shape);
 }
 
-uint32_t __nac3_ndarray_size(NDArray<int32_t>* ndarray) {
+uint32_t __nac3_ndarray_size(NDArray<uint32_t>* ndarray) {
     return size(ndarray);
 }
 
-uint64_t __nac3_ndarray_size64(NDArray<int64_t>* ndarray) {
+uint64_t __nac3_ndarray_size64(NDArray<uint64_t>* ndarray) {
     return size(ndarray);
 }
 
-uint32_t __nac3_ndarray_nbytes(NDArray<int32_t>* ndarray) {
+uint32_t __nac3_ndarray_nbytes(NDArray<uint32_t>* ndarray) {
     return nbytes(ndarray);
 }
 
-uint64_t __nac3_ndarray_nbytes64(NDArray<int64_t>* ndarray) {
+uint64_t __nac3_ndarray_nbytes64(NDArray<uint64_t>* ndarray) {
     return nbytes(ndarray);
 }
 
-int32_t __nac3_ndarray_len(NDArray<int32_t>* ndarray) {
+int32_t __nac3_ndarray_len(NDArray<uint32_t>* ndarray) {
     return len(ndarray);
 }
 
-int64_t __nac3_ndarray_len64(NDArray<int64_t>* ndarray) {
+int64_t __nac3_ndarray_len64(NDArray<uint64_t>* ndarray) {
     return len(ndarray);
 }
 
-bool __nac3_ndarray_is_c_contiguous(NDArray<int32_t>* ndarray) {
+bool __nac3_ndarray_is_c_contiguous(NDArray<uint32_t>* ndarray) {
     return is_c_contiguous(ndarray);
 }
 
-bool __nac3_ndarray_is_c_contiguous64(NDArray<int64_t>* ndarray) {
+bool __nac3_ndarray_is_c_contiguous64(NDArray<uint64_t>* ndarray) {
     return is_c_contiguous(ndarray);
 }
 
-void* __nac3_ndarray_get_nth_pelement(const NDArray<int32_t>* ndarray, int32_t nth) {
+void* __nac3_ndarray_get_nth_pelement(const NDArray<uint32_t>* ndarray, int32_t nth) {
     return get_nth_pelement(ndarray, nth);
 }
 
-void* __nac3_ndarray_get_nth_pelement64(const NDArray<int64_t>* ndarray, int64_t nth) {
+void* __nac3_ndarray_get_nth_pelement64(const NDArray<uint64_t>* ndarray, int64_t nth) {
     return get_nth_pelement(ndarray, nth);
 }
 
-void* __nac3_ndarray_get_pelement_by_indices(const NDArray<int32_t>* ndarray, int32_t* indices) {
+void* __nac3_ndarray_get_pelement_by_indices(const NDArray<uint32_t>* ndarray, int32_t* indices) {
     return get_pelement_by_indices(ndarray, indices);
 }
 
-void* __nac3_ndarray_get_pelement_by_indices64(const NDArray<int64_t>* ndarray, int64_t* indices) {
+void* __nac3_ndarray_get_pelement_by_indices64(const NDArray<uint64_t>* ndarray, int64_t* indices) {
     return get_pelement_by_indices(ndarray, indices);
 }
 
-void __nac3_ndarray_set_strides_by_shape(NDArray<int32_t>* ndarray) {
+void __nac3_ndarray_set_strides_by_shape(NDArray<uint32_t>* ndarray) {
     set_strides_by_shape(ndarray);
 }
 
-void __nac3_ndarray_set_strides_by_shape64(NDArray<int64_t>* ndarray) {
+void __nac3_ndarray_set_strides_by_shape64(NDArray<uint64_t>* ndarray) {
     set_strides_by_shape(ndarray);
 }
 
-void __nac3_ndarray_copy_data(NDArray<int32_t>* src_ndarray, NDArray<int32_t>* dst_ndarray) {
+void __nac3_ndarray_copy_data(NDArray<uint32_t>* src_ndarray, NDArray<uint32_t>* dst_ndarray) {
     copy_data(src_ndarray, dst_ndarray);
 }
 
-void __nac3_ndarray_copy_data64(NDArray<int64_t>* src_ndarray, NDArray<int64_t>* dst_ndarray) {
+void __nac3_ndarray_copy_data64(NDArray<uint64_t>* src_ndarray, NDArray<uint64_t>* dst_ndarray) {
     copy_data(src_ndarray, dst_ndarray);
 }
 }

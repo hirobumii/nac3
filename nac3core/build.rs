@@ -25,20 +25,6 @@ fn compile_irrt(target: &str, flags: &[&str]) -> String {
     std::str::from_utf8(&output.stdout).unwrap().replace("\r\n", "\n")
 }
 
-// Returns true if an IR `define` block is a 64-bit IRRT function.
-// extern "C" 64-bit functions end with "64" (e.g. __nac3_ndarray_len64).
-// C++ template helpers using _BitInt(64) are mangled by Clang as "IDB64".
-fn is_64bit_define(block: &str, name_re: &Regex) -> bool {
-    if !block.starts_with("define") {
-        return false;
-    }
-    if let Some(cap) = name_re.captures(block) {
-        let name = &cap[1];
-        return name.ends_with("64") || name.contains("IDB64");
-    }
-    false
-}
-
 fn main() {
     // For debugging
     // Doing `DEBUG_DUMP_IRRT=1 cargo build -p nac3core` dumps the LLVM IR generated
@@ -75,6 +61,7 @@ fn main() {
 
     match env::var("PROFILE").as_deref() {
         Ok("debug") => {
+            flags.push("-g");
             flags.push("-O0");
             flags.push("-DIRRT_DEBUG_ASSERT");
         }
@@ -89,47 +76,55 @@ fn main() {
 
     let wasm32_output = compile_irrt("wasm32", &flags);
     let wasm64_output = compile_irrt("wasm64", &flags);
-    let mut filtered_output = String::with_capacity(wasm32_output.len() + wasm64_output.len());
+    let mut wasm32_filtered_output = String::with_capacity(wasm32_output.len());
+    let mut wasm64_filtered_output = String::with_capacity(wasm64_output.len());
 
     // Filter out irrelevant IR
     //
     // Regex:
     // - `(?ms:^define.*?\}$)` captures LLVM `define` blocks
     // - `(?m:^declare.*?$)` captures LLVM `declare` lines
-    // - `(?m:^%.+?=\s*type\s*\{.+?\}$)` captures LLVM `type` declarations
+    // - `(?m:^%.+?=\s*type\s*(?:\{.+?\}|opaque)$)` captures LLVM `type` declarations
+    // - `(?m:^\$.+=\s*comdat.+$)` captures COMDAT entries (only in debug mode)
     // - `(?m:^@.+?=.+$)` captures global constants
-    let regex_filter = Regex::new(
-        r"(?ms:^define.*?\}$)|(?m:^declare.*?$)|(?m:^%.+?=\s*type\s*\{.+?\}$)|(?m:^@.+?=.+$)",
-    )
-    .unwrap();
+    // - `(?m:^!.+?=.+$)` captures metadata (only in debug mode)
+    // - `(?m:^attributes #\d+\s*=.+$)` captures attribute groups (only in debug mode)
+    let regex_filter = match env::var("PROFILE").as_deref() {
+        Ok("debug") => {
+            Regex::new(
+                r"(?ms:^define.*?\}$)|(?m:^declare.*?$)|(?m:^%.+?=\s*type\s*(?:\{.+?\}|opaque)$)|(?m:^\$.+=\s*comdat.+$)|(?m:^@.+?=.+$)|(?m:^!.+?=.+$)|(?m:^attributes #\d+\s*=.+$)",
+            ).unwrap()
+        },
+        Ok("release") => Regex::new(
+            r"(?ms:^define.*?\}$)|(?m:^declare.*?$)|(?m:^%.+?=\s*type\s*(?:\{.+?\}|opaque)$)|(?m:^@.+?=.+$)",
+        )
+        .unwrap(),
+        _ => unreachable!(),
+    };
 
-    // Regex to extract the function name from a `define` block header
-    let name_re = Regex::new(r"@(\w+)\(").unwrap();
-
-    // From wasm32: keep everything except 64-bit define blocks
     for f in regex_filter.captures_iter(&wasm32_output) {
         assert_eq!(f.len(), 1);
-        if is_64bit_define(&f[0], &name_re) {
-            continue;
-        }
-        filtered_output.push_str(&f[0]);
-        filtered_output.push('\n');
+        wasm32_filtered_output.push_str(&f[0]);
+        wasm32_filtered_output.push('\n');
     }
 
-    // From wasm64: keep only 64-bit define blocks
     for f in regex_filter.captures_iter(&wasm64_output) {
         assert_eq!(f.len(), 1);
-        if is_64bit_define(&f[0], &name_re) {
-            filtered_output.push_str(&f[0]);
-            filtered_output.push('\n');
-        }
+        wasm64_filtered_output.push_str(&f[0]);
+        wasm64_filtered_output.push('\n');
     }
 
-    let filtered_output = Regex::new("(#\\d+)|(, *![0-9A-Za-z.]+)|(![0-9A-Za-z.]+)|(!\".*?\")")
-        .unwrap()
-        .replace_all(&filtered_output, "");
+    let regex_filter = match env::var("PROFILE").as_deref() {
+        Ok("debug") => Regex::new("(\"target-features\"=\".*\")").unwrap(),
+        Ok("release") => {
+            Regex::new("(#\\d+)|(, *![0-9A-Za-z.]+)|(![0-9A-Za-z.]+)|(!\".*?\")").unwrap()
+        }
+        _ => unreachable!(),
+    };
 
-    println!("cargo:rerun-if-env-changed={DEBUG_DUMP_IRRT}");
+    let wasm32_filtered_output = regex_filter.replace_all(&wasm32_filtered_output, "");
+    let wasm64_filtered_output = regex_filter.replace_all(&wasm64_filtered_output, "");
+
     if env::var(DEBUG_DUMP_IRRT).is_ok() {
         let mut file = File::create(out_dir.join("irrt-wasm32.ll")).unwrap();
         file.write_all(wasm32_output.as_bytes()).unwrap();
@@ -137,16 +132,28 @@ fn main() {
         let mut file = File::create(out_dir.join("irrt-wasm64.ll")).unwrap();
         file.write_all(wasm64_output.as_bytes()).unwrap();
 
-        let mut file = File::create(out_dir.join("irrt-filtered.ll")).unwrap();
-        file.write_all(filtered_output.as_bytes()).unwrap();
+        let mut file = File::create(out_dir.join("irrt-wasm32-filtered.ll")).unwrap();
+        file.write_all(wasm32_filtered_output.as_bytes()).unwrap();
+
+        let mut file = File::create(out_dir.join("irrt-wasm64-filtered.ll")).unwrap();
+        file.write_all(wasm64_filtered_output.as_bytes()).unwrap();
     }
 
     let mut llvm_as = Command::new("llvm-as-irrt")
         .stdin(Stdio::piped())
         .arg("-o")
-        .arg(out_dir.join("irrt.bc"))
+        .arg(out_dir.join("irrt32.bc"))
         .spawn()
         .unwrap();
-    llvm_as.stdin.as_mut().unwrap().write_all(filtered_output.as_bytes()).unwrap();
+    llvm_as.stdin.as_mut().unwrap().write_all(wasm32_filtered_output.as_bytes()).unwrap();
+    assert!(llvm_as.wait().unwrap().success());
+
+    let mut llvm_as = Command::new("llvm-as-irrt")
+        .stdin(Stdio::piped())
+        .arg("-o")
+        .arg(out_dir.join("irrt64.bc"))
+        .spawn()
+        .unwrap();
+    llvm_as.stdin.as_mut().unwrap().write_all(wasm64_filtered_output.as_bytes()).unwrap();
     assert!(llvm_as.wait().unwrap().success());
 }

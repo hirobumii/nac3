@@ -1135,7 +1135,7 @@ impl Nac3 {
 
         // Process IRRT
         context_ref!(context);
-        let irrt = load_irrt(context, resolver.as_ref());
+        let irrt = load_irrt(context, &self.codegen_options.target, resolver.as_ref());
 
         let fun_signature =
             FunSignature { args: vec![], ret: self.primitive.none, vars: VarMap::new() };

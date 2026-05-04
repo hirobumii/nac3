@@ -8,13 +8,14 @@ use crate::{
         CodeGenContext,
         expr::call_extern,
         irrt::get_usize_dependent_function_name,
-        stmt::{gen_array_var, gen_if_else_expr_callback},
+        stmt::gen_if_else_expr_callback,
         types::{
-            ProxyTypeExt,
+            ListValue, NDArrayType, ProxyTypeBase, RefCountedArrayType, RefCountedValue,
             array::ArrayLikeIndexer,
             field,
-            list::{ListType, ListValue},
-            ndarray::{NDArrayType, NDArrayValue},
+            list::ListType,
+            ndarray::RawNDArrayType,
+            reference::{TypedRefCountedType, TypedRefCountedValue},
         },
     },
     toplevel::helper::{arraylike_flatten_element_type, arraylike_get_ndims},
@@ -32,7 +33,7 @@ fn get_list_object_dtype_and_ndims<'ctx>(
     (ctx.get_llvm_type(dtype), ndims)
 }
 
-impl<'ctx> NDArrayValue<'ctx> {
+impl<'ctx> TypedRefCountedValue<'ctx, RawNDArrayType<'ctx>> {
     /// Implementation of `np_array(<list>, copy=True)`
     fn from_list_must_copy(
         ctx: &mut CodeGenContext<'ctx, '_>,
@@ -45,15 +46,19 @@ impl<'ctx> NDArrayValue<'ctx> {
         // Raise an exception if `list` is something abnormal like `[[1, 2], [3]]`.
         // If `list` has a consistent shape, deduce the shape and write it to `shape`.
         let ndims = ctx.size_t.const_int(ndims_int, false);
-        let shape = gen_array_var(ctx, ctx.size_t, ndims_int, None)?;
+        let shape = RefCountedArrayType::new(ctx, ctx.size_t, Some(ndims_int as u32))
+            .allocate(ctx, ndims, None)?;
         let fn_name = get_usize_dependent_function_name(
             ctx,
             "__nac3_ndarray_array_set_and_validate_list_shape",
         );
-        call_extern!(ctx: void _ = fn_name(list.value, ndims, shape.value.0))?;
+        call_extern!(ctx: void _ = fn_name(list.value, ndims, shape.inner_value(ctx, None)?.value.0))?;
 
-        let ndarray = NDArrayType::new(ctx, dtype, ndims_int).construct(ctx, name)?;
-        ndarray.shape(ctx)?.memcpy_from(ctx, shape.value.0)?;
+        let ndarray = NDArrayType::create(ctx, dtype, ndims_int).construct(ctx, name)?;
+        ndarray
+            .shape(ctx)?
+            .inner_value(ctx, Some(ctx.size_t.const_int(ndims_int, false)))?
+            .memcpy_from(ctx, shape.inner_value(ctx, None)?.value.0)?;
         ndarray.create_data(ctx)?;
 
         // Copy all contents from the list.
@@ -82,12 +87,22 @@ impl<'ctx> NDArrayValue<'ctx> {
             // `list` is not nested
             assert_eq!(ndims, 1);
 
-            let ndarray = NDArrayType::new(ctx, dtype, 1).construct(ctx, name)?;
+            let ndarray = NDArrayType::create(ctx, dtype, 1).construct(ctx, name)?;
 
-            let (data, len) = list.data(ctx)?.value;
-            ndarray.store(ctx, field!(data), data)?;
+            let list_len = list.inner_value(ctx)?.load(ctx, field!(len))?;
+            let list_data = list.inner_value(ctx)?.data(ctx)?;
+            let len = list_len;
+            // ndarray->data->refcount += 1;
+            list_data.header(ctx).safe_increment_refcount(ctx)?;
+            // ndarray->data = list->data;
+            ndarray.inner_value(ctx)?.store(ctx, field!(data), list_data.value)?;
             // ndarray->shape[0] = list->len;
-            ndarray.shape(ctx)?.set_unchecked(ctx, &ctx.size_t.const_zero(), len, None)?;
+            ndarray.shape(ctx)?.inner_value(ctx, None)?.set_unchecked(
+                ctx,
+                &ctx.size_t.const_zero(),
+                len,
+                None,
+            )?;
             // Set strides, the `data` is contiguous
             ndarray.set_strides_contiguous(ctx)?;
 
@@ -124,7 +139,8 @@ impl<'ctx> NDArrayValue<'ctx> {
         )?
         .unwrap();
 
-        Ok(NDArrayType::new(ctx, dtype, ndims).map_value(ndarray, None))
+        Ok(TypedRefCountedType::new(ctx, RawNDArrayType::new(ctx, dtype, ndims))
+            .map_value(ndarray, None))
     }
 
     /// Implementation of `np_array(<ndarray>, copy=copy)`.

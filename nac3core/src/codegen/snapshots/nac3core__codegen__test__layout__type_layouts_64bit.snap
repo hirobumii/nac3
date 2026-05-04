@@ -1,0 +1,219 @@
+---
+source: nac3core/src/codegen/test.rs
+expression: generate_layouts(&ctx)
+---
+ObjectHeader:
+  llvm_type: %__nac3_object_header = type { i32, i32 }
+  abi_size: 8
+  abi_alignment: 4
+  fields (2):
+    [0] offset=0, type=i32
+    [1] offset=4, type=i32
+
+Typeinfo:
+  llvm_type: ptr
+  abi_size: 8
+  abi_alignment: 8
+
+RefCountedArray<i32>:
+  llvm_type: { %__nac3_object_header, { i64, [0 x i32] } }
+  abi_size: 16
+  abi_alignment: 8
+  fields (2):
+    [0] offset=0, type=%__nac3_object_header = type { i32, i32 }
+    [1] offset=8, type={ i64, [0 x i32] }
+RefCountedArray<i32>.field[0]:
+  llvm_type: %__nac3_object_header = type { i32, i32 }
+  abi_size: 8
+  abi_alignment: 4
+  fields (2):
+    [0] offset=0, type=i32
+    [1] offset=4, type=i32
+RefCountedArray<i32>.field[1]:
+  llvm_type: { i64, [0 x i32] }
+  abi_size: 8
+  abi_alignment: 8
+  fields (2):
+    [0] offset=0, type=i64
+    [1] offset=8, type=[0 x i32]
+
+List:
+  llvm_type: { %__nac3_object_header, { ptr, i64 } }
+  abi_size: 24
+  abi_alignment: 8
+  fields (2):
+    [0] offset=0, type=%__nac3_object_header = type { i32, i32 }
+    [1] offset=8, type={ ptr, i64 }
+List.field[0]:
+  llvm_type: %__nac3_object_header = type { i32, i32 }
+  abi_size: 8
+  abi_alignment: 4
+  fields (2):
+    [0] offset=0, type=i32
+    [1] offset=4, type=i32
+List.field[1]:
+  llvm_type: { ptr, i64 }
+  abi_size: 16
+  abi_alignment: 8
+  fields (2):
+    [0] offset=0, type=ptr
+    [1] offset=8, type=i64
+
+NDArray<i32, 1>:
+  llvm_type: { %__nac3_object_header, %ndarray }
+  abi_size: 64
+  abi_alignment: 8
+  fields (2):
+    [0] offset=0, type=%__nac3_object_header = type { i32, i32 }
+    [1] offset=8, type=%ndarray = type { i64, i64, ptr, ptr, ptr, ptr, i64 }
+NDArray<i32, 1>.field[0]:
+  llvm_type: %__nac3_object_header = type { i32, i32 }
+  abi_size: 8
+  abi_alignment: 4
+  fields (2):
+    [0] offset=0, type=i32
+    [1] offset=4, type=i32
+NDArray<i32, 1>.field[1]:
+  llvm_type: %ndarray = type { i64, i64, ptr, ptr, ptr, ptr, i64 }
+  abi_size: 56
+  abi_alignment: 8
+  fields (7):
+    [0] offset=0, type=i64
+    [1] offset=8, type=i64
+    [2] offset=16, type=ptr
+    [3] offset=24, type=ptr
+    [4] offset=32, type=ptr
+    [5] offset=40, type=ptr
+    [6] offset=48, type=i64
+
+OptionSome<i32>:
+  llvm_type: { %__nac3_object_header, { i64, [1 x i32] } }
+  abi_size: 24
+  abi_alignment: 8
+  fields (2):
+    [0] offset=0, type=%__nac3_object_header = type { i32, i32 }
+    [1] offset=8, type={ i64, [1 x i32] }
+OptionSome<i32>.field[0]:
+  llvm_type: %__nac3_object_header = type { i32, i32 }
+  abi_size: 8
+  abi_alignment: 4
+  fields (2):
+    [0] offset=0, type=i32
+    [1] offset=4, type=i32
+OptionSome<i32>.field[1]:
+  llvm_type: { i64, [1 x i32] }
+  abi_size: 16
+  abi_alignment: 8
+  fields (2):
+    [0] offset=0, type=i64
+    [1] offset=8, type=[1 x i32]
+
+OptionSome<ptr>:
+  llvm_type: { %__nac3_object_header, { i64, [1 x ptr] } }
+  abi_size: 24
+  abi_alignment: 8
+  fields (2):
+    [0] offset=0, type=%__nac3_object_header = type { i32, i32 }
+    [1] offset=8, type={ i64, [1 x ptr] }
+OptionSome<ptr>.field[0]:
+  llvm_type: %__nac3_object_header = type { i32, i32 }
+  abi_size: 8
+  abi_alignment: 4
+  fields (2):
+    [0] offset=0, type=i32
+    [1] offset=4, type=i32
+OptionSome<ptr>.field[1]:
+  llvm_type: { i64, [1 x ptr] }
+  abi_size: 16
+  abi_alignment: 8
+  fields (2):
+    [0] offset=0, type=i64
+    [1] offset=8, type=[1 x ptr]
+
+Tuple<i32, i32>:
+  llvm_type: { %__nac3_object_header, { i32, i32 } }
+  abi_size: 16
+  abi_alignment: 4
+  fields (2):
+    [0] offset=0, type=%__nac3_object_header = type { i32, i32 }
+    [1] offset=8, type={ i32, i32 }
+Tuple<i32, i32>.field[0]:
+  llvm_type: %__nac3_object_header = type { i32, i32 }
+  abi_size: 8
+  abi_alignment: 4
+  fields (2):
+    [0] offset=0, type=i32
+    [1] offset=4, type=i32
+Tuple<i32, i32>.field[1]:
+  llvm_type: { i32, i32 }
+  abi_size: 8
+  abi_alignment: 4
+  fields (2):
+    [0] offset=0, type=i32
+    [1] offset=4, type=i32
+
+Tuple<ptr, i32>:
+  llvm_type: { %__nac3_object_header, { ptr, i32 } }
+  abi_size: 24
+  abi_alignment: 8
+  fields (2):
+    [0] offset=0, type=%__nac3_object_header = type { i32, i32 }
+    [1] offset=8, type={ ptr, i32 }
+Tuple<ptr, i32>.field[0]:
+  llvm_type: %__nac3_object_header = type { i32, i32 }
+  abi_size: 8
+  abi_alignment: 4
+  fields (2):
+    [0] offset=0, type=i32
+    [1] offset=4, type=i32
+Tuple<ptr, i32>.field[1]:
+  llvm_type: { ptr, i32 }
+  abi_size: 16
+  abi_alignment: 8
+  fields (2):
+    [0] offset=0, type=ptr
+    [1] offset=8, type=i32
+
+Class<i32, i32>:
+  llvm_type: { %__nac3_object_header, { i32, i32 } }
+  abi_size: 16
+  abi_alignment: 4
+  fields (2):
+    [0] offset=0, type=%__nac3_object_header = type { i32, i32 }
+    [1] offset=8, type={ i32, i32 }
+Class<i32, i32>.field[0]:
+  llvm_type: %__nac3_object_header = type { i32, i32 }
+  abi_size: 8
+  abi_alignment: 4
+  fields (2):
+    [0] offset=0, type=i32
+    [1] offset=4, type=i32
+Class<i32, i32>.field[1]:
+  llvm_type: { i32, i32 }
+  abi_size: 8
+  abi_alignment: 4
+  fields (2):
+    [0] offset=0, type=i32
+    [1] offset=4, type=i32
+
+Class<ptr, ptr>:
+  llvm_type: { %__nac3_object_header, { ptr, ptr } }
+  abi_size: 24
+  abi_alignment: 8
+  fields (2):
+    [0] offset=0, type=%__nac3_object_header = type { i32, i32 }
+    [1] offset=8, type={ ptr, ptr }
+Class<ptr, ptr>.field[0]:
+  llvm_type: %__nac3_object_header = type { i32, i32 }
+  abi_size: 8
+  abi_alignment: 4
+  fields (2):
+    [0] offset=0, type=i32
+    [1] offset=4, type=i32
+Class<ptr, ptr>.field[1]:
+  llvm_type: { ptr, ptr }
+  abi_size: 16
+  abi_alignment: 8
+  fields (2):
+    [0] offset=0, type=ptr
+    [1] offset=8, type=ptr
