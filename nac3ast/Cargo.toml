@@ -11,5 +11,5 @@ fold = []
 
 [dependencies]
 parking_lot = "0.12"
-string-interner = "0.19"
+string-interner = "0.20"
 fxhash = "0.2"
