@@ -446,17 +446,19 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
                     self.builder.get_insert_block().and_then(BasicBlock::get_parent).unwrap();
                 let then_block =
                     self.ctx.append_basic_block(current, &format!("after.{call_name}"));
-                let result = self.fn_store.do_call(
+                self.fn_store.do_call(
                     fun,
                     self.builder,
                     args,
                     |value, args| {
-                        Ok(self.builder.build_invoke(value, args, then_block, target, call_name)?)
+                        let invoke = self.builder.build_invoke(
+                            value, args, then_block, target, call_name,
+                        )?;
+                        self.builder.position_at_end(then_block);
+                        Ok(invoke)
                     },
                     allocate,
-                );
-                self.builder.position_at_end(then_block);
-                result
+                )
             },
         )
     }
