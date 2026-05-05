@@ -121,9 +121,8 @@ The build process (in `nac3core/build.rs`):
 1. Compile `irrt.cpp` to LLVM IR using `clang-irrt` targeting `wasm32` (to get target-independent IR).
 2. Filter the IR with regexes to keep only function definitions, declarations, type definitions, and globals.
 3. Strip debug metadata.
-4. Assemble to bitcode with `llvm-as-irrt`.
-5. Embed the bitcode via `include_bytes!()`.
+4. Embed the IR via `include_bytes!()`.
 
-At compile time, `load_irrt()` parses this embedded bitcode into an LLVM module and initializes exception ID globals. The module is then linked into the final output.
+At compile time, `load_irrt()` parses this embedded IR into an LLVM module and initializes exception ID globals. The module is then linked into the final output.
 
 To debug IRRT issues, set `DEBUG_DUMP_IRRT=1` when building nac3core. This writes `irrt.ll` (raw) and `irrt-filtered.ll` (after regex filtering) to the build output directory.

@@ -22,7 +22,7 @@ strum = "0.28"
 strum_macros = "0.28"
 
 [dependencies.inkwell]
-version = "0.8"
+version = "0.9"
 default-features = false
 features = ["llvm19-1-prefer-dynamic", "target-x86", "target-arm", "target-riscv", "no-libffi-linking"]
 

@@ -39,7 +39,6 @@ NAC3 and ARTIQ-10 work without major issues on OpenBSD, but need to be compiled 
 ```
 pkg_add rust llvm-16.0.6 patchelf
 ln -s /usr/local/bin/clang-16 /usr/local/bin/clang-irrt
-ln -s /usr/local/bin/llvm-as-16 /usr/local/bin/llvm-as-irrt
 LLVM_SYS_160_PREFIX=/usr/local cargo build --release
 patchelf --set-rpath /usr/local/llvm16/lib target/release/libnac3artiq.so
 patchelf --set-rpath /usr/local/llvm16/lib target/release/nac3standalone

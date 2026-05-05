@@ -7,7 +7,7 @@ use std::{
     fs::File,
     io::Write,
     path::Path,
-    process::{Command, Stdio},
+    process::Command,
 };
 
 use regex::Regex;
@@ -37,7 +37,7 @@ fn main() {
     let irrt_cpp_path = irrt_dir.join("irrt.cpp");
 
     /*
-     * HACK: Sadly, clang doesn't let us emit generic LLVM bitcode.
+     * HACK: Sadly, clang doesn't let us emit generic LLVM IR.
      * Compiling for WASM (wasm32 for 32-bit, wasm64 for 64-bit) and
      * filtering the output with regex is the closest we can get.
      */
@@ -139,21 +139,6 @@ fn main() {
         file.write_all(wasm64_filtered_output.as_bytes()).unwrap();
     }
 
-    let mut llvm_as = Command::new("llvm-as-irrt")
-        .stdin(Stdio::piped())
-        .arg("-o")
-        .arg(out_dir.join("irrt32.bc"))
-        .spawn()
-        .unwrap();
-    llvm_as.stdin.as_mut().unwrap().write_all(wasm32_filtered_output.as_bytes()).unwrap();
-    assert!(llvm_as.wait().unwrap().success());
-
-    let mut llvm_as = Command::new("llvm-as-irrt")
-        .stdin(Stdio::piped())
-        .arg("-o")
-        .arg(out_dir.join("irrt64.bc"))
-        .spawn()
-        .unwrap();
-    llvm_as.stdin.as_mut().unwrap().write_all(wasm64_filtered_output.as_bytes()).unwrap();
-    assert!(llvm_as.wait().unwrap().success());
+    File::create(out_dir.join("irrt32.ll")).unwrap().write_all(wasm32_filtered_output.as_bytes()).unwrap();
+    File::create(out_dir.join("irrt64.ll")).unwrap().write_all(wasm64_filtered_output.as_bytes()).unwrap();
 }

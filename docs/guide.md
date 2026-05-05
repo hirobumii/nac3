@@ -12,8 +12,7 @@ $ nix develop --command zsh      # or use your preferred shell
 $ cargo build --release
 ```
 
-The Nix flake provides LLVM 16, `clang-irrt`, `llvm-as-irrt`, and all other
-dependencies.
+The Nix flake provides LLVM, `clang-irrt`, and all other dependencies.
 
 ### PGO Build
 
