@@ -494,6 +494,30 @@ fn format_rpc_arg<'ctx>(
             buf.value.0
         }
 
+        TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::List.id() => {
+            // NAC3: list = { ObjectHeader, RefCountedArray<T>*, size_t }
+            // libproto_artiq: List = { elements: *const (), length: size_t }
+            //                  (see `Tag::List` in artiq/firmware/libproto_artiq/rpc_proto.rs)
+            let list =
+                ListType::from_unifier_type(ctx, arg_ty).map_value(arg.into_pointer_value(), None);
+            let inner = list.inner_value(ctx)?;
+            let len = inner.load(ctx, field!(len))?;
+            let data_ptr = inner.data(ctx)?.inner_value(ctx, Some(len))?.value.0;
+
+            let buf_ty = ctx.ctx.struct_type(&[ctx.ptr.into(), ctx.size_t.into()], false);
+            let buf = ctx.build_allocate(
+                AllocationScope::StackStartOfFunc,
+                buf_ty,
+                Some(&format!("rpc.arg{arg_idx}")),
+            )?;
+            let elements_field = ctx.builder.build_struct_gep(buf_ty, buf, 0, "")?;
+            ctx.builder.build_store(elements_field, data_ptr)?;
+            let length_field = ctx.builder.build_struct_gep(buf_ty, buf, 1, "")?;
+            ctx.builder.build_store(length_field, len)?;
+
+            ctx.builder.build_bit_cast(buf, llvm_pi8, "rpc.arg")?.into_pointer_value()
+        }
+
         _ => {
             let arg_slot = ctx.build_allocate(
                 AllocationScope::StackStartOfFunc,
