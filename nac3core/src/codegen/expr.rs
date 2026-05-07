@@ -451,9 +451,9 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
                     self.builder,
                     args,
                     |value, args| {
-                        let invoke = self.builder.build_invoke(
-                            value, args, then_block, target, call_name,
-                        )?;
+                        let invoke = self
+                            .builder
+                            .build_invoke(value, args, then_block, target, call_name)?;
                         self.builder.position_at_end(then_block);
                         Ok(invoke)
                     },
