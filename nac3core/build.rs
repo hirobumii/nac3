@@ -2,13 +2,7 @@
 #![warn(clippy::cargo, clippy::pedantic, clippy::nursery)]
 #![allow(clippy::cargo_common_metadata)]
 
-use std::{
-    env,
-    fs::File,
-    io::Write,
-    path::Path,
-    process::Command,
-};
+use std::{env, fs::File, io::Write, path::Path, process::Command};
 
 use regex::Regex;
 
@@ -139,6 +133,12 @@ fn main() {
         file.write_all(wasm64_filtered_output.as_bytes()).unwrap();
     }
 
-    File::create(out_dir.join("irrt32.ll")).unwrap().write_all(wasm32_filtered_output.as_bytes()).unwrap();
-    File::create(out_dir.join("irrt64.ll")).unwrap().write_all(wasm64_filtered_output.as_bytes()).unwrap();
+    File::create(out_dir.join("irrt32.ll"))
+        .unwrap()
+        .write_all(wasm32_filtered_output.as_bytes())
+        .unwrap();
+    File::create(out_dir.join("irrt64.ll"))
+        .unwrap()
+        .write_all(wasm64_filtered_output.as_bytes())
+        .unwrap();
 }
