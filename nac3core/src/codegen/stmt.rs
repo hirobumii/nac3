@@ -1692,7 +1692,7 @@ pub fn gen_while_callback<'ctx, 'a, G, CondFn, BodyFn, OrElseFn>(
     orelse: OrElseFn,
 ) -> anyhow::Result<()>
 where
-    G: CodeGenerator + ?Sized,
+    G: ?Sized,
     CondFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>) -> anyhow::Result<IntValue<'ctx>>,
     BodyFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>) -> anyhow::Result<()>,
     OrElseFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>) -> anyhow::Result<()>,
