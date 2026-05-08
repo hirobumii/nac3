@@ -595,7 +595,18 @@ fn marshal_to_wire<'ctx>(
                     ctx.builder.build_store(field_slot, field_val)?;
                 } else {
                     let wire_field_ptr = marshal_to_wire(ctx, *field_ty, field_val, "")?;
-                    ctx.builder.build_store(field_slot, wire_field_ptr)?;
+                    if matches!(&*ctx.unifier.get_ty_immutable(*field_ty), TypeEnum::TTuple { .. })
+                    {
+                        // copy the wire bytes directly into the field slot since nested tuples are
+                        // inline
+                        let inner_wire_ty = ctx.get_llvm_type(*field_ty);
+                        let inner_size = ctx.size_t.const_int(ctx.sizeof(inner_wire_ty), false);
+                        call_memcpy(ctx, field_slot, wire_field_ptr, inner_size)?;
+                    } else {
+                        // Refcounted fields (e.g. `list`) live behind a pointer in the wire
+                        // format, matching the pointer-sized NAC3 field slot.
+                        ctx.builder.build_store(field_slot, wire_field_ptr)?;
+                    }
                 }
             }
             Ok(buf)
