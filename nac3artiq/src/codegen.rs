@@ -26,7 +26,7 @@ use nac3core::{
     inkwell::{
         IntPredicate,
         module::Linkage,
-        types::IntType,
+        types::{BasicTypeEnum, IntType, StructType},
         values::{BasicValueEnum, IntValue, PhiValue, PointerValue, StructValue},
     },
     nac3parser::ast::{Expr, ExprKind, Located, Stmt, StmtKind, StrRef},
@@ -418,6 +418,51 @@ fn is_rpc_bit_compatible(unifier: &mut Unifier, primitives: &PrimitiveStore, ty:
     fields.iter().all(|f| is_rpc_bit_compatible(unifier, primitives, *f))
 }
 
+/// Returns the LLVM struct type matching `libproto_artiq`'s wire layout for a tuple with the
+/// given field types. See [`wire_type_of`] for the per-field expansion.
+fn wire_struct_type_of<'ctx>(
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    field_tys: &[Type],
+) -> StructType<'ctx> {
+    let wire_field_tys: Vec<BasicTypeEnum<'ctx>> =
+        field_tys.iter().map(|f| wire_type_of(ctx, *f)).collect();
+    ctx.ctx.struct_type(&wire_field_tys, false)
+}
+
+/// Returns the LLVM type matching `libproto_artiq`'s wire layout for a value of `ty`.
+///
+/// - Bit-compatible scalars utilize the same representation.
+/// - `list`s are both represented as a pointer to a struct containing
+///   `{ elements: ptr, length: size_t }` in both layouts, but the NAC3 representation prepends an
+///   `ObjectHeader`.
+/// - `ndarray`s are represented as an inline struct `{ data[], shape: size_t[ndims] }` in the wire
+///   format, while NAC3 represents them as a refcounted [`RawNDArrayType`] object.
+/// - Tuples that do not contain an `ndarray` field at any depth utilize the same representation;
+///   Otherwise, the inline format of `ndarray` fields is utilized.
+fn wire_type_of<'ctx>(ctx: &mut CodeGenContext<'ctx, '_>, ty: Type) -> BasicTypeEnum<'ctx> {
+    if is_ndarray_type(&ctx.unifier, ty) {
+        let (_, ndims_var) = unpack_ndarray_var_tys(&mut ctx.unifier, ty);
+        let ndims = extract_ndims(&ctx.unifier, ndims_var);
+        ctx.ctx
+            .struct_type(&[ctx.ptr.into(), ctx.size_t.array_type(ndims as u32).into()], false)
+            .into()
+    } else if let TypeEnum::TTuple { ty: fields, is_vararg_ctx: false } =
+        &*ctx.unifier.get_ty_immutable(ty)
+    {
+        let fields = fields.clone();
+        if fields
+            .iter()
+            .any(|f| is_ndarray_type(&ctx.unifier, *f) || tuple_contains_ndarray(&ctx.unifier, *f))
+        {
+            wire_struct_type_of(ctx, &fields).into()
+        } else {
+            ctx.get_llvm_type(ty)
+        }
+    } else {
+        ctx.get_llvm_type(ty)
+    }
+}
+
 /// Returns the size in bytes of the firmware's wire-shape descriptor for an `ndarray[T, N]`.
 fn ndarray_wire_descriptor_size(ctx: &mut CodeGenContext<'_, '_>, ty: Type) -> u64 {
     let (_, ndims_var) = unpack_ndarray_var_tys(&mut ctx.unifier, ty);
@@ -578,28 +623,28 @@ fn marshal_to_wire<'ctx>(
         }
 
         WireDescriptorKind::Tuple(field_tys) => {
-            // NAC3: tuple = { ObjectHeader, field0, field1, ... }
+            // NAC3: tuple = { field0, field1, ... }
             // libartiq_proto: tuple = { field0, field1, ... }
 
-            if tuple_contains_ndarray(&ctx.unifier, ty) {
-                bail!("RPC marshaling of tuple containing `ndarray` is not yet supported");
-            }
-
             let nac3_struct = value.into_struct_value();
-            let wire_ty = nac3_struct.get_type();
+            let wire_ty = wire_struct_type_of(ctx, field_tys.as_slice());
             let buf = ctx.build_allocate(AllocationScope::StackCurrentLoc, wire_ty, Some(name))?;
             for (i, field_ty) in field_tys.iter().enumerate() {
                 let field_val = unsafe { nac3_struct.get_field_at_index_unchecked(i as u32) };
                 let field_slot = ctx.builder.build_struct_gep(wire_ty, buf, i as u32, "")?;
                 if is_rpc_bit_compatible(&mut ctx.unifier, &ctx.primitives, *field_ty) {
                     ctx.builder.build_store(field_slot, field_val)?;
+                } else if is_ndarray_type(&ctx.unifier, *field_ty) {
+                    // ndarray fields are inlined as `[*data, shape[ndims]]`; reuse the existing
+                    // top-level helper, writing directly into the wire field slot.
+                    write_ndarray_wire_descriptor(ctx, *field_ty, field_val, field_slot)?;
                 } else {
                     let wire_field_ptr = marshal_to_wire(ctx, *field_ty, field_val, "")?;
                     if matches!(&*ctx.unifier.get_ty_immutable(*field_ty), TypeEnum::TTuple { .. })
                     {
                         // copy the wire bytes directly into the field slot since nested tuples are
                         // inline
-                        let inner_wire_ty = ctx.get_llvm_type(*field_ty);
+                        let inner_wire_ty = wire_type_of(ctx, *field_ty);
                         let inner_size = ctx.size_t.const_int(ctx.sizeof(inner_wire_ty), false);
                         call_memcpy(ctx, field_slot, wire_field_ptr, inner_size)?;
                     } else {
@@ -776,29 +821,41 @@ fn demarshal_from_wire<'ctx>(
         }
 
         WireDescriptorKind::Tuple(field_tys) => {
-            // NAC3: tuple = { ObjectHeader, field0, field1, ... }
+            // NAC3: tuple = { field0, field1, ... }
             // libartiq_proto: tuple = { field0, field1, ... }
 
-            if tuple_contains_ndarray(&ctx.unifier, ty) {
-                bail!("RPC demarshaling of tuple containing `ndarray` is not yet supported");
-            }
-
             let nac3_tuple_ty = ctx.get_llvm_type(ty);
+            let wire_ty = wire_struct_type_of(ctx, field_tys.as_slice());
+            let nac3_tuple = ctx.build_allocate(
+                AllocationScope::StackCurrentLoc,
+                nac3_tuple_ty,
+                Some("rpc.tup"),
+            )?;
             for (i, field_ty) in field_tys.iter().enumerate() {
+                let nac3_field_slot =
+                    ctx.builder.build_struct_gep(nac3_tuple_ty, nac3_tuple, i as u32, "")?;
+                let wire_field_slot =
+                    ctx.builder.build_struct_gep(wire_ty, wire_buf, i as u32, "")?;
                 if is_rpc_bit_compatible(&mut ctx.unifier, &ctx.primitives, *field_ty) {
-                    continue;
-                }
-                let field_slot =
-                    ctx.builder.build_struct_gep(nac3_tuple_ty, wire_buf, i as u32, "")?;
-                let inner_wire = if is_refcounted_type(&mut ctx.unifier, *field_ty) {
-                    ctx.builder.build_load(ctx.ptr, field_slot, "")?.into_pointer_value()
+                    let llvm_field_ty = ctx.get_llvm_type(*field_ty);
+                    let v = ctx.builder.build_load(llvm_field_ty, wire_field_slot, "")?;
+                    ctx.builder.build_store(nac3_field_slot, v)?;
+                } else if is_ndarray_type(&ctx.unifier, *field_ty) {
+                    // Reuse the existing top-level helper; the inline `[*data, shape[ndims]]`
+                    // descriptor lives at `wire_field_slot`.
+                    let nd = demarshal_ndarray_descriptor(ctx, *field_ty, wire_field_slot)?;
+                    ctx.builder.build_store(nac3_field_slot, nd)?;
                 } else {
-                    field_slot
-                };
-                let nac3_field = demarshal_from_wire(ctx, *field_ty, inner_wire)?;
-                ctx.builder.build_store(field_slot, nac3_field)?;
+                    let inner_wire = if is_refcounted_type(&mut ctx.unifier, *field_ty) {
+                        ctx.builder.build_load(ctx.ptr, wire_field_slot, "")?.into_pointer_value()
+                    } else {
+                        wire_field_slot
+                    };
+                    let nac3_field = demarshal_from_wire(ctx, *field_ty, inner_wire)?;
+                    ctx.builder.build_store(nac3_field_slot, nac3_field)?;
+                }
             }
-            Ok(ctx.builder.build_load(nac3_tuple_ty, wire_buf, "rpc.tup")?)
+            Ok(ctx.builder.build_load(nac3_tuple_ty, nac3_tuple, "rpc.tup")?)
         }
 
         WireDescriptorKind::Default => {
@@ -939,8 +996,6 @@ fn format_rpc_ret<'ctx>(
         let _ = ctx.build_call_or_invoke(&rpc_recv, &[llvm_pi8.const_null().into()], "rpc_recv")?;
         return Ok(None);
     }
-
-    let llvm_ret_ty = ctx.get_llvm_abi_type(ret_ty);
 
     let result = match &*ctx.unifier.get_ty_immutable(ret_ty) {
         TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
@@ -1122,15 +1177,14 @@ fn format_rpc_ret<'ctx>(
         }
 
         _ => {
-            if tuple_contains_ndarray(&ctx.unifier, ret_ty) {
-                bail!("RPC return of tuple containing `ndarray` is not yet supported");
-            }
-
             let prehead_bb = ctx.builder.get_insert_block().unwrap();
 
+            // The slot must be sized to the wire layout, which diverges when `ret_ty` contains an
+            // inline `ndarray` field.
+            let wire_ret_ty = wire_type_of(ctx, ret_ty);
             let slot = ctx.build_allocate(
                 AllocationScope::StackStartOfFunc,
-                llvm_ret_ty,
+                wire_ret_ty,
                 Some("rpc.ret.slot"),
             )?;
 
