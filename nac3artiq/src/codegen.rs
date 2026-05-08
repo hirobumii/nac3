@@ -1,5 +1,4 @@
 use std::{
-    cell::Cell,
     collections::{HashMap, hash_map::DefaultHasher},
     hash::{Hash, Hasher},
     mem,
@@ -27,7 +26,7 @@ use nac3core::{
         IntPredicate,
         module::Linkage,
         types::{BasicTypeEnum, IntType, StructType},
-        values::{BasicValueEnum, IntValue, PhiValue, PointerValue, StructValue},
+        values::{BasicValueEnum, IntValue, PointerValue, StructValue},
     },
     nac3parser::ast::{Expr, ExprKind, Located, Stmt, StmtKind, StrRef},
     symbol_resolver::ValueEnum,
@@ -1126,34 +1125,44 @@ fn format_rpc_ret<'ctx>(
             let ndarray_data =
                 unsafe { ctx.builder.build_gep(ctx.i8, ndarray_data, &[ndarray_offset], "")? };
 
-            let prehead_bb = ctx.builder.get_insert_block().unwrap();
-
             // Track the current `rpc_recv` buffer pointer and the size returned by the most recent
             // `rpc_recv`
-            let loop_state = Cell::<Option<(PhiValue<'ctx>, IntValue<'ctx>)>>::new(None);
+            let loop_stackptr = call_stacksave(ctx, None)?;
+            let ptr_slot = ctx.build_allocate(
+                AllocationScope::StackCurrentLoc,
+                llvm_pi8,
+                Some("rpc.ptr.slot"),
+            )?;
+            let size_slot = ctx.build_allocate(
+                AllocationScope::StackCurrentLoc,
+                llvm_i32,
+                Some("rpc.size.slot"),
+            )?;
+            ctx.builder.build_store(ptr_slot, ndarray_data)?;
 
             gen_while_callback(
                 &mut (),
                 ctx,
                 Some("rpc"),
                 |(), ctx| {
-                    let phi = ctx.builder.build_phi(llvm_pi8, "rpc.ptr")?;
-                    phi.add_incoming(&[(&ndarray_data, prehead_bb)]);
+                    let ptr =
+                        ctx.builder.build_load(llvm_pi8, ptr_slot, "rpc.ptr")?.into_pointer_value();
                     let alloc_size = ctx
-                        .build_call_or_invoke(&rpc_recv, &[phi.as_basic_value()], "rpc.size.next")?
+                        .build_call_or_invoke(&rpc_recv, &[ptr.into()], "rpc.size.next")?
                         .map(BasicValueEnum::into_int_value)
                         .unwrap();
+                    ctx.builder.build_store(size_slot, alloc_size)?;
                     let not_done = ctx.builder.build_int_compare(
                         IntPredicate::NE,
                         alloc_size,
                         llvm_i32.const_zero(),
                         "rpc.continue",
                     )?;
-                    loop_state.set(Some((phi, alloc_size)));
                     Ok(not_done)
                 },
                 |(), ctx| {
-                    let (phi, alloc_size) = loop_state.get().unwrap();
+                    let alloc_size =
+                        ctx.builder.build_load(llvm_i32, size_slot, "rpc.size")?.into_int_value();
                     // Align the allocation to sizeof(T)
                     let alloc_size = round_up(ctx, alloc_size, itemsize)?;
                     let size = ctx.builder.build_int_unsigned_div(alloc_size, itemsize, "")?;
@@ -1166,19 +1175,18 @@ fn format_rpc_ret<'ctx>(
                         )?
                         .value
                         .0;
-                    let body_end_bb = ctx.builder.get_insert_block().unwrap();
-                    phi.add_incoming(&[(&alloc_ptr, body_end_bb)]);
+                    ctx.builder.build_store(ptr_slot, alloc_ptr)?;
                     Ok(())
                 },
                 |(), _ctx| Ok(()),
             )?;
 
+            call_stackrestore(ctx, loop_stackptr)?;
+
             ndarray.value.into()
         }
 
         _ => {
-            let prehead_bb = ctx.builder.get_insert_block().unwrap();
-
             // The slot must be sized to the wire layout, which diverges when `ret_ty` contains an
             // inline `ndarray` field.
             let wire_ret_ty = wire_type_of(ctx, ret_ty);
@@ -1190,30 +1198,42 @@ fn format_rpc_ret<'ctx>(
 
             // Track the current `rpc_recv` buffer pointer and the size returned by the most recent
             // `rpc_recv`
-            let loop_state = Cell::<Option<(PhiValue<'ctx>, IntValue<'ctx>)>>::new(None);
+            let loop_stackptr = call_stacksave(ctx, None)?;
+            let ptr_slot = ctx.build_allocate(
+                AllocationScope::StackCurrentLoc,
+                llvm_pi8,
+                Some("rpc.ptr.slot"),
+            )?;
+            let size_slot = ctx.build_allocate(
+                AllocationScope::StackCurrentLoc,
+                llvm_i32,
+                Some("rpc.size.slot"),
+            )?;
+            ctx.builder.build_store(ptr_slot, slot)?;
 
             gen_while_callback(
                 &mut (),
                 ctx,
                 Some("rpc"),
                 |(), ctx| {
-                    let phi = ctx.builder.build_phi(llvm_pi8, "rpc.ptr")?;
-                    phi.add_incoming(&[(&slot, prehead_bb)]);
+                    let ptr =
+                        ctx.builder.build_load(llvm_pi8, ptr_slot, "rpc.ptr")?.into_pointer_value();
                     let alloc_size = ctx
-                        .build_call_or_invoke(&rpc_recv, &[phi.as_basic_value()], "rpc.size.next")?
+                        .build_call_or_invoke(&rpc_recv, &[ptr.into()], "rpc.size.next")?
                         .map(BasicValueEnum::into_int_value)
                         .unwrap();
+                    ctx.builder.build_store(size_slot, alloc_size)?;
                     let not_done = ctx.builder.build_int_compare(
                         IntPredicate::NE,
                         alloc_size,
                         llvm_i32.const_zero(),
                         "rpc.continue",
                     )?;
-                    loop_state.set(Some((phi, alloc_size)));
                     Ok(not_done)
                 },
                 |(), ctx| {
-                    let (phi, alloc_size) = loop_state.get().unwrap();
+                    let alloc_size =
+                        ctx.builder.build_load(llvm_i32, size_slot, "rpc.size")?.into_int_value();
                     let alloc_ptr = ctx
                         .build_dyn_array_allocate(
                             AllocationScope::Default,
@@ -1223,12 +1243,13 @@ fn format_rpc_ret<'ctx>(
                         )?
                         .value
                         .0;
-                    let body_end_bb = ctx.builder.get_insert_block().unwrap();
-                    phi.add_incoming(&[(&alloc_ptr, body_end_bb)]);
+                    ctx.builder.build_store(ptr_slot, alloc_ptr)?;
                     Ok(())
                 },
                 |(), _ctx| Ok(()),
             )?;
+
+            call_stackrestore(ctx, loop_stackptr)?;
 
             // Obtain the wire buffer for demarshaling:
             // - For refcounted types the slot is a pointer to the wire buffer
