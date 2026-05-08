@@ -1,4 +1,5 @@
 use std::{
+    cell::Cell,
     collections::{HashMap, hash_map::DefaultHasher},
     hash::{Hash, Hasher},
     mem,
@@ -13,7 +14,9 @@ use nac3core::{
         basic_type_all, bool_to_i1,
         expr::{call_extern, destructure_range, gen_call},
         llvm_intrinsics::{call_int_smax, call_memcpy, call_stackrestore, call_stacksave},
-        stmt::{gen_block, gen_for_callback_incrementing, gen_if_callback, gen_with},
+        stmt::{
+            gen_block, gen_for_callback_incrementing, gen_if_callback, gen_while_callback, gen_with,
+        },
         type_aligned_allocate,
         types::{
             ArrayLikeIndexer, ClassType, ExceptionType, ListType, NDArrayType, ProxyTypeBase,
@@ -24,7 +27,7 @@ use nac3core::{
         IntPredicate,
         module::Linkage,
         types::IntType,
-        values::{BasicValueEnum, IntValue, PointerValue, StructValue},
+        values::{BasicValueEnum, IntValue, PhiValue, PointerValue, StructValue},
     },
     nac3parser::ast::{Expr, ExprKind, Located, Stmt, StmtKind, StrRef},
     symbol_resolver::ValueEnum,
@@ -35,7 +38,7 @@ use nac3core::{
     },
     typecheck::{
         type_inferencer::PrimitiveStore,
-        typedef::{FunSignature, FuncArg, Type, TypeEnum, VarMap, iter_type_vars},
+        typedef::{FunSignature, FuncArg, Type, TypeEnum, Unifier, VarMap, iter_type_vars},
     },
 };
 use pyo3::{
@@ -366,6 +369,435 @@ impl CodeGenerator for ArtiqCodeGenerator<'_> {
     }
 }
 
+/// The type of wire descriptor for a value to be marshaled or demarshaled for RPC.
+enum WireDescriptorKind {
+    List(Type),
+    Tuple(Vec<Type>),
+    Default,
+}
+
+/// Returns whether `ty` is the `ndarray` primitive type.
+fn is_ndarray_type(unifier: &Unifier, ty: Type) -> bool {
+    matches!(
+        &*unifier.get_ty_immutable(ty),
+        TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id(),
+    )
+}
+
+/// Returns whether `ty` is a tuple containing a top-level or tuple-nested `ndarray` field, e.g.
+/// `tuple[ndarray, ...]` and `tuple[tuple[ndarray, ...], ...]`.
+fn tuple_contains_ndarray(unifier: &Unifier, ty: Type) -> bool {
+    let fields = match &*unifier.get_ty_immutable(ty) {
+        TypeEnum::TTuple { ty: fields, is_vararg_ctx: false } => fields.clone(),
+        _ => return false,
+    };
+    fields.iter().any(|f| is_ndarray_type(unifier, *f) || tuple_contains_ndarray(unifier, *f))
+}
+
+/// Returns whether a value of `ty` can be `memcpy`'d directly between NAC3's in-memory
+/// representation and `libproto_artiq`'s wire representation without any layout conversion.
+///
+/// All primitive types (`int32`, `int64`, `float`, `bool`, `none`, `str`), as well as tuples
+/// composed of primitive types are RPC-bit-compatible. All composite types are not
+/// RPC-bit-compatible because they carry an `ObjectHeader`.
+fn is_rpc_bit_compatible(unifier: &mut Unifier, primitives: &PrimitiveStore, ty: Type) -> bool {
+    if unifier.unioned(ty, primitives.int32)
+        || unifier.unioned(ty, primitives.int64)
+        || unifier.unioned(ty, primitives.float)
+        || unifier.unioned(ty, primitives.bool)
+        || unifier.unioned(ty, primitives.none)
+        || unifier.unioned(ty, primitives.str)
+    {
+        return true;
+    }
+
+    let fields = match &*unifier.get_ty_immutable(ty) {
+        TypeEnum::TTuple { ty: fields, is_vararg_ctx: false } => fields.clone(),
+        _ => return false,
+    };
+    fields.iter().all(|f| is_rpc_bit_compatible(unifier, primitives, *f))
+}
+
+/// Returns the size in bytes of the firmware's wire-shape descriptor for an `ndarray[T, N]`.
+fn ndarray_wire_descriptor_size(ctx: &mut CodeGenContext<'_, '_>, ty: Type) -> u64 {
+    let (_, ndims_var) = unpack_ndarray_var_tys(&mut ctx.unifier, ty);
+    let ndims = extract_ndims(&ctx.unifier, ndims_var);
+    ctx.sizeof(ctx.ptr) + ctx.sizeof(ctx.size_t) * ndims
+}
+
+/// Writes an `ndarray`'s wire-shape descriptor `[*data, shape[ndims]]` (`(1 + ndims) *
+/// sizeof(usize)` bytes on 32-bit) at the given destination buffer.
+///
+/// `dest` must be a writable buffer of at least that size, and must be suitably aligned for
+/// `*data` (i.e. pointer alignment). The function makes the NAC3 ndarray contiguous and writes
+/// the resulting data pointer plus the shape array.
+fn write_ndarray_wire_descriptor<'ctx>(
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    ty: Type,
+    value: BasicValueEnum<'ctx>,
+    dest: PointerValue<'ctx>,
+) -> anyhow::Result<()> {
+    let llvm_pi8 = ctx.ptr;
+    let (elem_ty, ndims_var) = unpack_ndarray_var_tys(&mut ctx.unifier, ty);
+    let ndims = extract_ndims(&ctx.unifier, ndims_var);
+    let dtype = ctx.get_llvm_type(elem_ty);
+    let ndarray =
+        NDArrayType::create(ctx, dtype, ndims).map_value(value.into_pointer_value(), None);
+    let carray = ndarray.make_contiguous_ndarray(ctx)?;
+
+    let sizeof_usize = ctx.sizeof(ctx.size_t);
+    let sizeof_pdata = ctx.sizeof(ctx.ptr);
+    let sizeof_pdata_ = ctx.size_t.const_int(sizeof_pdata, false);
+
+    let dest_shape = unsafe { ctx.builder.build_gep(ctx.i8, dest, &[sizeof_pdata_], "")? };
+
+    let carray_nbytes = ndarray.nbytes(ctx)?;
+    let carray_data = carray.inner_value(ctx)?.data(ctx)?;
+    let carray_data = ctx.builder.build_pointer_cast(
+        carray_data.inner_value(ctx, Some(carray_nbytes))?.value.0,
+        llvm_pi8,
+        "",
+    )?;
+    call_memcpy(ctx, dest, carray_data, sizeof_pdata_)?;
+
+    let carray_shape = ndarray.shape(ctx)?.inner_value(ctx, None)?.value.0;
+    let sizeof_buf_shape_ = ctx.size_t.const_int(sizeof_usize * ndims, false);
+    call_memcpy(ctx, dest_shape, carray_shape, sizeof_buf_shape_)?;
+
+    Ok(())
+}
+
+/// Recursively converts a NAC3 value into the firmware's on-the-wire representation.
+///
+/// Returns a pointer to a freshly stack-allocated buffer holding the wire-format value.
+fn marshal_to_wire<'ctx>(
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    ty: Type,
+    value: BasicValueEnum<'ctx>,
+    name: &str,
+) -> anyhow::Result<PointerValue<'ctx>> {
+    let kind = match &*ctx.unifier.get_ty_immutable(ty) {
+        TypeEnum::TObj { obj_id, params, .. } if *obj_id == PrimDef::List.id() => {
+            WireDescriptorKind::List(iter_type_vars(params).next().unwrap().ty)
+        }
+        TypeEnum::TTuple { ty: fields, is_vararg_ctx: false } => {
+            WireDescriptorKind::Tuple(fields.clone())
+        }
+        _ => WireDescriptorKind::Default,
+    };
+
+    match kind {
+        WireDescriptorKind::List(elem_ty) => {
+            // NAC3: list = { _: ObjectHeader, data: ptr, length: size_t }
+            // libartiq_proto: list = {elements: ptr, length: size_t}
+            let list = ListType::create(ctx, elem_ty).map_value(value.into_pointer_value(), None);
+            let inner = list.inner_value(ctx)?;
+            let length = inner.load(ctx, field!(len))?;
+
+            let elements_ptr = if is_rpc_bit_compatible(&mut ctx.unifier, &ctx.primitives, elem_ty)
+            {
+                // element type of list is bit-compatible - can be directly memcpy'ed
+                inner.data(ctx)?.inner_value(ctx, Some(length))?.value.0
+            } else if is_ndarray_type(&ctx.unifier, elem_ty) {
+                // element type of list is ndarray - needs to be separately marshaled as
+                // [...data, shape[ndims]]
+                let descriptor_size = ndarray_wire_descriptor_size(ctx, elem_ty);
+                let descriptor_size_v = ctx.size_t.const_int(descriptor_size, false);
+                let total_bytes = ctx.builder.build_int_mul(length, descriptor_size_v, "")?;
+                let wire_array = ctx
+                    .build_dyn_array_allocate(
+                        AllocationScope::StackCurrentLoc,
+                        ctx.i8,
+                        total_bytes,
+                        Some("rpc.arr.wire"),
+                    )?
+                    .value
+                    .0;
+                let nac3_data = inner.data(ctx)?;
+                gen_for_callback_incrementing(
+                    &mut (),
+                    ctx,
+                    None,
+                    ctx.size_t.const_zero(),
+                    (length, false),
+                    |(), ctx, _hooks, i| {
+                        let nac3_elem = nac3_data
+                            .inner_value(ctx, Some(length))?
+                            .get_unchecked(ctx, &i, None)?;
+                        let offset = ctx.builder.build_int_mul(i, descriptor_size_v, "")?;
+                        let dest =
+                            unsafe { ctx.builder.build_gep(ctx.i8, wire_array, &[offset], "")? };
+                        write_ndarray_wire_descriptor(ctx, elem_ty, nac3_elem, dest)
+                    },
+                    ctx.size_t.const_int(1, false),
+                    |(), _| Ok(()),
+                )?;
+                wire_array
+            } else {
+                // element type of list is a composite type - build a runtime array of wire pointers
+                // and marshal each element recursively
+                let nac3_data = inner.data(ctx)?;
+                let wire_array = ctx
+                    .build_dyn_array_allocate(
+                        AllocationScope::StackCurrentLoc,
+                        ctx.ptr,
+                        length,
+                        Some("rpc.list.wire"),
+                    )?
+                    .value
+                    .0;
+                gen_for_callback_incrementing(
+                    &mut (),
+                    ctx,
+                    None,
+                    ctx.size_t.const_zero(),
+                    (length, false),
+                    |(), ctx, _hooks, i| {
+                        let nac3_elem = nac3_data
+                            .inner_value(ctx, Some(length))?
+                            .get_unchecked(ctx, &i, None)?;
+                        let wire_elem = marshal_to_wire(ctx, elem_ty, nac3_elem, "")?;
+                        let wire_slot =
+                            unsafe { ctx.builder.build_gep(ctx.ptr, wire_array, &[i], "")? };
+                        ctx.builder.build_store(wire_slot, wire_elem)?;
+                        Ok(())
+                    },
+                    ctx.size_t.const_int(1, false),
+                    |(), _| Ok(()),
+                )?;
+                wire_array
+            };
+
+            let wire_ty = ctx.ctx.struct_type(&[ctx.ptr.into(), ctx.size_t.into()], false);
+            let buf = ctx.build_allocate(AllocationScope::StackCurrentLoc, wire_ty, Some(name))?;
+            let elements_field = ctx.builder.build_struct_gep(wire_ty, buf, 0, "")?;
+            ctx.builder.build_store(elements_field, elements_ptr)?;
+            let length_field = ctx.builder.build_struct_gep(wire_ty, buf, 1, "")?;
+            ctx.builder.build_store(length_field, length)?;
+            Ok(buf)
+        }
+
+        WireDescriptorKind::Tuple(field_tys) => {
+            // NAC3: tuple = { ObjectHeader, field0, field1, ... }
+            // libartiq_proto: tuple = { field0, field1, ... }
+
+            if tuple_contains_ndarray(&ctx.unifier, ty) {
+                bail!("RPC marshaling of tuple containing `ndarray` is not yet supported");
+            }
+
+            let nac3_struct = value.into_struct_value();
+            let wire_ty = nac3_struct.get_type();
+            let buf = ctx.build_allocate(AllocationScope::StackCurrentLoc, wire_ty, Some(name))?;
+            for (i, field_ty) in field_tys.iter().enumerate() {
+                let field_val = unsafe { nac3_struct.get_field_at_index_unchecked(i as u32) };
+                let field_slot = ctx.builder.build_struct_gep(wire_ty, buf, i as u32, "")?;
+                if is_rpc_bit_compatible(&mut ctx.unifier, &ctx.primitives, *field_ty) {
+                    ctx.builder.build_store(field_slot, field_val)?;
+                } else {
+                    let wire_field_ptr = marshal_to_wire(ctx, *field_ty, field_val, "")?;
+                    ctx.builder.build_store(field_slot, wire_field_ptr)?;
+                }
+            }
+            Ok(buf)
+        }
+
+        WireDescriptorKind::Default => {
+            // marshal bit-compatible scalars as-is
+            let buf =
+                ctx.build_allocate(AllocationScope::StackCurrentLoc, value.get_type(), Some(name))?;
+            ctx.builder.build_store(buf, value)?;
+            Ok(buf)
+        }
+    }
+}
+
+/// Reads an `ndarray`'s wire-shape descriptor `[*data, shape[ndims]]` from the given location,
+/// and constructs a fresh NAC3 ndarray with that shape and data.
+///
+/// The `descriptor` should contain `sizeof(usize) * (1 + ndims)` bytes of data.
+fn demarshal_ndarray_descriptor<'ctx>(
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    ty: Type,
+    descriptor: PointerValue<'ctx>,
+) -> anyhow::Result<PointerValue<'ctx>> {
+    let (elem_ty, ndims_var) = unpack_ndarray_var_tys(&mut ctx.unifier, ty);
+    let ndims = extract_ndims(&ctx.unifier, ndims_var);
+    let dtype = ctx.get_llvm_type(elem_ty);
+
+    let wire_data =
+        ctx.builder.build_load(ctx.ptr, descriptor, "rpc.nd.data")?.into_pointer_value();
+    let sizeof_pdata = ctx.sizeof(ctx.ptr);
+    let sizeof_pdata_v = ctx.size_t.const_int(sizeof_pdata, false);
+    let descriptor_shape =
+        unsafe { ctx.builder.build_gep(ctx.i8, descriptor, &[sizeof_pdata_v], "")? };
+
+    let ndarray = NDArrayType::create(ctx, dtype, ndims).construct(ctx, None)?;
+    ndarray.shape(ctx)?.inner_value(ctx, None)?.memcpy_from(ctx, descriptor_shape)?;
+    ndarray.create_data(ctx)?;
+
+    let nelems = ndarray.size(ctx)?;
+    let itemsize = ctx.sizeof(ndarray.ty.object.dtype);
+    let nbytes = ctx.builder.build_int_mul(nelems, ctx.size_t.const_int(itemsize, false), "")?;
+
+    let ndarray_offset = ndarray.inner_value(ctx)?.load(ctx, field!(offset))?;
+    let ndarray_data =
+        ndarray.inner_value(ctx)?.base_data(ctx)?.inner_value(ctx, Some(nelems))?.value.0;
+    let ndarray_data =
+        unsafe { ctx.builder.build_gep(ctx.i8, ndarray_data, &[ndarray_offset], "")? };
+
+    call_memcpy(ctx, ndarray_data, wire_data, nbytes)?;
+    ctx.builder.build_free(wire_data)?;
+
+    Ok(ndarray.value)
+}
+
+/// Recursively constructs a NAC3 value from the firmware's on-the-wire representation in
+/// `wire_buf`.
+///
+/// `wire_buf` points to the start of the wire data for `ty`:
+/// - **List**: `wire_buf` is the firmware-allocated `*{elements, length, [pad], data…}`. After
+///   demarshaling, the wire block is `build_free`'d and a fresh refcount-aware NAC3 list is
+///   returned. Non-bit-compatible elements are walked recursively.
+/// - **Tuple**: `wire_buf` points to the wire-shape inline tuple (which has the same field
+///   offsets as NAC3's tuple — both are non-refcounted, so layouts coincide *except* at
+///   list-typed fields). Such fields are demarshaled in place; the loaded tuple value is
+///   returned.
+/// - **Scalar / `str` / `none`**: load directly.
+fn demarshal_from_wire<'ctx>(
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    ty: Type,
+    wire_buf: PointerValue<'ctx>,
+) -> anyhow::Result<BasicValueEnum<'ctx>> {
+    let kind = match &*ctx.unifier.get_ty_immutable(ty) {
+        TypeEnum::TObj { obj_id, params, .. } if *obj_id == PrimDef::List.id() => {
+            WireDescriptorKind::List(iter_type_vars(params).next().unwrap().ty)
+        }
+        TypeEnum::TTuple { ty: fields, is_vararg_ctx: false } => {
+            WireDescriptorKind::Tuple(fields.clone())
+        }
+        _ => WireDescriptorKind::Default,
+    };
+
+    match kind {
+        WireDescriptorKind::List(elem_ty) => {
+            // NAC3: list = { _: ObjectHeader, data: ptr, length: size_t }
+            // libartiq_proto: list = {elements: ptr, length: size_t}
+            let wire_ty = ctx.ctx.struct_type(&[ctx.ptr.into(), ctx.size_t.into()], false);
+            let elements_field = ctx.builder.build_struct_gep(wire_ty, wire_buf, 0, "")?;
+            let elements_ptr = ctx
+                .builder
+                .build_load(ctx.ptr, elements_field, "rpc.elements")?
+                .into_pointer_value();
+            let length_field = ctx.builder.build_struct_gep(wire_ty, wire_buf, 1, "")?;
+            let length =
+                ctx.builder.build_load(ctx.size_t, length_field, "rpc.length")?.into_int_value();
+
+            let list = ListType::create(ctx, elem_ty).construct(ctx, length, Some("rpc.list"))?;
+            let nac3_data =
+                list.inner_value(ctx)?.data(ctx)?.inner_value(ctx, Some(length))?.value.0;
+
+            if is_rpc_bit_compatible(&mut ctx.unifier, &ctx.primitives, elem_ty) {
+                // element type of list is bit-compatible - can be directly memcpy'ed
+                let elem_llvm_ty = ctx.get_llvm_type(elem_ty);
+                let elem_size = ctx.size_t.const_int(ctx.sizeof(elem_llvm_ty), false);
+                let total_bytes = ctx.builder.build_int_mul(length, elem_size, "")?;
+                call_memcpy(ctx, nac3_data, elements_ptr, total_bytes)?;
+            } else if is_ndarray_type(&ctx.unifier, elem_ty) {
+                // element type of list is ndarray - needs to be separately demarshaled into
+                // NAC3 ndarrays
+                let descriptor_size = ndarray_wire_descriptor_size(ctx, elem_ty);
+                let descriptor_size_v = ctx.size_t.const_int(descriptor_size, false);
+                gen_for_callback_incrementing(
+                    &mut (),
+                    ctx,
+                    None,
+                    ctx.size_t.const_zero(),
+                    (length, false),
+                    |(), ctx, _hooks, i| {
+                        let offset = ctx.builder.build_int_mul(i, descriptor_size_v, "")?;
+                        let descriptor =
+                            unsafe { ctx.builder.build_gep(ctx.i8, elements_ptr, &[offset], "")? };
+                        let nac3_ndarray = demarshal_ndarray_descriptor(ctx, elem_ty, descriptor)?;
+                        let nac3_elem_slot =
+                            unsafe { ctx.builder.build_gep(ctx.ptr, nac3_data, &[i], "")? };
+                        ctx.builder.build_store(nac3_elem_slot, nac3_ndarray)?;
+                        Ok(())
+                    },
+                    ctx.size_t.const_int(1, false),
+                    |(), _| Ok(()),
+                )?;
+            } else {
+                // element type of list is a composite type - demarshal each element recursively
+                let elem_llvm_ty = ctx.get_llvm_type(elem_ty);
+                let is_indirect = is_refcounted_type(&mut ctx.unifier, elem_ty);
+                gen_for_callback_incrementing(
+                    &mut (),
+                    ctx,
+                    None,
+                    ctx.size_t.const_zero(),
+                    (length, false),
+                    |(), ctx, _hooks, i| {
+                        let wire_elem_slot =
+                            unsafe { ctx.builder.build_gep(elem_llvm_ty, elements_ptr, &[i], "")? };
+                        let nac3_elem_slot =
+                            unsafe { ctx.builder.build_gep(elem_llvm_ty, nac3_data, &[i], "")? };
+                        let inner_wire = if is_indirect {
+                            ctx.builder
+                                .build_load(ctx.ptr, wire_elem_slot, "")?
+                                .into_pointer_value()
+                        } else {
+                            wire_elem_slot
+                        };
+                        let nac3_val = demarshal_from_wire(ctx, elem_ty, inner_wire)?;
+                        ctx.builder.build_store(nac3_elem_slot, nac3_val)?;
+                        Ok(())
+                    },
+                    ctx.size_t.const_int(1, false),
+                    |(), _| Ok(()),
+                )?;
+            }
+
+            // free the wire block after we demarshaling - inner wire blocks are freed by their own
+            // recursive demarshal calls
+            ctx.builder.build_free(wire_buf)?;
+
+            Ok(list.value.into())
+        }
+
+        WireDescriptorKind::Tuple(field_tys) => {
+            // NAC3: tuple = { ObjectHeader, field0, field1, ... }
+            // libartiq_proto: tuple = { field0, field1, ... }
+
+            if tuple_contains_ndarray(&ctx.unifier, ty) {
+                bail!("RPC demarshaling of tuple containing `ndarray` is not yet supported");
+            }
+
+            let nac3_tuple_ty = ctx.get_llvm_type(ty);
+            for (i, field_ty) in field_tys.iter().enumerate() {
+                if is_rpc_bit_compatible(&mut ctx.unifier, &ctx.primitives, *field_ty) {
+                    continue;
+                }
+                let field_slot =
+                    ctx.builder.build_struct_gep(nac3_tuple_ty, wire_buf, i as u32, "")?;
+                let inner_wire = if is_refcounted_type(&mut ctx.unifier, *field_ty) {
+                    ctx.builder.build_load(ctx.ptr, field_slot, "")?.into_pointer_value()
+                } else {
+                    field_slot
+                };
+                let nac3_field = demarshal_from_wire(ctx, *field_ty, inner_wire)?;
+                ctx.builder.build_store(field_slot, nac3_field)?;
+            }
+            Ok(ctx.builder.build_load(nac3_tuple_ty, wire_buf, "rpc.tup")?)
+        }
+
+        WireDescriptorKind::Default => {
+            // demarshal bit-compatible scalars as-is
+            let llvm_ty = ctx.get_llvm_type(ty);
+            Ok(ctx.builder.build_load(llvm_ty, wire_buf, "rpc.val")?)
+        }
+    }
+}
+
 fn gen_rpc_tag(
     ctx: &mut CodeGenContext<'_, '_>,
     ty: Type,
@@ -446,88 +878,23 @@ fn format_rpc_arg<'ctx>(
 
     let arg_slot = match &*ctx.unifier.get_ty_immutable(arg_ty) {
         TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
-            // NAC3: NDArray = { usize, usize*, T* }
-            // libproto_artiq: NDArray = [data[..], dim_sz[..]]
-
-            let (elem_ty, ndims) = unpack_ndarray_var_tys(&mut ctx.unifier, arg_ty);
-            let ndims = extract_ndims(&ctx.unifier, ndims);
-            let dtype = ctx.get_llvm_type(elem_ty);
-            let ndarray =
-                NDArrayType::create(ctx, dtype, ndims).map_value(arg.into_pointer_value(), None);
-
-            // `ndarray.data` is possibly not contiguous, and we need it to be contiguous for
-            // the reader.
-            // Turning it into a ContiguousNDArray to get a `data` that is contiguous.
-            let carray = ndarray.make_contiguous_ndarray(ctx)?;
-
-            let sizeof_usize = ctx.sizeof(ctx.size_t);
-            let sizeof_pdata = ctx.sizeof(ctx.ptr);
-            let sizeof_buf_shape = sizeof_usize * ndims;
-            let sizeof_buf = sizeof_buf_shape + sizeof_pdata;
-
-            // buf = { data: void*, shape: [size_t; ndims]; }
+            // NAC3: NDArray = { _: ObjectHeader, ndims: usize, shape: usize*, data: T* }
+            // libproto_artiq: NDArray = { data: [T; N], dim_sz: [usize; ndims] }
+            let (_, ndims_var) = unpack_ndarray_var_tys(&mut ctx.unifier, arg_ty);
+            let ndims = extract_ndims(&ctx.unifier, ndims_var);
+            let sizeof_buf = ctx.sizeof(ctx.ptr) + ctx.sizeof(ctx.size_t) * ndims;
             let buf = ctx.build_array_allocate(
                 AllocationScope::Default,
                 llvm_i8,
                 sizeof_buf,
                 Some("rpc.arg"),
             )?;
-            let buf_data = buf.value.0;
-            let sizeof_pdata_ = ctx.size_t.const_int(sizeof_pdata, false);
-            let buf_shape = buf.ptr_offset_unchecked(ctx, &sizeof_pdata_, None)?;
-
-            // Write to `buf->data`
-            let carray_nbytes = ndarray.nbytes(ctx)?;
-            let carray_data = carray.inner_value(ctx)?.data(ctx)?;
-            let carray_data = ctx.builder.build_pointer_cast(
-                carray_data.inner_value(ctx, Some(carray_nbytes))?.value.0,
-                llvm_pi8,
-                "",
-            )?;
-            call_memcpy(ctx, buf_data, carray_data, sizeof_pdata_)?;
-
-            // Write to `buf->shape`
-            let carray_shape = ndarray.shape(ctx)?.inner_value(ctx, None)?.value.0;
-            let sizeof_buf_shape_ = ctx.size_t.const_int(sizeof_buf_shape, false);
-            call_memcpy(ctx, buf_shape, carray_shape, sizeof_buf_shape_)?;
-
+            write_ndarray_wire_descriptor(ctx, arg_ty, arg, buf.value.0)?;
             buf.value.0
         }
 
-        TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::List.id() => {
-            // NAC3: list = { ObjectHeader, RefCountedArray<T>*, size_t }
-            // libproto_artiq: List = { elements: *const (), length: size_t }
-            //                  (see `Tag::List` in artiq/firmware/libproto_artiq/rpc_proto.rs)
-            let list =
-                ListType::from_unifier_type(ctx, arg_ty).map_value(arg.into_pointer_value(), None);
-            let inner = list.inner_value(ctx)?;
-            let len = inner.load(ctx, field!(len))?;
-            let data_ptr = inner.data(ctx)?.inner_value(ctx, Some(len))?.value.0;
-
-            let buf_ty = ctx.ctx.struct_type(&[ctx.ptr.into(), ctx.size_t.into()], false);
-            let buf = ctx.build_allocate(
-                AllocationScope::StackStartOfFunc,
-                buf_ty,
-                Some(&format!("rpc.arg{arg_idx}")),
-            )?;
-            let elements_field = ctx.builder.build_struct_gep(buf_ty, buf, 0, "")?;
-            ctx.builder.build_store(elements_field, data_ptr)?;
-            let length_field = ctx.builder.build_struct_gep(buf_ty, buf, 1, "")?;
-            ctx.builder.build_store(length_field, len)?;
-
-            ctx.builder.build_bit_cast(buf, llvm_pi8, "rpc.arg")?.into_pointer_value()
-        }
-
-        _ => {
-            let arg_slot = ctx.build_allocate(
-                AllocationScope::StackStartOfFunc,
-                arg.get_type(),
-                Some(&format!("rpc.arg{arg_idx}")),
-            )?;
-            ctx.builder.build_store(arg_slot, arg)?;
-
-            ctx.builder.build_bit_cast(arg_slot, llvm_pi8, "rpc.arg")?.into_pointer_value()
-        }
+        // All other types are directly passed to `marshal_to_wire` for recursive handling
+        _ => marshal_to_wire(ctx, arg_ty, arg, &format!("rpc.arg{arg_idx}"))?,
     };
 
     debug_assert_eq!(arg_slot.get_type(), llvm_pi8);
@@ -561,12 +928,6 @@ fn format_rpc_ret<'ctx>(
         let _ = ctx.build_call_or_invoke(&rpc_recv, &[llvm_pi8.const_null().into()], "rpc_recv")?;
         return Ok(None);
     }
-
-    let prehead_bb = ctx.builder.get_insert_block().unwrap();
-    let current_function = prehead_bb.get_parent().unwrap();
-    let head_bb = ctx.ctx.append_basic_block(current_function, "rpc.head");
-    let alloc_bb = ctx.ctx.append_basic_block(current_function, "rpc.continue");
-    let tail_bb = ctx.ctx.append_basic_block(current_function, "rpc.tail");
 
     let llvm_ret_ty = ctx.get_llvm_abi_type(ret_ty);
 
@@ -699,85 +1060,120 @@ fn format_rpc_ret<'ctx>(
             let ndarray_data =
                 unsafe { ctx.builder.build_gep(ctx.i8, ndarray_data, &[ndarray_offset], "")? };
 
-            let entry_bb = ctx.builder.get_insert_block().unwrap();
-            ctx.builder.build_unconditional_branch(head_bb)?;
+            let prehead_bb = ctx.builder.get_insert_block().unwrap();
 
-            // Inserting into `head_bb`. Do `rpc_recv` for `data` recursively.
-            ctx.builder.position_at_end(head_bb);
+            // Track the current `rpc_recv` buffer pointer and the size returned by the most recent
+            // `rpc_recv`
+            let loop_state = Cell::<Option<(PhiValue<'ctx>, IntValue<'ctx>)>>::new(None);
 
-            let phi = ctx.builder.build_phi(llvm_pi8, "rpc.ptr")?;
-            phi.add_incoming(&[(&ndarray_data, entry_bb)]);
-
-            let alloc_size = ctx
-                .build_call_or_invoke(&rpc_recv, &[phi.as_basic_value()], "rpc.size.next")?
-                .map(BasicValueEnum::into_int_value)
-                .unwrap();
-
-            let is_done = ctx.builder.build_int_compare(
-                IntPredicate::EQ,
-                llvm_i32.const_zero(),
-                alloc_size,
-                "rpc.done",
+            gen_while_callback(
+                &mut (),
+                ctx,
+                Some("rpc"),
+                |(), ctx| {
+                    let phi = ctx.builder.build_phi(llvm_pi8, "rpc.ptr")?;
+                    phi.add_incoming(&[(&ndarray_data, prehead_bb)]);
+                    let alloc_size = ctx
+                        .build_call_or_invoke(&rpc_recv, &[phi.as_basic_value()], "rpc.size.next")?
+                        .map(BasicValueEnum::into_int_value)
+                        .unwrap();
+                    let not_done = ctx.builder.build_int_compare(
+                        IntPredicate::NE,
+                        alloc_size,
+                        llvm_i32.const_zero(),
+                        "rpc.continue",
+                    )?;
+                    loop_state.set(Some((phi, alloc_size)));
+                    Ok(not_done)
+                },
+                |(), ctx| {
+                    let (phi, alloc_size) = loop_state.get().unwrap();
+                    // Align the allocation to sizeof(T)
+                    let alloc_size = round_up(ctx, alloc_size, itemsize)?;
+                    let size = ctx.builder.build_int_unsigned_div(alloc_size, itemsize, "")?;
+                    let alloc_ptr = ctx
+                        .build_dyn_array_allocate(
+                            AllocationScope::Default,
+                            dtype_llvm,
+                            size,
+                            Some("rpc.alloc"),
+                        )?
+                        .value
+                        .0;
+                    let body_end_bb = ctx.builder.get_insert_block().unwrap();
+                    phi.add_incoming(&[(&alloc_ptr, body_end_bb)]);
+                    Ok(())
+                },
+                |(), _ctx| Ok(()),
             )?;
-            ctx.builder.build_conditional_branch(is_done, tail_bb, alloc_bb)?;
 
-            ctx.builder.position_at_end(alloc_bb);
-            // Align the allocation to sizeof(T)
-            let alloc_size = round_up(ctx, alloc_size, itemsize)?;
-            let size = ctx.builder.build_int_unsigned_div(alloc_size, itemsize, "")?;
-            let alloc_ptr = ctx
-                .build_dyn_array_allocate(
-                    AllocationScope::Default,
-                    dtype_llvm,
-                    size,
-                    Some("rpc.alloc"),
-                )?
-                .value
-                .0;
-            phi.add_incoming(&[(&alloc_ptr, alloc_bb)]);
-            ctx.builder.build_unconditional_branch(head_bb)?;
-
-            ctx.builder.position_at_end(tail_bb);
             ndarray.value.into()
         }
 
         _ => {
-            let slot =
-                ctx.build_allocate(AllocationScope::Default, llvm_ret_ty, Some("rpc.ret.slot"))?;
-            let slotgen = ctx.builder.build_bit_cast(slot, llvm_pi8, "rpc.ret.ptr")?;
-            ctx.builder.build_unconditional_branch(head_bb)?;
-            ctx.builder.position_at_end(head_bb);
+            if tuple_contains_ndarray(&ctx.unifier, ret_ty) {
+                bail!("RPC return of tuple containing `ndarray` is not yet supported");
+            }
 
-            let phi = ctx.builder.build_phi(llvm_pi8, "rpc.ptr")?;
-            phi.add_incoming(&[(&slotgen, prehead_bb)]);
-            let alloc_size = ctx
-                .build_call_or_invoke(&rpc_recv, &[phi.as_basic_value()], "rpc.size.next")?
-                .map(BasicValueEnum::into_int_value)
-                .unwrap();
-            let is_done = ctx.builder.build_int_compare(
-                IntPredicate::EQ,
-                llvm_i32.const_zero(),
-                alloc_size,
-                "rpc.done",
+            let prehead_bb = ctx.builder.get_insert_block().unwrap();
+
+            let slot = ctx.build_allocate(
+                AllocationScope::StackStartOfFunc,
+                llvm_ret_ty,
+                Some("rpc.ret.slot"),
             )?;
 
-            ctx.builder.build_conditional_branch(is_done, tail_bb, alloc_bb)?;
-            ctx.builder.position_at_end(alloc_bb);
+            // Track the current `rpc_recv` buffer pointer and the size returned by the most recent
+            // `rpc_recv`
+            let loop_state = Cell::<Option<(PhiValue<'ctx>, IntValue<'ctx>)>>::new(None);
 
-            let alloc_ptr = ctx
-                .build_dyn_array_allocate(
-                    AllocationScope::Default,
-                    llvm_pi8,
-                    alloc_size,
-                    Some("rpc.alloc"),
-                )?
-                .value
-                .0;
-            phi.add_incoming(&[(&alloc_ptr, alloc_bb)]);
-            ctx.builder.build_unconditional_branch(head_bb)?;
+            gen_while_callback(
+                &mut (),
+                ctx,
+                Some("rpc"),
+                |(), ctx| {
+                    let phi = ctx.builder.build_phi(llvm_pi8, "rpc.ptr")?;
+                    phi.add_incoming(&[(&slot, prehead_bb)]);
+                    let alloc_size = ctx
+                        .build_call_or_invoke(&rpc_recv, &[phi.as_basic_value()], "rpc.size.next")?
+                        .map(BasicValueEnum::into_int_value)
+                        .unwrap();
+                    let not_done = ctx.builder.build_int_compare(
+                        IntPredicate::NE,
+                        alloc_size,
+                        llvm_i32.const_zero(),
+                        "rpc.continue",
+                    )?;
+                    loop_state.set(Some((phi, alloc_size)));
+                    Ok(not_done)
+                },
+                |(), ctx| {
+                    let (phi, alloc_size) = loop_state.get().unwrap();
+                    let alloc_ptr = ctx
+                        .build_dyn_array_allocate(
+                            AllocationScope::Default,
+                            llvm_pi8,
+                            alloc_size,
+                            Some("rpc.alloc"),
+                        )?
+                        .value
+                        .0;
+                    let body_end_bb = ctx.builder.get_insert_block().unwrap();
+                    phi.add_incoming(&[(&alloc_ptr, body_end_bb)]);
+                    Ok(())
+                },
+                |(), _ctx| Ok(()),
+            )?;
 
-            ctx.builder.position_at_end(tail_bb);
-            ctx.builder.build_load(llvm_ret_ty, slot, "rpc.result")?
+            // Obtain the wire buffer for demarshaling:
+            // - For refcounted types the slot is a pointer to the wire buffer
+            // - For inline types the slot is the wire buffer itself
+            let wire_buf = if is_refcounted_type(&mut ctx.unifier, ret_ty) {
+                ctx.builder.build_load(ctx.ptr, slot, "rpc.wire")?.into_pointer_value()
+            } else {
+                slot
+            };
+            demarshal_from_wire(ctx, ret_ty, wire_buf)?
         }
     };
 
