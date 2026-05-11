@@ -487,7 +487,7 @@ fn write_ndarray_wire_descriptor<'ctx>(
     let carray_nbytes = ndarray.nbytes(ctx)?;
     let carray_data =
         carray.inner_value(ctx)?.data(ctx)?.inner_value(ctx, Some(carray_nbytes))?.value.0;
-    call_memcpy(ctx, dest, carray_data, sizeof_ptr)?;
+    ctx.builder.build_store(carray_data, dest)?;
 
     let dest_shape = unsafe { ctx.builder.build_gep(ctx.i8, dest, &[sizeof_ptr], "")? };
     let carray_shape = ndarray.shape(ctx)?.inner_value(ctx, None)?.value.0;
