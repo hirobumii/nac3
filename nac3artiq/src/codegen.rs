@@ -477,20 +477,19 @@ fn write_ndarray_wire_descriptor<'ctx>(
     value: BasicValueEnum<'ctx>,
     dest: PointerValue<'ctx>,
 ) -> anyhow::Result<()> {
+    let sizeof_ptr = ctx.size_t.const_int(ctx.sizeof(ctx.ptr), false);
+
     let dtype = ctx.get_llvm_type(dtype);
     let ndarray =
         NDArrayType::create(ctx, dtype, ndims).map_value(value.into_pointer_value(), None);
     let carray = ndarray.make_contiguous_ndarray(ctx)?;
 
-    let sizeof_pdata = ctx.size_t.const_int(ctx.sizeof(ctx.ptr), false);
-
-    let dest_shape = unsafe { ctx.builder.build_gep(ctx.i8, dest, &[sizeof_pdata], "")? };
-
     let carray_nbytes = ndarray.nbytes(ctx)?;
     let carray_data =
         carray.inner_value(ctx)?.data(ctx)?.inner_value(ctx, Some(carray_nbytes))?.value.0;
-    call_memcpy(ctx, dest, carray_data, sizeof_pdata)?;
+    call_memcpy(ctx, dest, carray_data, sizeof_ptr)?;
 
+    let dest_shape = unsafe { ctx.builder.build_gep(ctx.i8, dest, &[sizeof_ptr], "")? };
     let carray_shape = ndarray.shape(ctx)?.inner_value(ctx, None)?.value.0;
     let sizeof_buf_shape = ctx.size_t.const_int(ctx.sizeof(ctx.size_t) * ndims, false);
     call_memcpy(ctx, dest_shape, carray_shape, sizeof_buf_shape)?;
@@ -507,7 +506,7 @@ fn marshal_to_wire<'ctx>(
     value: BasicValueEnum<'ctx>,
     name: &str,
 ) -> anyhow::Result<PointerValue<'ctx>> {
-    match WireDescriptorKind::classify(&mut ctx.unifier, ty) {
+    Ok(match WireDescriptorKind::classify(&mut ctx.unifier, ty) {
         WireDescriptorKind::List { elem_ty } => {
             // NAC3: list = { _: ObjectHeader, data: ptr, length: size_t }
             // libartiq_proto: list = {elements: ptr, length: size_t}
@@ -592,7 +591,7 @@ fn marshal_to_wire<'ctx>(
             ctx.builder.build_store(elements_field, elements_array.value.0)?;
             let length_field = ctx.builder.build_struct_gep(wire_ty, buf, 1, "")?;
             ctx.builder.build_store(length_field, length)?;
-            Ok(buf)
+            buf
         }
 
         WireDescriptorKind::Tuple(field_tys) => {
@@ -624,7 +623,7 @@ fn marshal_to_wire<'ctx>(
                     }
                 }
             }
-            Ok(buf)
+            buf
         }
 
         WireDescriptorKind::NDArray { dtype, ndims } => {
@@ -637,7 +636,7 @@ fn marshal_to_wire<'ctx>(
                 None,
             )?;
             write_ndarray_wire_descriptor(ctx, dtype, ndims, value, buf.value.0)?;
-            Ok(buf.value.0)
+            buf.value.0
         }
 
         WireDescriptorKind::Default => {
@@ -645,9 +644,9 @@ fn marshal_to_wire<'ctx>(
             let buf =
                 ctx.build_allocate(AllocationScope::StackCurrentLoc, value.get_type(), Some(name))?;
             ctx.builder.build_store(buf, value)?;
-            Ok(buf)
+            buf
         }
-    }
+    })
 }
 
 /// Reads an `ndarray`'s wire-shape descriptor `[*data, shape[ndims]]` from the given location,
@@ -707,7 +706,7 @@ fn demarshal_from_wire<'ctx>(
     ty: Type,
     wire_buf: PointerValue<'ctx>,
 ) -> anyhow::Result<BasicValueEnum<'ctx>> {
-    match WireDescriptorKind::classify(&mut ctx.unifier, ty) {
+    Ok(match WireDescriptorKind::classify(&mut ctx.unifier, ty) {
         WireDescriptorKind::List { elem_ty } => {
             // NAC3: list = { _: ObjectHeader, data: ptr, length: size_t }
             // libartiq_proto: list = {elements: ptr, length: size_t}
@@ -789,7 +788,7 @@ fn demarshal_from_wire<'ctx>(
             // recursive demarshal calls
             ctx.builder.build_free(wire_buf)?;
 
-            Ok(list.value.into())
+            list.value.into()
         }
 
         WireDescriptorKind::Tuple(field_tys) => {
@@ -827,20 +826,20 @@ fn demarshal_from_wire<'ctx>(
                     ctx.builder.build_store(nac3_field_slot, nac3_field)?;
                 }
             }
-            Ok(ctx.builder.build_load(nac3_tuple_ty, nac3_tuple, "rpc.tup")?)
+            ctx.builder.build_load(nac3_tuple_ty, nac3_tuple, "rpc.tup")?
         }
 
         WireDescriptorKind::NDArray { dtype, ndims } => {
             // `wire_buf` points directly to the inline `[*data, shape[ndims]]` descriptor.
-            Ok(demarshal_ndarray_descriptor(ctx, dtype, ndims, wire_buf)?.into())
+            demarshal_ndarray_descriptor(ctx, dtype, ndims, wire_buf)?.into()
         }
 
         WireDescriptorKind::Default => {
             // demarshal bit-compatible scalars as-is
             let llvm_ty = ctx.get_llvm_type(ty);
-            Ok(ctx.builder.build_load(llvm_ty, wire_buf, "rpc.val")?)
+            ctx.builder.build_load(llvm_ty, wire_buf, "rpc.val")?
         }
-    }
+    })
 }
 
 fn gen_rpc_tag(
