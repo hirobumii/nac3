@@ -6,6 +6,7 @@ use std::{
 };
 
 use anyhow::{anyhow, bail};
+use itertools::Itertools as _;
 use nac3core::{
     codegen::{
         CodeGenContext, CodeGenerator, FunctionDecl, VarValue,
@@ -18,8 +19,8 @@ use nac3core::{
         },
         type_aligned_allocate,
         types::{
-            ArrayLikeIndexer, ClassType, ExceptionType, ListType, NDArrayType, ProxyType,
-            ProxyTypeBase, RangeType, TupleType, field, is_refcounted_type,
+            ArrayLikeIndexer, ClassType, ExceptionType, ListType, NDArrayType, ProxyTypeBase,
+            RangeType, TupleType, TupleValue, field, is_refcounted_type,
         },
     },
     inkwell::{
@@ -796,41 +797,34 @@ fn demarshal_from_wire<'ctx>(
             // NAC3: tuple = { ObjectHeader, { field0, field1, ... } }
             // libartiq_proto: tuple = { field0, field1, ... }
 
-            let tuple_ty = TupleType::from_unifier_type(ctx, ty);
-            let llvm_tuple_ty = tuple_ty.llvm_ty(ctx).into_struct_type();
             let wire_ty = wire_struct_type_of(ctx, field_tys.as_slice());
-            let tuple_val = ctx.build_allocate(
-                AllocationScope::StackCurrentLoc,
-                llvm_tuple_ty,
-                Some("rpc.tup"),
-            )?;
-            let inner_val =
-                ctx.builder.build_struct_gep(llvm_tuple_ty, tuple_val, 1, "tup.inner")?;
-            for (i, field_ty) in field_tys.iter().enumerate() {
-                let field_slot =
-                    ctx.builder.build_struct_gep(tuple_ty.fields, inner_val, i as u32, "")?;
-                let wire_field_slot =
-                    ctx.builder.build_struct_gep(wire_ty, wire_buf, i as u32, "")?;
-                if is_rpc_bit_compatible(&mut ctx.unifier, &ctx.primitives, *field_ty) {
-                    let llvm_field_ty = ctx.get_llvm_type(*field_ty);
-                    let v = ctx.builder.build_load(llvm_field_ty, wire_field_slot, "")?;
-                    ctx.builder.build_store(field_slot, v)?;
-                } else {
-                    // `list` fields in the wire format are stored as pointers; all other
-                    // non-bit-compatible types (ndarray descriptor, nested tuple) are inline.
-                    let inner_wire = if matches!(
-                        WireDescriptorKind::classify(&mut ctx.unifier, *field_ty),
-                        WireDescriptorKind::List { .. }
-                    ) {
-                        ctx.builder.build_load(ctx.ptr, wire_field_slot, "")?.into_pointer_value()
+            let tuple_fields = field_tys
+                .iter()
+                .enumerate()
+                .map(|(i, field_ty)| -> anyhow::Result<BasicValueEnum<'ctx>> {
+                    let wire_field_slot =
+                        ctx.builder.build_struct_gep(wire_ty, wire_buf, i as u32, "")?;
+                    Ok(if is_rpc_bit_compatible(&mut ctx.unifier, &ctx.primitives, *field_ty) {
+                        let llvm_field_ty = ctx.get_llvm_type(*field_ty);
+                        ctx.builder.build_load(llvm_field_ty, wire_field_slot, "")?
                     } else {
-                        wire_field_slot
-                    };
-                    let field_val = demarshal_from_wire(ctx, *field_ty, inner_wire)?;
-                    ctx.builder.build_store(field_slot, field_val)?;
-                }
-            }
-            ctx.builder.build_load(llvm_tuple_ty, tuple_val, "rpc.tup")?
+                        // `list` fields in the wire format are stored as pointers; all other
+                        // non-bit-compatible types (ndarray descriptor, nested tuple) are inline.
+                        let inner_wire = if matches!(
+                            WireDescriptorKind::classify(&mut ctx.unifier, *field_ty),
+                            WireDescriptorKind::List { .. }
+                        ) {
+                            ctx.builder
+                                .build_load(ctx.ptr, wire_field_slot, "")?
+                                .into_pointer_value()
+                        } else {
+                            wire_field_slot
+                        };
+                        demarshal_from_wire(ctx, *field_ty, inner_wire)?
+                    })
+                })
+                .try_collect::<_, Vec<_>, anyhow::Error>()?;
+            TupleValue::new(ctx, &tuple_fields, Some("rpc.tup"))?.value.into()
         }
 
         WireDescriptorKind::NDArray { dtype, ndims } => {

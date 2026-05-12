@@ -32,7 +32,7 @@ pub struct TupleType<'ctx> {
     outer: StructType<'ctx>,
 
     /// The inner fields struct type: `{field0, field1, ...}`
-    fields: StructType<'ctx>,
+    pub fields: StructType<'ctx>,
 
     /// Bitmask of which elements are refcounted (bit `i` = 1 if element `i` is refcounted).
     /// Supports up to 64 elements.
@@ -99,18 +99,6 @@ impl<'ctx> TupleType<'ctx> {
     #[must_use]
     pub fn num_elements(&self) -> u32 {
         self.fields.count_fields()
-    }
-
-    /// Returns the inner fields struct type (without the `ObjectHeader`).
-    #[must_use]
-    pub const fn fields_type(&self) -> StructType<'ctx> {
-        self.fields
-    }
-
-    /// Returns the bitmask of refcounted elements.
-    #[must_use]
-    pub const fn refcounted_mask(&self) -> u64 {
-        self.refcounted_mask
     }
 }
 
