@@ -10,7 +10,7 @@ target triple = "x86_64-unknown-linux-gnu"
 @__nac3_global_begin = weak local_unnamed_addr constant i8 poison
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define i32 @testing(i32 %0) local_unnamed_addr #0 !dbg !5 {
+define range(i32 0, -1) i32 @testing(i32 %0) local_unnamed_addr #0 !dbg !5 {
 init:
   %add.i = shl i32 %0, 1, !dbg !9
   %mul = add i32 %add.i, 2, !dbg !9

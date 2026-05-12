@@ -18,9 +18,6 @@
   wrapCCWith,
 }: let
   inherit (lib) optional optionals optionalString;
-  sources = import ../llvm/sources.nix {
-    inherit fetchurl;
-  };
 in rec {
   exe_suffix =
     if msys2-env == null
@@ -28,7 +25,11 @@ in rec {
     else ".exe";
   llvm = stdenv.mkDerivation rec {
     pname = "llvm-nac3";
-    version = sources.version;
+    version = "22.1.0";
+    src = fetchurl {
+      url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-${version}/llvm-project-${version}.src.tar.xz";
+      hash = "sha256-JdLircQ1bXWEBd2IX8/WRHvOgqkOt4trh84JNL0HcXM=";
+    };
     nativeBuildInputs =
       if msys2-env == null
       then [cmake python3 ninja]
@@ -69,18 +70,13 @@ in rec {
 
     unpackPhase =
       ''
-        mkdir llvm
-        tar xf ${sources.llvm} -C llvm --strip-components=1
-        tar xf ${sources.cmake} -C llvm/cmake --strip-components=2
-      ''
-      + (lib.strings.concatStrings (map (proj: "mkdir " + proj + "\ntar xf " + builtins.getAttr proj sources + " -C " + proj + " --strip-components=1\n") enableProjects))
-      + ''
-        mkdir cmake
-        ln -s $PWD/llvm/cmake cmake/Modules
-        cd llvm
+        tar xf ${src} --strip-components=1
       '';
     configurePhase =
-      optionalString (msys2-env != null) ''
+      ''
+        cd llvm
+      ''
+      + optionalString (msys2-env != null) ''
         export WINEDEBUG=-all
         export WINEPATH=Z:${msys2-env}/clang64/bin
       ''
@@ -130,7 +126,7 @@ in rec {
     dontUnpack = true;
 
     installPhase = ''
-      cp -r ${llvm}/lib/clang/${builtins.elemAt (lib.strings.splitString "." sources.version) 0}/lib $out
+      cp -r ${llvm}/lib/clang/${builtins.elemAt (lib.strings.splitString "." llvm.version) 0}/lib $out
     '';
   };
 }
