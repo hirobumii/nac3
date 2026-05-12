@@ -46,7 +46,6 @@ in rec {
     cmakeFlags =
       [
         "-DCMAKE_BUILD_TYPE=Release"
-        "-DHAS_LOGF128=0"
         "-DLLVM_ENABLE_UNWIND_TABLES=OFF"
         "-DLLVM_ENABLE_THREADS=ON"
         "-DLLVM_TARGETS_TO_BUILD=X86\;ARM\;RISCV"
