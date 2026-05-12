@@ -18,8 +18,8 @@ use nac3core::{
         },
         type_aligned_allocate,
         types::{
-            ArrayLikeIndexer, ClassType, ExceptionType, ListType, NDArrayType, ProxyTypeBase,
-            RangeType, field, is_refcounted_type,
+            ArrayLikeIndexer, ClassType, ExceptionType, ListType, NDArrayType, ProxyType,
+            ProxyTypeBase, RangeType, TupleType, field, is_refcounted_type,
         },
     },
     inkwell::{
@@ -595,14 +595,15 @@ fn marshal_to_wire<'ctx>(
         }
 
         WireDescriptorKind::Tuple(field_tys) => {
-            // NAC3: tuple = { field0, field1, ... }
+            // NAC3: tuple = { ObjectHeader, { field0, field1, ... } }
             // libartiq_proto: tuple = { field0, field1, ... }
 
-            let nac3_struct = value.into_struct_value();
+            let nac3_tuple =
+                TupleType::from_unifier_type(ctx, ty).map_value(value.into_struct_value(), None);
             let wire_ty = wire_struct_type_of(ctx, field_tys.as_slice());
             let buf = ctx.build_allocate(AllocationScope::StackCurrentLoc, wire_ty, Some(name))?;
             for (i, field_ty) in field_tys.iter().enumerate() {
-                let field_val = unsafe { nac3_struct.get_field_at_index_unchecked(i as u32) };
+                let field_val = nac3_tuple.extract(ctx, i as u32)?;
                 let field_slot = ctx.builder.build_struct_gep(wire_ty, buf, i as u32, "")?;
                 if is_rpc_bit_compatible(&mut ctx.unifier, &ctx.primitives, *field_ty) {
                     ctx.builder.build_store(field_slot, field_val)?;
@@ -792,25 +793,28 @@ fn demarshal_from_wire<'ctx>(
         }
 
         WireDescriptorKind::Tuple(field_tys) => {
-            // NAC3: tuple = { field0, field1, ... }
+            // NAC3: tuple = { ObjectHeader, { field0, field1, ... } }
             // libartiq_proto: tuple = { field0, field1, ... }
 
-            let nac3_tuple_ty = ctx.get_llvm_type(ty);
+            let tuple_ty = TupleType::from_unifier_type(ctx, ty);
+            let llvm_tuple_ty = tuple_ty.llvm_ty(ctx).into_struct_type();
             let wire_ty = wire_struct_type_of(ctx, field_tys.as_slice());
-            let nac3_tuple = ctx.build_allocate(
+            let tuple_val = ctx.build_allocate(
                 AllocationScope::StackCurrentLoc,
-                nac3_tuple_ty,
+                llvm_tuple_ty,
                 Some("rpc.tup"),
             )?;
+            let inner_val =
+                ctx.builder.build_struct_gep(llvm_tuple_ty, tuple_val, 1, "tup.inner")?;
             for (i, field_ty) in field_tys.iter().enumerate() {
-                let nac3_field_slot =
-                    ctx.builder.build_struct_gep(nac3_tuple_ty, nac3_tuple, i as u32, "")?;
+                let field_slot =
+                    ctx.builder.build_struct_gep(tuple_ty.fields, inner_val, i as u32, "")?;
                 let wire_field_slot =
                     ctx.builder.build_struct_gep(wire_ty, wire_buf, i as u32, "")?;
                 if is_rpc_bit_compatible(&mut ctx.unifier, &ctx.primitives, *field_ty) {
                     let llvm_field_ty = ctx.get_llvm_type(*field_ty);
                     let v = ctx.builder.build_load(llvm_field_ty, wire_field_slot, "")?;
-                    ctx.builder.build_store(nac3_field_slot, v)?;
+                    ctx.builder.build_store(field_slot, v)?;
                 } else {
                     // `list` fields in the wire format are stored as pointers; all other
                     // non-bit-compatible types (ndarray descriptor, nested tuple) are inline.
@@ -822,11 +826,11 @@ fn demarshal_from_wire<'ctx>(
                     } else {
                         wire_field_slot
                     };
-                    let nac3_field = demarshal_from_wire(ctx, *field_ty, inner_wire)?;
-                    ctx.builder.build_store(nac3_field_slot, nac3_field)?;
+                    let field_val = demarshal_from_wire(ctx, *field_ty, inner_wire)?;
+                    ctx.builder.build_store(field_slot, field_val)?;
                 }
             }
-            ctx.builder.build_load(nac3_tuple_ty, nac3_tuple, "rpc.tup")?
+            ctx.builder.build_load(llvm_tuple_ty, tuple_val, "rpc.tup")?
         }
 
         WireDescriptorKind::NDArray { dtype, ndims } => {
