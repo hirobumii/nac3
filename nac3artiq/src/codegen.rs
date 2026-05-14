@@ -395,36 +395,19 @@ impl WireDescriptorKind {
     }
 }
 
-/// Returns whether `ty` is `ndarray` or a tuple containing `ndarray` at any depth.
-fn contains_ndarray(unifier: &mut Unifier, ty: Type) -> bool {
-    match WireDescriptorKind::classify(unifier, ty) {
-        WireDescriptorKind::NDArray { .. } => true,
-        WireDescriptorKind::Tuple(fields) => fields.iter().any(|f| contains_ndarray(unifier, *f)),
-        _ => false,
-    }
-}
-
 /// Returns whether a value of `ty` can be `memcpy`'d directly between NAC3's in-memory
 /// representation and `libproto_artiq`'s wire representation without any layout conversion.
 ///
-/// All primitive types (`int32`, `int64`, `float`, `bool`, `none`, `str`), as well as tuples
-/// composed of primitive types are RPC-bit-compatible. All composite types are not
-/// RPC-bit-compatible because they carry an `ObjectHeader`.
+/// Only the primitive types (`int32`, `int64`, `float`, `bool`, `none`, `str`) qualify. All
+/// composite types — including tuples of primitives — are not RPC-bit-compatible because NAC3
+/// prefixes them with an `ObjectHeader` that the wire format does not carry.
 fn is_rpc_bit_compatible(unifier: &mut Unifier, primitives: &PrimitiveStore, ty: Type) -> bool {
-    if unifier.unioned(ty, primitives.int32)
+    unifier.unioned(ty, primitives.int32)
         || unifier.unioned(ty, primitives.int64)
         || unifier.unioned(ty, primitives.float)
         || unifier.unioned(ty, primitives.bool)
         || unifier.unioned(ty, primitives.none)
         || unifier.unioned(ty, primitives.str)
-    {
-        return true;
-    }
-
-    let TypeEnum::TTuple { ty: fields, is_vararg_ctx: false } = &*unifier.get_ty(ty) else {
-        return false;
-    };
-    fields.iter().all(|f| is_rpc_bit_compatible(unifier, primitives, *f))
 }
 
 /// Returns the LLVM struct type matching `libproto_artiq`'s wire layout for a tuple with the
@@ -446,21 +429,16 @@ fn wire_struct_type_of<'ctx>(
 ///   `ObjectHeader`.
 /// - `ndarray`s are represented as an inline struct `{ data[], shape: size_t[ndims] }` in the wire
 ///   format, while NAC3 represents them as a refcounted [`RawNDArrayType`] object.
-/// - Tuples that contain an `ndarray` field at any depth utilizes the inline format of `ndarray`
-///   fields; Otherwise, it utilizes the same representation.
+/// - Tuples are represented as `{ field0, field1, ... }` (each field recursively converted to its
+///   wire shape); the NAC3 layout differs in that it prepends an `ObjectHeader` to the inner
+///   fields struct.
 fn wire_type_of<'ctx>(ctx: &mut CodeGenContext<'ctx, '_>, ty: Type) -> BasicTypeEnum<'ctx> {
     match WireDescriptorKind::classify(&mut ctx.unifier, ty) {
         WireDescriptorKind::NDArray { ndims, .. } => ctx
             .ctx
             .struct_type(&[ctx.ptr.into(), ctx.size_t.array_type(ndims as u32).into()], false)
             .into(),
-        WireDescriptorKind::Tuple(fields) => {
-            if fields.iter().any(|f| contains_ndarray(&mut ctx.unifier, *f)) {
-                wire_struct_type_of(ctx, &fields).into()
-            } else {
-                ctx.get_llvm_type(ty)
-            }
-        }
+        WireDescriptorKind::Tuple(fields) => wire_struct_type_of(ctx, &fields).into(),
         _ => ctx.get_llvm_type(ty),
     }
 }
@@ -757,9 +735,16 @@ fn demarshal_from_wire<'ctx>(
                     |(), _| Ok(()),
                 )?;
             } else {
-                // element type of list is a composite type - demarshal each element recursively
-                let elem_llvm_ty = ctx.get_llvm_type(elem_ty);
+                // element type of list is a composite type - demarshal each element recursively.
+                //
+                // The wire stride depends on how the firmware stored each element:
+                // - Refcounted elements (`list`) are stored as pointers — stride is `sizeof(ptr)`,
+                //   and we load the pointer before recursing.
+                // - Inline composites (tuple) are stored as packed wire-shape values — stride is
+                //   `sizeof(wire_type_of(elem_ty))`, and the slot address is used directly.
                 let is_indirect = is_refcounted_type(&mut ctx.unifier, elem_ty);
+                let stride_ty: BasicTypeEnum<'ctx> =
+                    if is_indirect { ctx.ptr.into() } else { wire_type_of(ctx, elem_ty) };
                 gen_for_callback_incrementing(
                     &mut (),
                     ctx,
@@ -768,7 +753,7 @@ fn demarshal_from_wire<'ctx>(
                     (length, false),
                     |(), ctx, _hooks, i| {
                         let wire_elem_slot =
-                            unsafe { ctx.builder.build_gep(elem_llvm_ty, elements_ptr, &[i], "")? };
+                            unsafe { ctx.builder.build_gep(stride_ty, elements_ptr, &[i], "")? };
                         let nac3_elem_slot = nac3_data.ptr_offset_unchecked(ctx, &i, None)?;
                         let inner_wire = if is_indirect {
                             ctx.builder
