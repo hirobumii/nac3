@@ -1220,6 +1220,10 @@ impl Inferencer<'_> {
                 PrimDef::Int32
                 | PrimDef::Float
                 | PrimDef::Bool
+                | PrimDef::FunCeil
+                | PrimDef::FunCeil64
+                | PrimDef::FunFloor
+                | PrimDef::FunFloor64
                 | PrimDef::FunRound
                 | PrimDef::FunRound64
                 | PrimDef::FunNpIsNan
