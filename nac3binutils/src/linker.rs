@@ -952,6 +952,30 @@ impl<'a> Linker<'a> {
             linker.section_map.insert(arm_exidx_shdr_index, loaded_index);
         }
 
+        // Load any additional executable PROGBITS sections beyond the one picked
+        // as `.text` above. LLVM emits inline / templated functions into their own
+        // COMDAT-grouped `.text.<mangled>` sections; relocations target them by
+        // section index, so each must appear in `section_map`.
+        for (i, shdr) in shdrs.iter().enumerate() {
+            if i == text_shdr_index {
+                continue;
+            }
+            if shdr.sh_type as usize != SHT_PROGBITS
+                || shdr.sh_flags as usize & (SHF_WRITE | SHF_ALLOC | SHF_EXECINSTR)
+                    != (SHF_ALLOC | SHF_EXECINSTR)
+            {
+                continue;
+            }
+            let section_name = name_starting_at_slice(strtab, shdr.sh_name as usize)
+                .map_err(|_| "cannot read section name")?;
+            let elf_shdrs_index = linker.load_section(
+                shdr,
+                str::from_utf8(section_name).unwrap(),
+                data[shdr.sh_offset as usize..(shdr.sh_offset + shdr.sh_size) as usize].to_vec(),
+            );
+            linker.section_map.insert(i, elf_shdrs_index);
+        }
+
         // Prepare all read-only progbits except .eh_frame
         // The executable section is already loaded as .text
         for (i, shdr) in shdrs.iter().enumerate() {
