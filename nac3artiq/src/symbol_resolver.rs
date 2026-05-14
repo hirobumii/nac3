@@ -13,8 +13,8 @@ use nac3core::{
     codegen::{
         CodeGenContext,
         types::{
-            ClassType, EnumerateType, ListType, NDArrayType, RefCountedArrayType, RefType,
-            WithTypeinfo, make_contiguous_strides,
+            ClassType, EnumerateType, ListType, NDArrayType, ProxyType, RefCountedArrayType,
+            RefType, TupleType, WithTypeinfo, make_contiguous_strides,
         },
     },
     inkwell::{
@@ -1549,8 +1549,28 @@ impl InnerResolver {
                 })
                 .collect::<anyhow::Result<Option<Vec<_>>>>()?
                 .unwrap();
-            let val = ctx.ctx.const_struct(&val, false);
-            Ok(Some(val.into()))
+
+            // Constant initializers must match the two-level layout of `TupleType`
+            //
+            // The `typeinfo_offset` in the header is needed for IRRT's refcount walker to recognize
+            // refcounted fields in tuples. The refcount is set to 0 to indicate that the tuple
+            // itself is not heap-allocated nor reference-counted.
+            let tuple_ty = TupleType::from_unifier_type(ctx, expected_ty);
+            let outer_struct_ty = tuple_ty.llvm_ty(ctx).into_struct_type();
+            let inner_val = tuple_ty.fields.const_named_struct(&val);
+            let header_ty =
+                unsafe { outer_struct_ty.get_field_type_at_index_unchecked(0).into_struct_type() };
+            let typeinfo_offset = tuple_ty
+                .typeinfo(ctx)
+                .value
+                .const_to_int(ctx.size_t)
+                .const_sub(ctx.global_begin_ptr().const_to_int(ctx.size_t))
+                .const_truncate_or_bit_cast(ctx.i32);
+            let header_val = header_ty
+                .const_named_struct(&[ctx.i32.const_zero().into(), typeinfo_offset.into()]);
+            let outer_val =
+                outer_struct_ty.const_named_struct(&[header_val.into(), inner_val.into()]);
+            Ok(Some(outer_val.into()))
         } else if ty_id == self.primitive_ids.artiq.option {
             let option_val_ty = match ctx.unifier.get_ty_immutable(expected_ty).as_ref() {
                 TypeEnum::TObj { obj_id, params, .. }
