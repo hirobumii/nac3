@@ -10,7 +10,7 @@
 use std::{
     cell::OnceCell,
     collections::{HashMap, HashSet},
-    fs,
+    env, fs,
     io::Write,
     iter::once,
     path::Path,
@@ -78,6 +78,7 @@ mod timeline;
 const ENV_NAC3_EMIT_LLVM_BC: &str = "NAC3_EMIT_LLVM_BC";
 const ENV_NAC3_EMIT_LLVM_LL: &str = "NAC3_EMIT_LLVM_LL";
 const ENV_NAC3_OPT_LEVEL: &str = "NAC3_OPT_LEVEL";
+const ENV_NAC3_EMIT_OBJ: &str = "NAC3_EMIT_OBJ";
 
 #[derive(PartialEq, Clone, Copy)]
 enum Isa {
@@ -1318,8 +1319,8 @@ impl Nac3 {
 
         embedding_map.setattr("expects_return", has_return)?;
 
-        let emit_llvm_bc = std::env::var(ENV_NAC3_EMIT_LLVM_BC).is_ok();
-        let emit_llvm_ll = std::env::var(ENV_NAC3_EMIT_LLVM_LL).is_ok();
+        let emit_llvm_bc = env::var(ENV_NAC3_EMIT_LLVM_BC).is_ok();
+        let emit_llvm_ll = env::var(ENV_NAC3_EMIT_LLVM_LL).is_ok();
 
         let emit_llvm = |module: &Module<'_>, filename: &str| {
             if emit_llvm_bc {
@@ -1571,9 +1572,9 @@ impl Nac3 {
             _ => return Err(exceptions::PyValueError::new_err("invalid ISA")),
         };
 
-        let opt_level = match std::env::var(ENV_NAC3_OPT_LEVEL) {
+        let opt_level = match env::var(ENV_NAC3_OPT_LEVEL) {
             Ok(x) if matches!(&*x, "0" | "1" | "2" | "3" | "s" | "z") => x,
-            Err(std::env::VarError::NotPresent) => String::from("2"),
+            Err(env::VarError::NotPresent) => String::from("2"),
             unknown => {
                 return Err(exceptions::PyValueError::new_err(format!(
                     "unknown opt level: {unknown:?}"
@@ -1944,11 +1945,15 @@ impl Nac3 {
                 let object_mem = target_machine
                     .write_to_memory_buffer(module, FileType::Object)
                     .expect("couldn't write module to object file buffer");
-                if let Some(path) = std::env::var_os("NAC3_EMIT_OBJ") {
-                    std::fs::write(&path, object_mem.as_slice()).map_err(CompileError::new_err)?;
+                if let Some(path) = env::var_os(ENV_NAC3_EMIT_OBJ) {
+                    fs::write(&path, object_mem.as_slice()).map_err(CompileError::new_err)?;
                 }
                 Linker::ld(object_mem.as_slice()).map_or_else(
-                    |_| Err(CompileError::new_err("linker failed to process object file")),
+                    |e| {
+                        Err(CompileError::new_err(format!(
+                            "linker failed to process object file: {e:?}"
+                        )))
+                    },
                     |(dyn_lib, debug_lib)| {
                         fs::File::create(output_filename)
                             .map_or_else(
@@ -2008,8 +2013,15 @@ impl Nac3 {
                 let object_mem = target_machine
                     .write_to_memory_buffer(module, FileType::Object)
                     .expect("couldn't write module to object file buffer");
+                if let Some(path) = env::var_os(ENV_NAC3_EMIT_OBJ) {
+                    fs::write(&path, object_mem.as_slice()).map_err(CompileError::new_err)?;
+                }
                 Linker::ld(object_mem.as_slice()).map_or_else(
-                    |_| Err(CompileError::new_err("linker failed to process object file")),
+                    |e| {
+                        Err(CompileError::new_err(format!(
+                            "linker failed to process object file: {e:?}"
+                        )))
+                    },
                     |(dyn_lib, debug_lib)| Ok(PyTuple::new(py, vec![dyn_lib, debug_lib])),
                 )
             }
