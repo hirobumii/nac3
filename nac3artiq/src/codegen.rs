@@ -1107,9 +1107,13 @@ fn format_rpc_ret<'ctx>(
             }
 
             // Copy shape from the buffer to `ndarray.shape`.
-            // We need to skip the first `sizeof(uint8_t*)` bytes to skip the `pdata` in `[pdata, shape]`.
+            // We need to skip the first `sizeof(ptr)` bytes to skip the `pdata` in `[pdata, shape]`.
             let sizeof_ptr = ctx.size_t.const_int(sizeof_ptr, false);
-            let pbuffer_shape = buffer.ptr_offset_unchecked(ctx, &sizeof_ptr, None)?;
+            let pbuffer_shape = buffer.cast(ctx, ctx.i8, None, None)?.ptr_offset_unchecked(
+                ctx,
+                &sizeof_ptr,
+                None,
+            )?;
             ndarray.shape(ctx)?.inner_value(ctx, None)?.memcpy_from(ctx, pbuffer_shape)?;
 
             // Restore stack from before allocation of buffer
