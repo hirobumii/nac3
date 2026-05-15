@@ -79,6 +79,8 @@ const ENV_NAC3_EMIT_LLVM_BC: &str = "NAC3_EMIT_LLVM_BC";
 const ENV_NAC3_EMIT_LLVM_LL: &str = "NAC3_EMIT_LLVM_LL";
 const ENV_NAC3_OPT_LEVEL: &str = "NAC3_OPT_LEVEL";
 const ENV_NAC3_EMIT_OBJ: &str = "NAC3_EMIT_OBJ";
+const ENV_NAC3_EMIT_ELF: &str = "NAC3_EMIT_ELF";
+const ENV_NAC3_EMIT_DEBUG_ELF: &str = "NAC3_EMIT_DEBUG_ELF";
 
 #[derive(PartialEq, Clone, Copy)]
 enum Isa {
@@ -1955,6 +1957,12 @@ impl Nac3 {
                         )))
                     },
                     |(dyn_lib, debug_lib)| {
+                        if let Some(path) = env::var_os(ENV_NAC3_EMIT_ELF) {
+                            fs::write(&path, &dyn_lib).map_err(CompileError::new_err)?;
+                        }
+                        if let Some(path) = env::var_os(ENV_NAC3_EMIT_DEBUG_ELF) {
+                            fs::write(&path, &debug_lib).map_err(CompileError::new_err)?;
+                        }
                         fs::File::create(output_filename)
                             .map_or_else(
                                 |_| Err(CompileError::new_err("failed to create object file")),
@@ -2022,7 +2030,15 @@ impl Nac3 {
                             "linker failed to process object file: {e:?}"
                         )))
                     },
-                    |(dyn_lib, debug_lib)| Ok(PyTuple::new(py, vec![dyn_lib, debug_lib])),
+                    |(dyn_lib, debug_lib)| {
+                        if let Some(path) = env::var_os(ENV_NAC3_EMIT_ELF) {
+                            fs::write(&path, &dyn_lib).map_err(CompileError::new_err)?;
+                        }
+                        if let Some(path) = env::var_os(ENV_NAC3_EMIT_DEBUG_ELF) {
+                            fs::write(&path, &debug_lib).map_err(CompileError::new_err)?;
+                        }
+                        Ok(PyTuple::new(py, vec![dyn_lib, debug_lib]))
+                    },
                 )
             }
         };
