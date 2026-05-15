@@ -10,15 +10,16 @@ use std::{
 use inkwell::{
     AddressSpace,
     attributes::{Attribute, AttributeLoc},
-    builder::Builder,
     module::Linkage,
     targets::TargetData,
-    types::{AnyType, BasicMetadataTypeEnum, BasicType, BasicTypeEnum, PointerType},
+    types::{AnyType, BasicMetadataTypeEnum, BasicType, BasicTypeEnum},
     values::{BasicValueEnum, CallSiteValue, FunctionValue, PointerValue},
 };
 use itertools::Itertools as _;
 
-use crate::codegen::{ModuleContext, TargetMachineOptions};
+use crate::codegen::{
+    CodeGenContext, ModuleContext, TargetMachineOptions, types::ObjectHeaderType,
+};
 
 const INTERNAL_CALL_CONV: u32 = inkwell::llvm_sys::LLVMCallConv::LLVMFastCallConv as _;
 
@@ -48,7 +49,6 @@ enum FunctionInfo<'ctx> {
     },
     Internal {
         ret: Option<BasicTypeEnum<'ctx>>,
-        params: Vec<BasicMetadataTypeEnum<'ctx>>,
         export: bool,
         // do not use native LLVM varargs here; the caller should convert into a
         // Python-compatible list before calling the function
@@ -66,6 +66,15 @@ struct TyAndCallConv<'ctx> {
     /// The actual type of this parameter or return value.
     ty: BasicTypeEnum<'ctx>,
     call_conv: ArgCallConv,
+
+    /// Byte offset from the start of an indirectly-passed buffer (i.e. [`ArgCallConv::Indirect`])
+    /// at which the FFI peer expects to read/write its C-ABI value.
+    ///
+    /// This is non-zero for NAC3 types that prepend an `ObjectHeader` to a value-typed payload
+    /// (i.e. tuples), so that the C-ABI peer can read/write the inner C-ABI struct directly.
+    ///
+    /// For [`ArgCallConv::Direct`] this is always `0` and unused.
+    ffi_offset: u64,
 }
 
 fn get_attrs(
@@ -118,7 +127,7 @@ impl<'ctx> ModuleContext<'ctx> {
                 f.set_call_conventions(INTERNAL_CALL_CONV);
             }
             new_fn = Some(f);
-            (f, FunctionInfo::Internal { ret, params: params.into(), export })
+            (f, FunctionInfo::Internal { ret, export })
         });
 
         let value = new_fn.unwrap_or_else(|| module.get_function(name).unwrap());
@@ -151,15 +160,28 @@ impl<'ctx> ModuleContext<'ctx> {
             .then(|| Attribute::get_named_enum_kind_id("sret"));
         let attr_byval = (arch == "x86_64" || arch == "i686")
             .then(|| Attribute::get_named_enum_kind_id("byval"));
-        let get_conv = |attr: Option<u32>, ty, indirect_check: fn(_, _, _) -> bool| TyAndCallConv {
-            ty,
-            call_conv: if indirect_check(arch, &layout, ty) {
+        let get_conv = |attr: Option<u32>, ty, indirect_check: fn(_, _, _) -> bool| {
+            let call_conv = if indirect_check(arch, &layout, ty) {
                 ArgCallConv::Indirect(
                     attr.map(|x| ctx.create_type_attribute(x, AnyType::as_any_type_enum(&ty))),
                 )
             } else {
                 ArgCallConv::Direct
-            },
+            };
+
+            // If `ty` is a NAC3 value type that prepends an `ObjectHeader` (currently only tuples),
+            // the C-ABI peer expects to read/write the inner C-ABI struct directly.
+            // Offset the FFI pointer past the header to bridge the layout difference.
+            let ffi_offset = match (call_conv, ty) {
+                (ArgCallConv::Indirect(_), BasicTypeEnum::StructType(s))
+                    if s.count_fields() >= 2
+                        && ObjectHeaderType::is_layout_match(s.get_field_types()[0]) =>
+                {
+                    layout.offset_of_element(&s, 1).unwrap()
+                }
+                _ => 0,
+            };
+            TyAndCallConv { ty, call_conv, ffi_offset }
         };
 
         let ret = ret.map(|ty| get_conv(attr_sret, ty, indirect_ret));
@@ -172,7 +194,7 @@ impl<'ctx> ModuleContext<'ctx> {
         let (llvm_params, attrs): (Vec<_>, Vec<_>) = sret
             .into_iter()
             .chain(params.iter().copied())
-            .map(|TyAndCallConv { ty, call_conv }| match call_conv {
+            .map(|TyAndCallConv { ty, call_conv, .. }| match call_conv {
                 ArgCallConv::Indirect(attr) => (ctx.ptr_type(AddressSpace::default()).into(), attr),
                 ArgCallConv::Direct => (BasicMetadataTypeEnum::from(ty), None),
             })
@@ -208,13 +230,20 @@ impl<'ctx> FunctionStore<'ctx> {
         }
     }
 
-    pub(crate) fn do_call<T>(
+    pub(crate) fn do_call<'a, T>(
         &self,
+        ctx: &CodeGenContext<'ctx, 'a>,
         decl: &FunctionDecl<'ctx>,
-        builder: &Builder<'ctx>,
         args: &[T],
-        call: impl FnOnce(FunctionValue<'ctx>, &[T]) -> anyhow::Result<CallSiteValue<'ctx>>,
-        mut allocate_fn: impl FnMut(BasicTypeEnum<'ctx>) -> anyhow::Result<PointerValue<'ctx>>,
+        call: impl FnOnce(
+            &CodeGenContext<'ctx, 'a>,
+            FunctionValue<'ctx>,
+            &[T],
+        ) -> anyhow::Result<CallSiteValue<'ctx>>,
+        mut allocate_fn: impl FnMut(
+            &CodeGenContext<'ctx, 'a>,
+            BasicTypeEnum<'ctx>,
+        ) -> anyhow::Result<PointerValue<'ctx>>,
     ) -> anyhow::Result<Option<BasicValueEnum<'ctx>>>
     where
         T: Copy + TryInto<BasicValueEnum<'ctx>, Error: Debug>,
@@ -222,41 +251,53 @@ impl<'ctx> FunctionStore<'ctx> {
     {
         let ptr_to_t = |p| BasicValueEnum::from(p).into();
 
-        let fixup_ptr_arg = |arg: T, _param: PointerType<'ctx>| {
-            // With opaque pointers all pointers are the same type. No casting needed.
-            anyhow::Ok(arg)
-        };
-
         let (value, ref info) = self.functions[&decl.name];
         match info {
             FunctionInfo::External { ret, params, is_c_varargs } => {
+                fn offset_ptr<'ctx>(
+                    ctx: &CodeGenContext<'ctx, '_>,
+                    buf: PointerValue<'ctx>,
+                    offset: u64,
+                ) -> anyhow::Result<PointerValue<'ctx>> {
+                    Ok(if offset == 0 {
+                        buf
+                    } else {
+                        let idx = ctx.i32.const_int(offset, false);
+
+                        unsafe { ctx.builder.build_gep(ctx.i8, buf, &[idx], "ffi.skip_hdr")? }
+                    })
+                }
+
                 let mut args = args.iter();
 
                 let slot = match *ret {
-                    Some(TyAndCallConv { ty, call_conv: ArgCallConv::Indirect(attr) }) => {
-                        Some((allocate_fn(ty)?, ty, attr))
+                    Some(TyAndCallConv {
+                        ty,
+                        call_conv: ArgCallConv::Indirect(attr),
+                        ffi_offset,
+                    }) => {
+                        let buf = allocate_fn(ctx, ty)?;
+                        let ffi_ptr = offset_ptr(ctx, buf, ffi_offset)?;
+                        Some((buf, ffi_ptr, ty, attr))
                     }
                     _ => None,
                 };
                 let normal_args = params
                     .iter()
-                    .map(|&TyAndCallConv { ty, call_conv }| {
-                        let mut next = *args.next().expect("arguments fewer than parameters");
-                        if let BasicTypeEnum::PointerType(p) = ty {
-                            next = fixup_ptr_arg(next, p)?;
-                        }
-
+                    .map(|&TyAndCallConv { ty, call_conv, ffi_offset }| {
+                        let next = *args.next().expect("arguments fewer than parameters");
                         if let ArgCallConv::Indirect(attr) = call_conv {
-                            let p = allocate_fn(ty)?;
-                            builder.build_store(p, next.try_into().unwrap())?;
-                            anyhow::Ok((ptr_to_t(p), attr))
+                            let buf = allocate_fn(ctx, ty)?;
+                            ctx.builder.build_store(buf, next.try_into().unwrap())?;
+                            let ffi_ptr = offset_ptr(ctx, buf, ffi_offset)?;
+                            anyhow::Ok((ptr_to_t(ffi_ptr), attr))
                         } else {
                             Ok((next, None))
                         }
                     })
                     .collect::<anyhow::Result<Vec<_>>>()?;
 
-                let normal_slot = slot.map(|(p, _ty, attr)| (ptr_to_t(p), attr));
+                let normal_slot = slot.map(|(_, ffi_ptr, _, attr)| (ptr_to_t(ffi_ptr), attr));
                 let (mut llvm_args, attrs): (Vec<_>, Vec<_>) =
                     normal_slot.into_iter().chain(normal_args).unzip();
                 if *is_c_varargs {
@@ -265,35 +306,23 @@ impl<'ctx> FunctionStore<'ctx> {
                     assert!(args.as_slice().is_empty(), "too many arguments");
                 }
 
-                let result = call(value, &llvm_args)?;
+                let result = call(ctx, value, &llvm_args)?;
                 for (loc, attr) in get_attrs(attrs) {
                     result.add_attribute(loc, attr);
                 }
 
                 let mut result = result.try_as_basic_value().basic();
-                if let Some((ptr, ty, _)) = slot {
+                if let Some((buf, _ffi_ptr, ty, _)) = slot {
                     assert!(result.is_none());
-                    result = Some(builder.build_load(ty, ptr, "slot")?);
+                    result = Some(ctx.builder.build_load(ty, buf, "slot")?);
                 }
                 assert_eq!(result.map(|val| val.get_type()), ret.map(|ret_type| ret_type.ty));
                 Ok(result)
             }
-            FunctionInfo::Internal { ret, params, export } => {
+            FunctionInfo::Internal { ret, export, .. } => {
                 assert!(!export, "attempted to call a non-exported function");
 
-                let args = args
-                    .iter()
-                    .zip(params)
-                    .map(|(&arg, param)| {
-                        if let BasicMetadataTypeEnum::PointerType(p) = *param {
-                            fixup_ptr_arg(arg, p)
-                        } else {
-                            Ok(arg)
-                        }
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
-
-                let inst = call(value, &args)?;
+                let inst = call(ctx, value, args)?;
                 inst.set_call_convention(INTERNAL_CALL_CONV);
                 let result = inst.try_as_basic_value().basic();
                 assert_eq!(result.map(|val| val.get_type()), *ret);

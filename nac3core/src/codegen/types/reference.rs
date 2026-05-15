@@ -89,6 +89,17 @@ impl<'ctx> ObjectHeaderType<'ctx> {
     pub fn alloca_ty(&self, _ctx: &ModuleContext<'ctx>) -> BasicTypeEnum<'ctx> {
         self.inner.llvm_ty.into()
     }
+
+    /// Returns whether `ty` is the named LLVM struct type for `ObjectHeader`
+    /// (`%__nac3_object_header`).
+    ///
+    /// Useful for detecting NAC3 value types (currently tuples) that prepend an `ObjectHeader`
+    /// to their payload, e.g. when bridging to a C ABI at the FFI boundary.
+    #[must_use]
+    pub fn is_layout_match(ty: BasicTypeEnum<'ctx>) -> bool {
+        let BasicTypeEnum::StructType(s) = ty else { return false };
+        s.get_name().is_some_and(|n| n.to_bytes() == b"__nac3_object_header")
+    }
 }
 
 pub type ObjectHeaderValue<'ctx> = Value<'ctx, ObjectHeaderType<'ctx>>;

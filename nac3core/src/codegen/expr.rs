@@ -118,7 +118,7 @@ pub fn get_subst_key(
         .join(", ")
 }
 
-impl<'ctx> CodeGenContext<'ctx, '_> {
+impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
     /// Builds a sequence of `getelementptr` and `load` instructions which stores the value of a
     /// struct field into an LLVM value.
     pub fn build_gep_and_load(
@@ -428,16 +428,18 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
         );
         self.builder.set_current_debug_location(loc);
 
-        let allocate = |ty| self.build_allocate(AllocationScope::Default, ty, Some(call_name));
+        let allocate = |ctx: &CodeGenContext<'ctx, 'a>, ty| {
+            ctx.build_allocate(AllocationScope::Default, ty, Some(call_name))
+        };
 
         unwind_target.map_or_else(
             || {
                 let args: Vec<_> = args.iter().map(|v| (*v).into()).collect();
                 self.fn_store.do_call(
+                    self,
                     fun,
-                    self.builder,
                     &args,
-                    |value, args| Ok(self.builder.build_call(value, args, call_name)?),
+                    |ctx, value, args| Ok(ctx.builder.build_call(value, args, call_name)?),
                     allocate,
                 )
             },
@@ -447,14 +449,13 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
                 let then_block =
                     self.ctx.append_basic_block(current, &format!("after.{call_name}"));
                 self.fn_store.do_call(
+                    self,
                     fun,
-                    self.builder,
                     args,
-                    |value, args| {
-                        let invoke = self
-                            .builder
-                            .build_invoke(value, args, then_block, target, call_name)?;
-                        self.builder.position_at_end(then_block);
+                    |ctx, value, args| {
+                        let invoke =
+                            ctx.builder.build_invoke(value, args, then_block, target, call_name)?;
+                        ctx.builder.position_at_end(then_block);
                         Ok(invoke)
                     },
                     allocate,
