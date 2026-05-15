@@ -8,6 +8,7 @@ use std::{
 };
 
 use anyhow::{anyhow, bail, ensure};
+use indexmap::IndexMap;
 use itertools::Itertools as _;
 use nac3core::{
     codegen::{
@@ -90,7 +91,7 @@ pub struct InnerResolver {
     pub id_to_pyval: RwLock<HashMap<StrRef, PyValueHandle>>,
     pub id_to_primitive: RwLock<HashMap<u64, PrimitiveValue>>,
     pub field_to_val: RwLock<HashMap<ResolverField, Option<PyValueHandle>>>,
-    pub global_value_ids: Arc<RwLock<HashMap<u64, Py<PyAny>>>>,
+    pub global_value_ids: Arc<RwLock<IndexMap<u64, Py<PyAny>>>>,
     pub pyid_to_def: Arc<RwLock<HashMap<u64, DefinitionId>>>,
     pub pyid_to_type: Arc<RwLock<HashMap<u64, Type>>>,
     pub primitive_ids: PrimitivePythonId,

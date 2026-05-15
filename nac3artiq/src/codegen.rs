@@ -32,7 +32,7 @@ use nac3core::{
     nac3parser::ast::{Expr, ExprKind, Located, Stmt, StmtKind, StrRef},
     symbol_resolver::ValueEnum,
     toplevel::{
-        DefinitionId, GenCall,
+        DefinitionId, GenCall, TopLevelDef,
         helper::{PrimDef, extract_ndims},
         numpy::unpack_ndarray_var_tys,
     },
@@ -1383,13 +1383,31 @@ pub fn attributes_writeback<'ctx>(
                     // for non-primitive attributes, they should be in another global
                     let mut attributes = Vec::new();
                     let obj = inner_resolver.get_obj_value(py, val, ctx, ty)?.unwrap();
-                    for (name, (field_ty, attr_kind)) in fields {
+
+                    // Walk fields in source declaration order so the writeback's tag string and
+                    // the host-side `attributes_writeback` list stay deterministic between
+                    // compiles (the unifier's `fields` map is a HashMap and would otherwise
+                    // randomize the order each run).
+                    let source_field_names: Vec<StrRef> = {
+                        let top_level_defs = ctx.top_level.definitions.read();
+                        let TopLevelDef::Class { fields: source_fields, .. } =
+                            &*top_level_defs[obj_id.0].read()
+                        else {
+                            unreachable!()
+                        };
+                        source_fields.iter().map(|(name, _, _)| *name).collect()
+                    };
+
+                    for name in source_field_names {
+                        let Some(&(field_ty, attr_kind)) = fields.get(&name) else {
+                            continue;
+                        };
                         if !attr_kind.is_mutable() {
                             continue;
                         }
-                        if gen_rpc_tag(ctx, *field_ty, &mut scratch_buffer).is_ok() {
+                        if gen_rpc_tag(ctx, field_ty, &mut scratch_buffer).is_ok() {
                             attributes.push(name.to_string());
-                            let (index, _) = ctx.get_attr_index(ty, *name);
+                            let (index, _) = ctx.get_attr_index(ty, name);
 
                             let field_val = if is_refcounted_type(&mut ctx.unifier, ty) {
                                 let class_val = ClassType::from_unifier_type(ctx, ty)
@@ -1409,7 +1427,7 @@ pub fn attributes_writeback<'ctx>(
                                     field_llvm_ty,
                                 )?
                             };
-                            values.push((*field_ty, field_val));
+                            values.push((field_ty, field_val));
                         }
                     }
                     if !attributes.is_empty() {

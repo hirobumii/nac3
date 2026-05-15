@@ -869,7 +869,7 @@ impl Nac3 {
         let store_str = embedding_map.getattr("store_str")?;
         let store_fun = embedding_map.getattr("store_function")?.into_py_any(py)?;
         let host_attributes = embedding_map.getattr("attributes_writeback")?.into_py_any(py)?;
-        let global_value_ids: Arc<RwLock<HashMap<_, _>>> = Arc::new(RwLock::new(HashMap::new()));
+        let global_value_ids: Arc<RwLock<IndexMap<_, _>>> = Arc::new(RwLock::new(IndexMap::new()));
         let helper = PythonHelper {
             store_obj: Arc::new(store_obj.clone().into_py_any(py)?),
             store_str: Arc::new(store_str.into_py_any(py)?),
