@@ -921,6 +921,20 @@ fn format_rpc_arg<'ctx>(
             buf.value.0
         }
 
+        WireDescriptorKind::List { .. } => {
+            // NAC3: list = { _: ObjectHeader, data: ptr, length: size_t }
+            // libproto_artiq: list = { ptr, size_t } - same order without ObjectHeader
+            // arg slot: { ptr, size_t }* - firmware consumes as a pointer and derefs
+            let list_ptr = marshal_to_wire(ctx, arg_ty, arg, &format!("rpc.arg{arg_idx}"))?;
+            let slot = ctx.build_allocate(
+                AllocationScope::StackCurrentLoc,
+                ctx.ptr,
+                Some("rpc.arg.list.slot"),
+            )?;
+            ctx.builder.build_store(slot, list_ptr)?;
+            slot
+        }
+
         // All other types are directly passed to `marshal_to_wire` for recursive handling
         _ => marshal_to_wire(ctx, arg_ty, arg, &format!("rpc.arg{arg_idx}"))?,
     };
