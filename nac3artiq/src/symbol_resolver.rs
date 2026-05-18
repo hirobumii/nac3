@@ -1300,8 +1300,16 @@ impl InnerResolver {
                     if iterable.is_instance_of::<PyList>() {
                         iterable_value.into_pointer_value().into()
                     } else {
-                        // Tuple value is already a struct, we'll use it directly
-                        iterable_value
+                        // Tuples are value types, so the iterable struct's `ptr` slot
+                        // cannot hold the tuple value inline; materialize it into its
+                        // own global and store the pointer instead.
+                        let tuple_global = ctx.module.add_global(
+                            iterable_value.get_type(),
+                            Some(AddressSpace::default()),
+                            &format!("{id_str}.iterable.data"),
+                        );
+                        tuple_global.set_initializer(&iterable_value);
+                        tuple_global.as_pointer_value().into()
                     }
                 } else {
                     unreachable!("unexpected iterable type for enumerate")
