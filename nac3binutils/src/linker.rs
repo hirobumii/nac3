@@ -932,26 +932,26 @@ impl<'a> Linker<'a> {
             rela_dyn_relas,
         };
 
-        // Generate .text, keep the section index to find .rela.text
-        let is_text_shdr = |shdr: &Elf32_Shdr| {
-            shdr.sh_flags as usize & (SHF_ALLOC | SHF_EXECINSTR) == (SHF_ALLOC | SHF_EXECINSTR)
-        };
-        let is_progbits = |shdr: &Elf32_Shdr| shdr.sh_type as usize == SHT_PROGBITS;
-
-        let text_shdr_index = shdrs
-            .iter()
-            .position(|shdr| is_text_shdr(shdr) && is_progbits(shdr))
-            .ok_or(Error::Parsing("cannot find the .text section"))?;
-        let text_shdr = shdrs[text_shdr_index];
-
-        linker.load_section(
-            &text_shdr,
-            ".text",
-            data[text_shdr.sh_offset as usize
-                ..text_shdr.sh_offset as usize + text_shdr.sh_size as usize]
-                .to_vec(),
-        );
-        linker.section_map.insert(text_shdr_index, 1);
+        // Load all executable PROGBITS sections.
+        // Besides `.text`, LLVM emits inline / templated functions into their own
+        // COMDAT-grouped `.text.<mangled>` sections; relocations target them by
+        // section index, so each must appear in `section_map`.
+        for (i, shdr) in shdrs.iter().enumerate() {
+            if shdr.sh_type as usize != SHT_PROGBITS
+                || shdr.sh_flags as usize & (SHF_WRITE | SHF_ALLOC | SHF_EXECINSTR)
+                    != (SHF_ALLOC | SHF_EXECINSTR)
+            {
+                continue;
+            }
+            let section_name = name_starting_at_slice(strtab, shdr.sh_name as usize)
+                .map_err(|_| "cannot read section name")?;
+            let elf_shdrs_index = linker.load_section(
+                shdr,
+                str::from_utf8(section_name).unwrap(),
+                data[shdr.sh_offset as usize..(shdr.sh_offset + shdr.sh_size) as usize].to_vec(),
+            );
+            linker.section_map.insert(i, elf_shdrs_index);
+        }
 
         // ARM: Prioritize the transfer of EXIDX before EXTAB
         // It is to ensure that EXIDX is within a LOAD program header
@@ -971,30 +971,6 @@ impl<'a> Linker<'a> {
                     .to_vec(),
             );
             linker.section_map.insert(arm_exidx_shdr_index, loaded_index);
-        }
-
-        // Load any additional executable PROGBITS sections beyond the one picked
-        // as `.text` above. LLVM emits inline / templated functions into their own
-        // COMDAT-grouped `.text.<mangled>` sections; relocations target them by
-        // section index, so each must appear in `section_map`.
-        for (i, shdr) in shdrs.iter().enumerate() {
-            if i == text_shdr_index {
-                continue;
-            }
-            if shdr.sh_type as usize != SHT_PROGBITS
-                || shdr.sh_flags as usize & (SHF_WRITE | SHF_ALLOC | SHF_EXECINSTR)
-                    != (SHF_ALLOC | SHF_EXECINSTR)
-            {
-                continue;
-            }
-            let section_name = name_starting_at_slice(strtab, shdr.sh_name as usize)
-                .map_err(|_| "cannot read section name")?;
-            let elf_shdrs_index = linker.load_section(
-                shdr,
-                str::from_utf8(section_name).unwrap(),
-                data[shdr.sh_offset as usize..(shdr.sh_offset + shdr.sh_size) as usize].to_vec(),
-            );
-            linker.section_map.insert(i, elf_shdrs_index);
         }
 
         // Prepare all read-only progbits except .eh_frame
