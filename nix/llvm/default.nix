@@ -25,10 +25,10 @@ in rec {
     else ".exe";
   llvm = stdenv.mkDerivation rec {
     pname = "llvm-nac3";
-    version = "22.1.0";
+    version = "22.1.5";
     src = fetchurl {
       url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-${version}/llvm-project-${version}.src.tar.xz";
-      hash = "sha256-JdLircQ1bXWEBd2IX8/WRHvOgqkOt4trh84JNL0HcXM=";
+      hash = "sha256-eXK4e3BaADznCrVfnw+0ldFWiHy6DrKW0oRzETkRjiw=";
     };
     nativeBuildInputs =
       if msys2-env == null
