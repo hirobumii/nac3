@@ -1834,6 +1834,7 @@ impl Nac3 {
             "0:ValueError",
             "0:ZeroDivisionError",
             "0:LinAlgError",
+            "0:MemoryError",
             "UnwrapNoneError",
             "CXPError",
             "GrabberSerialError",
