@@ -421,30 +421,27 @@ impl<'a> Linker<'a> {
                             pc_relative: true,
                             relocate: Some(Box::new(|target_word, value| {
                                 let auipc_raw = LittleEndian::read_u32(&target_word[..4]);
-                                let auipc_insn = (auipc_raw & 0xFFF)
-                                    | (value.wrapping_add(0x800) & 0xFFFF_F000);
+                                let auipc_insn =
+                                    (auipc_raw & 0xFFF) | (value.wrapping_add(0x800) & 0xFFFF_F000);
                                 LittleEndian::write_u32(&mut target_word[..4], auipc_insn);
 
                                 let jalr_raw = LittleEndian::read_u32(&target_word[4..8]);
-                                let jalr_insn =
-                                    (jalr_raw & 0x000F_FFFF) | ((value & 0xFFF) << 20);
+                                let jalr_insn = (jalr_raw & 0x000F_FFFF) | ((value & 0xFFF) << 20);
                                 LittleEndian::write_u32(&mut target_word[4..8], jalr_insn);
                             })),
                         }),
 
-                        R_RISCV_GOT_HI20 | R_RISCV_PCREL_HI20 => {
-                            Some(RelocInfo {
-                                defined_val,
-                                indirect_reloc: None,
-                                pc_relative: true,
-                                relocate: Some(Box::new(|target_word, value| {
-                                    let auipc_raw = LittleEndian::read_u32(target_word);
-                                    let auipc_insn =
-                                        (auipc_raw & 0xFFF) | ((value + 0x800) & 0xFFFF_F000);
-                                    LittleEndian::write_u32(target_word, auipc_insn);
-                                })),
-                            })
-                        }
+                        R_RISCV_GOT_HI20 | R_RISCV_PCREL_HI20 => Some(RelocInfo {
+                            defined_val,
+                            indirect_reloc: None,
+                            pc_relative: true,
+                            relocate: Some(Box::new(|target_word, value| {
+                                let auipc_raw = LittleEndian::read_u32(target_word);
+                                let auipc_insn =
+                                    (auipc_raw & 0xFFF) | ((value + 0x800) & 0xFFFF_F000);
+                                LittleEndian::write_u32(target_word, auipc_insn);
+                            })),
+                        }),
 
                         R_RISCV_32_PCREL => Some(RelocInfo {
                             defined_val,

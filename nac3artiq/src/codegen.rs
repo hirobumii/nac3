@@ -552,8 +552,7 @@ fn marshal_to_wire<'ctx>(
                                 .inner_value(ctx, Some(length))?
                                 .get_unchecked(ctx, &i, None)?;
                             let wire_elem = marshal_to_wire(ctx, elem_ty, nac3_elem, "")?;
-                            let wire_slot = wire_array
-                                .ptr_offset_unchecked(ctx, &i, None)?;
+                            let wire_slot = wire_array.ptr_offset_unchecked(ctx, &i, None)?;
                             ctx.builder.build_store(wire_slot, wire_elem)?;
                             Ok(())
                         },

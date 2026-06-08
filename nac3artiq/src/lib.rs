@@ -1390,7 +1390,7 @@ impl Nac3 {
         Python::attach(|py| -> PyResult<()> {
             let string_store = self.string_store.read();
             let mut string_store_vec = string_store.iter().collect::<Vec<_>>();
-            string_store_vec.sort_by(|(_s1, key1), (_s2, key2)| key1.cmp(key2));
+            string_store_vec.sort_by_key(|(_, id)| *id);
             for (s, key) in string_store_vec {
                 let embed_key: i32 = helper.store_str.bind(py).call1((s,))?.extract()?;
                 assert_eq!(

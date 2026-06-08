@@ -607,8 +607,7 @@ impl EH_Frame_Hdr<'_> {
     }
 
     pub fn finalize_fde(mut self) {
-        self.fdes
-            .sort_by(|(left_init_loc, _), (right_init_loc, _)| left_init_loc.cmp(right_init_loc));
+        self.fdes.sort_by_key(|(init_loc, _)| *init_loc);
         for (init_loc, addr) in &self.fdes {
             self.fde_writer.write_u32(*init_loc);
             self.fde_writer.write_u32(*addr);

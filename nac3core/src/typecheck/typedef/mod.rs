@@ -1442,7 +1442,7 @@ impl Unifier {
         let ty = self.unification_table.probe_value_immutable(ty).clone();
         match ty.as_ref() {
             TypeEnum::TRigidVar { id, name, .. } => {
-                name.map(|v| v.to_string()).unwrap_or_else(|| var_to_name(*id))
+                name.map_or_else(|| var_to_name(*id), |v| v.to_string())
             }
             TypeEnum::TVar { id, name, fields, range, .. } => {
                 let n = if let Some(fields) = fields {
@@ -1456,11 +1456,11 @@ impl Unifier {
                     let fields = fields.join(", ");
                     format!(
                         "{}[{}]",
-                        name.map(|v| v.to_string()).unwrap_or_else(|| var_to_name(*id)),
+                        name.map_or_else(|| var_to_name(*id), |v| v.to_string()),
                         fields
                     )
                 } else {
-                    name.map(|v| v.to_string()).unwrap_or_else(|| var_to_name(*id))
+                    name.map_or_else(|| var_to_name(*id), |v| v.to_string())
                 };
                 if !range.is_empty() && notes.is_some() && !notes.as_ref().unwrap().contains_key(id)
                 {

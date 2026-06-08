@@ -279,7 +279,7 @@ fn main() {
     let target_features = target_features.unwrap_or_default();
     let threads = if is_multithreaded() {
         if threads == 0 {
-            std::thread::available_parallelism().map(NonZeroUsize::get).unwrap_or(1usize)
+            std::thread::available_parallelism().map_or_else(|_| 1usize, NonZeroUsize::get)
         } else {
             threads as usize
         }
