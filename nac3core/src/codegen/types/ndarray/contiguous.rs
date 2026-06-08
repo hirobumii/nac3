@@ -14,6 +14,7 @@ use crate::codegen::{
         NDArrayType, OpaqueRefCountedType, OpaqueRefCountedValue, ProxyTypeBase as _,
         RefCountedArrayType, RefCountedArrayValue, RefCountedValue as _, RefType,
         TypedRefCountedType, TypedRefCountedValue, Value, WithTypeinfo,
+        array::{ArrayLikeIndexer as _, ArraySliceValue},
         builtin::BuiltinStruct,
         field,
         ndarray::{NDArrayLikeType, NDArrayValue},
@@ -89,16 +90,34 @@ impl<'ctx> RawContiguousNDArrayValue<'ctx> {
         Ok(RefCountedArrayType::new(ctx, ctx.size_t, None).map_value(shape, None))
     }
 
-    /// Returns the underlying data [`RefCountedArrayValue`] of this ndarray.
+    /// Returns the underlying data of this array as an [`ArraySliceValue`].
+    ///
+    /// The pointer returned by this function points to the first element of the array, similar to
+    /// [`NDArrayValue::data`].
     pub fn data(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
-    ) -> anyhow::Result<RefCountedArrayValue<'ctx, BasicTypeEnum<'ctx>>> {
+    ) -> anyhow::Result<ArraySliceValue<'ctx, BasicTypeEnum<'ctx>>> {
         let data = self.load(ctx, field!(data))?;
-        Ok(RefCountedArrayType::new(ctx, ctx.i8.into(), None).map_value(data, None))
+
+        // The slice length is the total number of (scalar) elements, i.e. the product of the shape.
+        let shape = self.shape(ctx)?;
+        let mut size = ctx.size_t.const_int(1, false);
+        for i in 0..self.ty.ndims {
+            let dim = shape.inner_value(ctx, None)?.get_unchecked(
+                ctx,
+                &ctx.size_t.const_int(i, false),
+                None,
+            )?;
+            size = ctx.builder.build_int_mul(size, dim, "")?;
+        }
+
+        Ok(ArraySliceValue::new(self.ty.dtype, data, size, self.name))
     }
 
-    /// Returns the base of this array.
+    /// Returns the base of this array, i.e. the instance of the underlying allocation.
+    ///
+    /// See [`NDArrayValue::base`] for more details.
     pub fn base(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
@@ -198,12 +217,12 @@ impl<'ctx> NDArrayValue<'ctx> {
             .memcpy_from(ctx, shape.inner_value(ctx, None)?.value.0)?;
         ndarray.set_strides_contiguous(ctx)?;
 
-        // Share data
+        // Copy the `data` pointer to weakly share the data
         let data = carray.inner_value(ctx)?.data(ctx)?;
-        data.header(ctx).safe_increment_refcount(ctx)?;
-        ndarray.inner_value(ctx)?.store(ctx, field!(data), data.value)?;
+        ndarray.inner_value(ctx)?.store(ctx, field!(data), data.value.0)?;
 
-        let base = carray.inner_value(ctx)?.data(ctx)?;
+        // Store a strong reference to the `base` for refcounting purposes
+        let base = carray.inner_value(ctx)?.base(ctx)?;
         base.header(ctx).safe_increment_refcount(ctx)?;
         ndarray.inner_value(ctx)?.store(ctx, field!(base), base.value)?;
 

@@ -463,9 +463,7 @@ fn write_ndarray_wire_descriptor<'ctx>(
         NDArrayType::create(ctx, dtype, ndims).map_value(value.into_pointer_value(), None);
     let carray = ndarray.make_contiguous_ndarray(ctx)?;
 
-    let carray_nbytes = ndarray.nbytes(ctx)?;
-    let carray_data =
-        carray.inner_value(ctx)?.data(ctx)?.inner_value(ctx, Some(carray_nbytes))?.value.0;
+    let carray_data = carray.inner_value(ctx)?.data(ctx)?.value.0;
     ctx.builder.build_store(dest, carray_data)?;
 
     let dest_shape = unsafe { ctx.builder.build_gep(ctx.i8, dest, &[sizeof_ptr], "")? };
