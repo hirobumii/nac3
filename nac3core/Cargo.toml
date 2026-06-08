@@ -14,7 +14,7 @@ malloc = []
 anyhow = "1.0"
 itertools = "0.14"
 crossbeam = "0.8"
-indexmap = "2.12"
+indexmap = "2.14"
 parking_lot = "0.12"
 nac3core_derive = { path = "nac3core_derive", optional = true }
 nac3parser = { path = "../nac3parser" }
@@ -29,7 +29,7 @@ features = ["llvm22-1-prefer-dynamic", "target-x86", "target-arm", "target-riscv
 [dev-dependencies]
 test-case = "3.3"
 indoc = "2.0"
-insta = "1.44"
+insta = "1.47"
 function_name = "0.3"
 
 [build-dependencies]

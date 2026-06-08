@@ -16,9 +16,9 @@ lalrpop-util = "0.23"
 log = "0.4"
 unic-emoji-char = "0.9"
 unic-ucd-ident  = "0.9"
-unicode_names2 = "2.0"
+unicode_names2 = "3.0"
 phf = { version = "0.13", features = ["macros"] }
 ahash = "0.8"
 
 [dev-dependencies]
-insta = "1.44"
+insta = "1.47"

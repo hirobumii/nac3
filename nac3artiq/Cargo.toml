@@ -10,11 +10,11 @@ crate-type = ["cdylib"]
 
 [dependencies]
 anyhow = "1.0"
-indexmap = "2.12"
+indexmap = "2.14"
 itertools = "0.14"
 pyo3 = { version = "0.28", features = ["extension-module"] }
 parking_lot = "0.12"
-tempfile = "3.22"
+tempfile = "3.27"
 nac3core = { path = "../nac3core" }
 nac3binutils = { path = "../nac3binutils" }
 
