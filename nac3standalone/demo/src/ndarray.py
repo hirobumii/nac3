@@ -1659,6 +1659,16 @@ def test_ndarray_linalg_inv():
     output_ndarray_float_2(x)
     output_ndarray_float_2(y)
 
+def test_ndarray_linalg_inv_offset():
+    # `x[1:]` is a C-contiguous view with a nonzero byte offset. Feeding it into a linalg
+    # function exercises the offset handling of `make_contiguous_ndarray`. Rows 1-3 are the
+    # same matrix as `test_ndarray_linalg_inv`, so the result must be identical.
+    x: ndarray[float, 2] = np_array([[0.0, 0.0, 0.0], [-5.0, -1.0, 2.0], [-1.0, 4.0, 7.5], [-1.0, 8.0, -8.5]])
+    y = np_linalg_inv(x[1:])
+
+    output_ndarray_float_2(x[1:])
+    output_ndarray_float_2(y)
+
 def test_ndarray_pinv():
     x: ndarray[float, 2] = np_array([[-5.0, -1.0, 2.0], [-1.0, 4.0, 7.5]])
     y = np_linalg_pinv(x)
@@ -1920,6 +1930,7 @@ def run() -> int32:
     test_ndarray_qr()
     test_ndarray_svd()
     test_ndarray_linalg_inv()
+    test_ndarray_linalg_inv_offset()
     test_ndarray_pinv()
     test_ndarray_matrix_power()
     test_ndarray_det()

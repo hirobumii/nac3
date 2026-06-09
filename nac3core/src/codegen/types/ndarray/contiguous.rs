@@ -32,6 +32,7 @@ pub struct ContiguousNDArrayStructFields<'ctx> {
     data: StructField<'ctx, PointerValue<'ctx>>,
     #[value_type(ptr)]
     base: StructField<'ctx, PointerValue<'ctx>>,
+    // TODO(Derppening): This field is unused and is always set to zero
     #[value_type(size_t)]
     pub offset: StructField<'ctx, IntValue<'ctx>>,
 }
@@ -146,12 +147,8 @@ impl<'ctx> NDArrayValue<'ctx> {
                 // This ndarray is contiguous.
                 let data = self.inner_value(ctx)?.data(ctx)?;
                 result.inner_value(ctx)?.store(ctx, field!(data), data.value.0)?;
-
                 result.inner_value(ctx)?.store(ctx, field!(base), self.value)?;
-
-                let offset = self.inner_value(ctx)?.load(ctx, field!(offset))?;
-                result.inner_value(ctx)?.store(ctx, field!(offset), offset)?;
-
+                result.inner_value(ctx)?.store(ctx, field!(offset), ctx.size_t.const_zero())?;
                 Ok(())
             },
             |(), ctx| {
@@ -160,12 +157,8 @@ impl<'ctx> NDArrayValue<'ctx> {
                 let copied_ndarray = self.make_copy(ctx)?;
                 let data = copied_ndarray.inner_value(ctx)?.data(ctx)?;
                 result.inner_value(ctx)?.store(ctx, field!(data), data.value.0)?;
-
                 result.inner_value(ctx)?.store(ctx, field!(base), copied_ndarray.value)?;
-
-                let offset = self.inner_value(ctx)?.load(ctx, field!(offset))?;
-                result.inner_value(ctx)?.store(ctx, field!(offset), offset)?;
-
+                result.inner_value(ctx)?.store(ctx, field!(offset), ctx.size_t.const_zero())?;
                 Ok(())
             },
         )?;
