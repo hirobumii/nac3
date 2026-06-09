@@ -96,7 +96,7 @@ pub struct NDArrayStructFields<'ctx> {
     // Consider picking one.
     #[value_type(ptr)]
     shape: StructField<'ctx, PointerValue<'ctx>>,
-    /// Pointer to an array indicating the number of bytes between each element at a dimension
+    /// Pointer to an array indicating the number of bytes between each element at a dimension.
     #[value_type(ptr)]
     strides: StructField<'ctx, PointerValue<'ctx>>,
     /// Pointer to an array containing the array data

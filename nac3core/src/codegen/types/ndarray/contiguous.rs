@@ -170,36 +170,33 @@ impl<'ctx> NDArrayValue<'ctx> {
     ///
     /// The operation is cheap. The newly created [`NDArrayValue`] will share the same memory as the
     /// [`ContiguousNDArrayValue`].
-    ///
-    /// `ndims` has to be provided as [`NDArrayValue`] requires a statically known `ndims` value,
-    /// despite the fact that the information should be contained within the
-    /// [`ContiguousNDArrayValue`].
     pub fn from_contiguous_ndarray(
         ctx: &mut CodeGenContext<'ctx, '_>,
         carray: ContiguousNDArrayValue<'ctx>,
-        ndims: u64,
     ) -> anyhow::Result<Self> {
-        // TODO: Debug assert `ndims == carray.ndims` to catch bugs.
+        // The statically-known `ndims` is carried by the contiguous array's type.
+        let dtype = carray.ty.object.dtype;
+        let ndims = carray.ty.object.ndims;
 
         // Allocate the resulting ndarray.
-        let ndarray =
-            NDArrayType::create(ctx, carray.ty.object.dtype, ndims).construct(ctx, carray.name)?;
+        let ndarray = NDArrayType::create(ctx, dtype, ndims).construct(ctx, carray.name)?;
+
+        // Reconstruct the view from `base`, and take a strong reference to it for refcounting
+        let base = carray.inner_value(ctx)?.base(ctx)?;
+        base.header(ctx).safe_increment_refcount(ctx)?;
+        ndarray.inner_value(ctx)?.store(ctx, field!(base), base.value)?;
 
         // Copy shape and update strides
         let shape = carray.inner_value(ctx)?.shape(ctx)?;
         ndarray.shape(ctx)?.inner_value(ctx, None)?.memcpy_from(ctx, shape.value.0)?;
         ndarray.set_strides_contiguous(ctx)?;
 
-        // Copy the `data` pointer to weakly share the data
-        let data = carray.inner_value(ctx)?.data(ctx)?;
-        ndarray.inner_value(ctx)?.store(ctx, field!(data), data.value.0)?;
+        // Take a strong reference to `data` for refcounting
+        let data = base.inner_value(ctx)?.base_data(ctx)?;
+        data.header(ctx).safe_increment_refcount(ctx)?;
+        ndarray.inner_value(ctx)?.store(ctx, field!(data), data.value)?;
 
-        // Store a strong reference to the `base` for refcounting purposes
-        let base = carray.inner_value(ctx)?.base(ctx)?;
-        base.header(ctx).safe_increment_refcount(ctx)?;
-        ndarray.inner_value(ctx)?.store(ctx, field!(base), base.value)?;
-
-        let offset = carray.inner_value(ctx)?.load(ctx, field!(offset))?;
+        let offset = base.inner_value(ctx)?.load(ctx, field!(offset))?;
         ndarray.inner_value(ctx)?.store(ctx, field!(offset), offset)?;
 
         Ok(ndarray)
