@@ -11,10 +11,9 @@ use crate::codegen::{
     allocator::AllocationScope,
     stmt::gen_if_callback,
     types::{
-        NDArrayType, OpaqueRefCountedType, OpaqueRefCountedValue, ProxyTypeBase as _,
-        RefCountedArrayType, RefCountedArrayValue, RefCountedValue as _, RefType,
-        TypedRefCountedType, TypedRefCountedValue, Value, WithTypeinfo,
-        array::{ArrayLikeIndexer as _, ArraySliceValue},
+        NDArrayType, ProxyTypeBase as _, RefCountedValue as _, RefType, TypedRefCountedType,
+        TypedRefCountedValue, Value, WithTypeinfo,
+        array::ArraySliceValue,
         builtin::BuiltinStruct,
         field,
         ndarray::{NDArrayLikeType, NDArrayValue},
@@ -58,14 +57,9 @@ impl<'ctx> WithTypeinfo<'ctx> for RawContiguousNDArrayType<'ctx> {
     }
 
     fn refcounted_fields_data(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> Vec<IntValue<'ctx>> {
-        refcounted_fields_for_struct(
-            ctx,
-            vec![
-                ctx.i32.const_int(ctx.sizeof(ctx.size_t), false),
-                ctx.i32.const_int(ctx.sizeof(ctx.size_t) + ctx.sizeof(ctx.ptr), false),
-                ctx.i32.const_int(ctx.sizeof(ctx.size_t) + 2 * ctx.sizeof(ctx.ptr), false),
-            ],
-        )
+        // `RawContiguousNDArray`s are weak pointers to their `base`, so they are not
+        // reference-counted.
+        refcounted_fields_for_struct(ctx, Vec::new())
     }
 }
 
@@ -81,13 +75,17 @@ impl<'ctx> ContiguousNDArrayType<'ctx> {
 pub type RawContiguousNDArrayValue<'ctx> = Value<'ctx, RawContiguousNDArrayType<'ctx>>;
 
 impl<'ctx> RawContiguousNDArrayValue<'ctx> {
-    /// Returns the shape of this array.
+    /// Returns the shape of this array as an [`ArraySliceValue`].
+    ///
+    /// The pointer wrapped by the returned slice points to the first shape element. `shape` is
+    /// weakly owned by this contiguous array; the strong owner is [`base`][Self::base].
     pub fn shape(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
-    ) -> anyhow::Result<RefCountedArrayValue<'ctx, IntType<'ctx>>> {
+    ) -> anyhow::Result<ArraySliceValue<'ctx, IntType<'ctx>>> {
         let shape = self.load(ctx, field!(shape))?;
-        Ok(RefCountedArrayType::new(ctx, ctx.size_t, None).map_value(shape, None))
+        let len = ctx.size_t.const_int(self.ty.ndims, false);
+        Ok(ArraySliceValue::new(ctx.size_t, shape, len, self.name))
     }
 
     /// Returns the underlying data of this array as an [`ArraySliceValue`].
@@ -99,30 +97,16 @@ impl<'ctx> RawContiguousNDArrayValue<'ctx> {
         ctx: &mut CodeGenContext<'ctx, '_>,
     ) -> anyhow::Result<ArraySliceValue<'ctx, BasicTypeEnum<'ctx>>> {
         let data = self.load(ctx, field!(data))?;
-
-        // The slice length is the total number of (scalar) elements, i.e. the product of the shape.
-        let shape = self.shape(ctx)?;
-        let mut size = ctx.size_t.const_int(1, false);
-        for i in 0..self.ty.ndims {
-            let dim = shape.inner_value(ctx, None)?.get_unchecked(
-                ctx,
-                &ctx.size_t.const_int(i, false),
-                None,
-            )?;
-            size = ctx.builder.build_int_mul(size, dim, "")?;
-        }
-
+        let size = self.base(ctx)?.size(ctx)?;
         Ok(ArraySliceValue::new(self.ty.dtype, data, size, self.name))
     }
 
     /// Returns the base of this array, i.e. the instance of the underlying allocation.
     ///
     /// See [`NDArrayValue::base`] for more details.
-    pub fn base(
-        &self,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-    ) -> anyhow::Result<OpaqueRefCountedValue<'ctx>> {
-        Ok(OpaqueRefCountedType::new(ctx).map_value(self.load(ctx, field!(base))?, None))
+    pub fn base(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> anyhow::Result<NDArrayValue<'ctx>> {
+        let base = self.load(ctx, field!(base))?;
+        Ok(NDArrayType::create(ctx, self.ty.dtype, self.ty.ndims).map_value(base, self.name))
     }
 }
 
@@ -163,7 +147,7 @@ impl<'ctx> NDArrayValue<'ctx> {
                 let data = self.inner_value(ctx)?.data(ctx)?;
                 result.inner_value(ctx)?.store(ctx, field!(data), data.value.0)?;
 
-                result.inner_value(ctx)?.store(ctx, field!(base), ctx.ptr.const_null())?;
+                result.inner_value(ctx)?.store(ctx, field!(base), self.value)?;
 
                 let offset = self.inner_value(ctx)?.load(ctx, field!(offset))?;
                 result.inner_value(ctx)?.store(ctx, field!(offset), offset)?;
@@ -175,10 +159,9 @@ impl<'ctx> NDArrayValue<'ctx> {
                 // ndarray with contiguous `data`.
                 let copied_ndarray = self.make_copy(ctx)?;
                 let data = copied_ndarray.inner_value(ctx)?.data(ctx)?;
-                copied_ndarray.header(ctx).increment_refcount(ctx)?;
                 result.inner_value(ctx)?.store(ctx, field!(data), data.value.0)?;
 
-                result.inner_value(ctx)?.store(ctx, field!(base), ctx.ptr.const_null())?;
+                result.inner_value(ctx)?.store(ctx, field!(base), copied_ndarray.value)?;
 
                 let offset = self.inner_value(ctx)?.load(ctx, field!(offset))?;
                 result.inner_value(ctx)?.store(ctx, field!(offset), offset)?;
@@ -211,10 +194,7 @@ impl<'ctx> NDArrayValue<'ctx> {
 
         // Copy shape and update strides
         let shape = carray.inner_value(ctx)?.shape(ctx)?;
-        ndarray
-            .shape(ctx)?
-            .inner_value(ctx, None)?
-            .memcpy_from(ctx, shape.inner_value(ctx, None)?.value.0)?;
+        ndarray.shape(ctx)?.inner_value(ctx, None)?.memcpy_from(ctx, shape.value.0)?;
         ndarray.set_strides_contiguous(ctx)?;
 
         // Copy the `data` pointer to weakly share the data
