@@ -58,6 +58,7 @@ fn main() {
             flags.push("-g");
             flags.push("-O0");
             flags.push("-DIRRT_DEBUG_ASSERT");
+            flags.extend_from_slice(&["-Xclang", "-disable-O0-optnone"]);
         }
         Ok("release") => {
             flags.push("-O3");
