@@ -2083,7 +2083,11 @@ fn symbolize<'py>(
     elf_bin: &Bound<'py, PyBytes>,
     pc: &Bound<'py, PyList>,
 ) -> PyResult<Vec<CallRecordWrapper>> {
-    Ok(symbolizer::symbolize(elf_bin.extract()?, pc.extract()?).iter().map(Into::into).collect())
+    // Backtrace addresses are u32 on the wire, but the host reads them as signed
+    // i32 (and offsets them by -1), so addresses with the top bit set arrive as
+    // negative ints. Wrap them back into u32 instead of rejecting them.
+    let pc = pc.extract::<Vec<i64>>()?.into_iter().map(|pc| pc as u32).collect();
+    Ok(symbolizer::symbolize(elf_bin.extract()?, pc).iter().map(Into::into).collect())
 }
 
 #[cfg(feature = "init-llvm-profile")]
