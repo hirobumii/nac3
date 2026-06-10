@@ -5,6 +5,7 @@ use inkwell::{
     IntPredicate,
     basic_block::BasicBlock,
     builder::Builder,
+    module::Linkage,
     types::{BasicMetadataTypeEnum, BasicType},
     values::{BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue},
 };
@@ -2160,6 +2161,7 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
         let exception_name = format!("{}:{}", ctx.resolver.get_exception_id(obj_id.0), exn_name);
         let exn_id = ctx.resolver.get_string_id(&exception_name);
         let exn_id_global = ctx.module.add_global(ctx.i32, None, &format!("exn.{exn_id}"));
+        exn_id_global.set_linkage(Linkage::WeakAny);
         exn_id_global.set_initializer(&ctx.i32.const_int(exn_id as u64, false));
         clauses.push(Some(exn_id_global.as_pointer_value().as_basic_value_enum()));
     }
