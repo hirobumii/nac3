@@ -321,7 +321,18 @@ impl DebugInfoReader {
             reader = next_reader;
         }
 
-        unreachable!("no relevant debugging info to pc: {}", pc);
+        // The pc may fall outside the kernel library, e.g. when the backtrace
+        // contains firmware addresses or junk from a derailed unwind. Emit a
+        // placeholder record so callers keep a 1:1 mapping between requested
+        // addresses and non-inlined records.
+        vec![CallRecord {
+            name: NameRef::Concrete("<unknown>"),
+            address: Some(pc),
+            line: 0,
+            column: 0,
+            file: "<unknown>",
+            dir: None,
+        }]
     }
 
     #[allow(clippy::too_many_arguments)]
