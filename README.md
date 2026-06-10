@@ -5,44 +5,9 @@
 </div>
 
 # NAC3
-NAC3 is a major rewrite of the compiler for the [ARTIQ](https://m-labs.hk/artiq) physics experiment control and data acquisition system. It features greatly improved compilation speeds, a much better type system, and more predictable and transparent operation.
+NAC3 is a major rewrite of the compiler for the [ARTIQ](https://m-labs.hk/artiq) physics experiment control and data acquisition system. It features greatly improved compilation speeds, innovative memory management (CTRC), a much better type system, and more predictable and transparent operation. It has been introduced in ARTIQ version 10.
 
 NAC3 has a modular design and its applicability reaches beyond ARTIQ. The ``nac3core`` module does not contain anything specific to ARTIQ, and can be used in any project that requires compiling Python to machine code.
-
-## Try NAC3
-
-### Linux
-
-NAC3 is packaged using the [Nix](https://nixos.org) Flakes system. Enable flakes by adding ``experimental-features = nix-command flakes`` to ``nix.conf`` (e.g. ``~/.config/nix/nix.conf``).
-
-Use ``nix shell git+https://git.m-labs.hk/M-Labs/artiq.git?ref=nac3`` to get a shell with the NAC3 version of ARTIQ. See the ``examples`` directory in ARTIQ (``nac3`` Git branch) for some samples of NAC3 kernel code.
-
-### Windows
-
-Install [MSYS2](https://www.msys2.org/), and open "MSYS2 CLANG64". Edit ``/etc/pacman.conf`` to add:
-```
-[artiq]
-SigLevel = Optional TrustAll
-Server = https://msys2.m-labs.hk/artiq-nac3
-```
-
-Then run the following commands:
-```
-pacman -Syu
-pacman -S mingw-w64-clang-x86_64-artiq
-```
-
-### OpenBSD
-
-NAC3 and ARTIQ-10 work without major issues on OpenBSD, but need to be compiled and installed manually.
-
-```
-pkg_add rust llvm-16.0.6 patchelf
-ln -s /usr/local/bin/clang-16 /usr/local/bin/clang-irrt
-LLVM_SYS_160_PREFIX=/usr/local cargo build --release
-patchelf --set-rpath /usr/local/llvm16/lib target/release/libnac3artiq.so
-patchelf --set-rpath /usr/local/llvm16/lib target/release/nac3standalone
-```
 
 ## For developers
 
