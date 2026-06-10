@@ -804,8 +804,12 @@ impl<'a> Linker<'a> {
                     }
 
                     _ => {
-                        println!("Relocation type 0x{:X?} is not supported", reloc.type_info());
-                        unimplemented!()
+                        let sym_name = name_starting_at_slice(linker.strtab, sym.st_name as usize)
+                            .map_or_else(|_| "<unknown>".into(), String::from_utf8_lossy);
+                        unimplemented!(
+                            "Relocation type {:#x} for symbol `{sym_name}` is not supported",
+                            reloc.type_info(),
+                        )
                     }
                 }
             }
