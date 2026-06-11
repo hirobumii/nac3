@@ -329,6 +329,7 @@ pub struct Unifier {
     pub(crate) calls: Vec<Call>,
     var_id_counter: u32,
     unify_cache: HashSet<(Type, Type)>,
+    subst_cache: HashMap<Type, Vec<(VarMap, Type)>>,
     snapshot: Option<(usize, u32)>,
     primitive_store: Option<PrimitiveStore>,
 }
@@ -348,6 +349,7 @@ impl Unifier {
             var_id_counter: 0,
             calls: Vec::new(),
             unify_cache: HashSet::new(),
+            subst_cache: HashMap::new(),
             top_level: None,
             snapshot: None,
             primitive_store: None,
@@ -388,6 +390,7 @@ impl Unifier {
             calls: lock.2.clone(),
             top_level: None,
             unify_cache: HashSet::new(),
+            subst_cache: HashMap::new(),
             snapshot: None,
             primitive_store: None,
         }
@@ -1597,7 +1600,34 @@ impl Unifier {
     /// If this returns None, the result type would be the original type
     /// (no substitution has to be done).
     pub fn subst(&mut self, a: Type, mapping: &VarMap) -> Option<Type> {
-        self.subst_impl(a, mapping, &mut HashMap::new())
+        let rep_a = self.get_representative(a);
+        if self.subst_cache.contains_key(&rep_a) {
+            let past_substs = self.subst_cache.get(&rep_a).unwrap().clone();
+            'subst_loop: for (subst_map, result_ty) in past_substs {
+                if subst_map.len() != mapping.len() {
+                    continue 'subst_loop;
+                }
+
+                for ((k, v), (subst_k, subst_v)) in zip(mapping, subst_map) {
+                    if !(*k == subst_k && self.unioned(*v, subst_v)) {
+                        continue 'subst_loop;
+                    }
+                }
+
+                return Some(result_ty);
+            }
+        }
+
+        if let Some(result_ty) = self.subst_impl(a, mapping, &mut HashMap::new()) {
+            let curr_subst = ((*mapping).clone(), result_ty);
+            self.subst_cache
+                .entry(rep_a)
+                .and_modify(|substs| substs.push(curr_subst.clone()))
+                .or_insert_with(|| vec![curr_subst]);
+            Some(result_ty)
+        } else {
+            None
+        }
     }
 
     fn subst_impl(
