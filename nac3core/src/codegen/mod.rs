@@ -1011,13 +1011,7 @@ pub fn gen_func<'ctx, 'a, G: CodeGenerator>(
 ) -> anyhow::Result<FunctionValue<'ctx>> {
     let body = task.body.clone();
     gen_func_impl(context, builder, generator, registry, task, unifier_cache, |generator, ctx| {
-        if registry.codegen_options.opt_level == "0" {
-            generator.gen_block(ctx, body.iter())
-        } else {
-            let body = (*body).clone();
-            let body = opt::ndarray_subscript_fusion::fuse_ndarray_subscripts(ctx, body)?;
-            generator.gen_block(ctx, body.iter())
-        }
+        generator.gen_block(ctx, body.iter())
     })
 }
 

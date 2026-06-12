@@ -1,116 +1,202 @@
-use itertools::Itertools as _;
-use nac3parser::ast::{
-    Expr, ExprContext, ExprKind, Located, Stmt,
-    fold::{self, Fold},
+use inkwell::{
+    IntPredicate,
+    values::{BasicValueEnum, IntValue, PointerValue},
 };
+use nac3parser::ast::{Expr, ExprKind};
 
 use crate::{
-    codegen::CodeGenContext,
-    toplevel::helper::PrimDef,
+    codegen::{
+        CodeGenContext, CodeGenerator,
+        allocator::AllocationScope,
+        bool_to_i8,
+        expr::call_extern,
+        irrt::get_usize_dependent_function_name,
+        types::{ArrayLikeIndexer, NDArrayType, ProxyTypeBase},
+    },
+    symbol_resolver::ValueEnum,
+    toplevel::{
+        helper::{PrimDef, extract_ndims},
+        numpy::unpack_ndarray_var_tys,
+    },
     typecheck::typedef::{Type, Unifier},
 };
 
-/// Rewrites chained integer subscripts on ndarrays (`arr[i][j]...`) into a single multi-axis
-/// subscript (`arr[i, j, ...]`) throughout `body`, so that the whole access lowers to one indexing
-/// operation instead of materializing an intermediate view ndarray per level.
-pub fn fuse_ndarray_subscripts(
-    ctx: &mut CodeGenContext<'_, '_>,
-    body: Vec<Stmt<Option<Type>>>,
-) -> anyhow::Result<Vec<Stmt<Option<Type>>>> {
-    let mut folder =
-        NDArraySubscriptFusion { unifier: &mut ctx.unifier, int32: ctx.primitives.int32 };
-    body.into_iter().map(|stmt| folder.fold_stmt(stmt)).collect()
+/// A list of flattened index expressions paired with the axis they appear in within their own
+/// bracket, in source order (innermost bracket first).
+type ChainIndices<'a> = Vec<(&'a Expr<Option<Type>>, u64)>;
+
+/// A fused chain of integer subscripts on an ndarray that reduces to a scalar element access.
+pub struct FusableChain<'a> {
+    /// The base ndarray expression the chain indexes into.
+    base: &'a Expr<Option<Type>>,
+    /// The flattened `(index expr, display axis)` list, in source order.
+    indices: ChainIndices<'a>,
 }
 
-/// AST folder backing [`fuse_ndarray_subscripts`].
+/// Checks whether `expr` has a fusable chain of integer subscripts on an ndarray.
 ///
-/// This rewrite performs a local transformation of the form `a[i][j] -> a[i, j]` on any subscript
-/// whose inner subscript is an ndarray indexed purely by integers.
-struct NDArraySubscriptFusion<'a> {
-    unifier: &'a mut Unifier,
-    int32: Type,
+/// Returns a `Some(FusableChain)` if the expression can be fused into a single scalar access, which
+/// can be passed into [`gen_fused_scalar_getitem`] or [`gen_fused_scalar_setitem`].
+pub fn try_fuse_scalar_chain<'a>(
+    ctx: &mut CodeGenContext<'_, '_>,
+    expr: &'a Expr<Option<Type>>,
+) -> Option<FusableChain<'a>> {
+    if ctx.registry.codegen_options.opt_level == "0" {
+        return None;
+    }
+    collect_scalar_ndarray_chain(ctx, expr)
 }
 
-impl NDArraySubscriptFusion<'_> {
-    /// Returns whether `ty` is an ndarray.
-    fn is_ndarray(&self, ty: Option<Type>) -> bool {
-        ty.is_some_and(|ty| ty.obj_id(self.unifier).is_some_and(|id| id == PrimDef::NDArray.id()))
-    }
-
-    /// Returns whether `ty` is an integer index (`int32`).
-    fn is_int_index(&mut self, ty: Option<Type>) -> bool {
-        ty.is_some_and(|ty| self.unifier.unioned(ty, self.int32))
-    }
-
-    /// Returns whether every index in a subscript `slice` is a single integer.
-    fn all_integer_indices(&mut self, slice: &Expr<Option<Type>>) -> bool {
-        match &slice.node {
-            ExprKind::Tuple { elts, .. } => elts.iter().all(|elt| self.is_int_index(elt.custom)),
-            _ => self.is_int_index(slice.custom),
-        }
-    }
-
-    /// Flattens a subscript `slice` into its list of index expressions.
-    fn flatten_slice(slice: Expr<Option<Type>>) -> Vec<Expr<Option<Type>>> {
-        match slice.node {
-            ExprKind::Tuple { elts, .. } => elts,
-            _ => vec![slice],
-        }
-    }
-
-    /// Returns whether `node` is a fusion candidate - i.e. a subscript whose inner expression is an
-    /// ndarray subscript indexed purely by integers.
-    fn is_fusable(&mut self, node: &Expr<Option<Type>>) -> bool {
-        let ExprKind::Subscript { value, .. } = &node.node else {
-            return false;
-        };
-        let ExprKind::Subscript { value: inner_base, slice: inner_slice, .. } = &value.node else {
-            return false;
-        };
-        self.is_ndarray(inner_base.custom) && self.all_integer_indices(inner_slice)
-    }
+/// Lowers a fused scala read of `chain`, returning the loaded element with type `result_ty`.
+pub fn gen_fused_scalar_getitem<'ctx, G: CodeGenerator>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    chain: &FusableChain<'_>,
+    result_ty: Type,
+) -> anyhow::Result<BasicValueEnum<'ctx>> {
+    let elem_ptr = gen_chain_element_ptr(generator, ctx, chain.base, &chain.indices)?;
+    let dtype = ctx.get_llvm_type(result_ty);
+    Ok(ctx.builder.build_load(dtype, elem_ptr, "ndarray_elem")?)
 }
 
-impl Fold<Option<Type>> for NDArraySubscriptFusion<'_> {
-    type TargetU = Option<Type>;
-    type Error = anyhow::Error;
+/// Lowers a fused scala write of `value` with type `value_ty` into `chain`.
+pub fn gen_fused_scalar_setitem<'ctx, G: CodeGenerator>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    chain: &FusableChain<'_>,
+    value: &ValueEnum<'ctx>,
+    value_ty: Type,
+) -> anyhow::Result<()> {
+    let elem_ptr = gen_chain_element_ptr(generator, ctx, chain.base, &chain.indices)?;
+    let value = value.to_basic_value_enum(ctx, value_ty)?;
+    let value = if ctx.unifier.unioned(value_ty, ctx.primitives.bool) {
+        bool_to_i8(ctx, value.into_int_value())?.into()
+    } else {
+        value
+    };
+    ctx.builder.build_store(elem_ptr, value)?;
+    Ok(())
+}
 
-    fn map_user(&mut self, user: Option<Type>) -> Result<Self::TargetU, Self::Error> {
-        Ok(user)
-    }
+/// If `expr` is a chain of two or more integer subscripts that indexes an ndarray entirely down to
+/// a scalar (`a[i][j]...`), returns the base ndarray expression and the flat list of
+/// `(index expr, display axis)` in source order. The display axis is the index's position within
+/// its own `[]` bracket, matching the axis the unfused chain reports on an out-of-bounds access.
+///
+/// Tries to collect a chain of integer subscripts on an `ndarray` that indexes down to a scalar.
+///
+/// If such a chain is found, returns the [`FusableChain`] containing the base expression and the
+/// flattened list of index.
+fn collect_scalar_ndarray_chain<'a>(
+    ctx: &mut CodeGenContext<'_, '_>,
+    expr: &'a Expr<Option<Type>>,
+) -> Option<FusableChain<'a>> {
+    let is_ndarray = |ty: Option<Type>, unifier: &Unifier| {
+        ty.and_then(|ty| ty.obj_id(unifier)) == Some(PrimDef::NDArray.id())
+    };
 
-    fn fold_expr(&mut self, node: Expr<Option<Type>>) -> Result<Expr<Self::TargetU>, Self::Error> {
-        // Fold children first so longer chains collapse bottom-up (`a[i][j][k]` is handled one
-        // level per ascent of the fold).
-        let node = fold::fold_expr(self, node)?;
-
-        if !self.is_fusable(&node) {
-            return Ok(node);
+    // Descend through the chain of ndarray subscripts, collecting each bracket's slice expression
+    // (outermost bracket first).
+    let mut bracket_slices: Vec<&'a Expr<Option<Type>>> = Vec::new();
+    let mut cur = expr;
+    while let ExprKind::Subscript { value, slice, .. } = &cur.node {
+        if !is_ndarray(value.custom, &ctx.unifier) {
+            break;
         }
-
-        let Located { location, custom, node: ExprKind::Subscript { value, slice, ctx } } = node
-        else {
-            unreachable!()
-        };
-        let ExprKind::Subscript { value: inner_base, slice: inner_slice, .. } = value.node else {
-            unreachable!()
-        };
-
-        // `base[a][b] -> base[a, b]`: the inner indices precede the outer indices.
-        let elts = Self::flatten_slice(*inner_slice)
-            .into_iter()
-            .chain(Self::flatten_slice(*slice))
-            .collect_vec();
-        let fused_slice = Located {
-            location,
-            custom: None,
-            node: ExprKind::Tuple { elts, ctx: ExprContext::Load },
-        };
-
-        Ok(Located {
-            location,
-            custom,
-            node: ExprKind::Subscript { value: inner_base, slice: Box::new(fused_slice), ctx },
-        })
+        bracket_slices.push(slice.as_ref());
+        cur = value.as_ref();
     }
+    let base = cur;
+
+    // Fusing chains with only a singular index is a no-op, and index chains on non-ndarrays cannot
+    // be fused
+    if bracket_slices.len() < 2 || !is_ndarray(base.custom, &ctx.unifier) {
+        return None;
+    }
+
+    // Flatten the brackets in source order (innermost bracket first).
+    let mut indices: ChainIndices<'a> = Vec::new();
+    for slice in bracket_slices.iter().rev() {
+        let bracket: Vec<&'a Expr<Option<Type>>> = match &slice.node {
+            ExprKind::Tuple { elts, .. } => elts.iter().collect(),
+            _ => vec![*slice],
+        };
+        for (display_axis, index) in bracket.into_iter().enumerate() {
+            indices.push((index, display_axis as u64));
+        }
+    }
+
+    // Chains that contain non-integer indices cannot be fully fused - Ignore for now
+    let int32 = ctx.primitives.int32;
+    for (index, _) in &indices {
+        if matches!(index.node, ExprKind::Slice { .. })
+            || !index.custom.is_some_and(|ty| ctx.unifier.unioned(ty, int32))
+        {
+            return None;
+        }
+    }
+
+    // Chains that do not index the base ndarray to a scalar cannot be fused
+    let (_, ndims) = unpack_ndarray_var_tys(&mut ctx.unifier, base.custom.unwrap());
+    if indices.len() as u64 != extract_ndims(&ctx.unifier, ndims) {
+        return None;
+    }
+
+    Some(FusableChain { base, indices })
+}
+
+/// Generates a pointer to the scalar element selected by a fusable chain, equivalent to
+/// `base[indices...]`.
+///
+/// This function performs the same operation as `__nac3_ndarray_get_pelement_by_indices`, but
+/// reconstructs the correct error message for out-of-bounds access as-if the chain is unfused.
+fn gen_chain_element_ptr<'ctx, G: CodeGenerator>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    base: &Expr<Option<Type>>,
+    indices: &[(&Expr<Option<Type>>, u64)],
+) -> anyhow::Result<PointerValue<'ctx>> {
+    let base_ty = base.custom.unwrap();
+    let base_val = generator.gen_expr(ctx, base)?.to_basic_value_enum(ctx)?.into_pointer_value();
+    let base = NDArrayType::from_unifier_type(ctx, base_ty).map_value(base_val, None);
+
+    let size_t = ctx.size_t;
+    let indices_ty = size_t.array_type(u32::try_from(indices.len()).unwrap());
+    let indices_ptr =
+        ctx.build_allocate(AllocationScope::StackStartOfFunc, indices_ty, Some("indices"))?;
+    let shape = base.inner_value(ctx)?.shape(ctx)?.inner_value(ctx, None)?;
+
+    for (real_axis, (index_ast, display_axis)) in indices.iter().enumerate() {
+        let index = generator.gen_expr(ctx, index_ast)?.to_basic_value_enum(ctx)?.into_int_value();
+        let index = ctx.builder.build_int_s_extend_or_bit_cast(index, size_t, "")?;
+
+        let axis_idx = size_t.const_int(real_axis as u64, false);
+        let dim = shape.get_unchecked::<IntValue<'ctx>>(ctx, &axis_idx, None)?;
+
+        let is_negative =
+            ctx.builder.build_int_compare(IntPredicate::SLT, index, size_t.const_zero(), "")?;
+        let added = ctx.builder.build_int_add(index, dim, "")?;
+        let resolved = ctx.builder.build_select(is_negative, added, index, "")?.into_int_value();
+        let in_bounds = ctx.builder.build_int_compare(IntPredicate::ULT, resolved, dim, "")?;
+        ctx.make_assert(
+            in_bounds,
+            "0:IndexError",
+            "index {0} is out of bounds for axis {1} with size {2}",
+            [Some(index), Some(size_t.const_int(*display_axis, false)), Some(dim)],
+            index_ast.location,
+        )?;
+
+        let slot = unsafe {
+            ctx.builder.build_in_bounds_gep(
+                indices_ty,
+                indices_ptr,
+                &[ctx.i32.const_zero(), ctx.i32.const_int(real_axis as u64, false)],
+                "",
+            )?
+        };
+        ctx.builder.build_store(slot, resolved)?;
+    }
+
+    let fn_name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_get_pelement_by_indices");
+    call_extern!(ctx: (ctx.ptr) "pelement" = fn_name(base.value, indices_ptr))
 }

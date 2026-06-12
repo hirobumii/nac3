@@ -35,6 +35,7 @@ use crate::{
             call_expect, call_float_floor, call_float_pow, call_float_powi, call_int_smax,
         },
         macros::codegen_unreachable,
+        opt,
         stmt::{
             gen_for_callback_incrementing, gen_if_callback, gen_if_else_expr_callback, gen_raise,
         },
@@ -2416,6 +2417,15 @@ fn gen_subscript_expr<'ctx, G: CodeGenerator>(
             }
         }
         TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
+            use opt::ndarray_subscript_fusion::{gen_fused_scalar_getitem, try_fuse_scalar_chain};
+
+            // Fuse chained integer subscripts (`a[i][j]...`) into a single element access
+            // (`a[i, j]`) where possible
+            if let Some(chain) = try_fuse_scalar_chain(ctx, expr) {
+                let elem = gen_fused_scalar_getitem(generator, ctx, &chain, expr.custom.unwrap())?;
+                return Ok(RtValue::dynamic(ty, elem));
+            }
+
             let ndarray_ty = value.custom.unwrap();
             let ndarray = generator.gen_expr(ctx, value)?.to_basic_value_enum(ctx)?;
             let ndarray = NDArrayType::from_unifier_type(ctx, ndarray_ty)

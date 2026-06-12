@@ -23,6 +23,7 @@ use crate::{
         llvm_fns::FunctionDecl,
         llvm_intrinsics,
         macros::codegen_unreachable,
+        opt,
         types::{
             ArrayLikeIndexer, ArraySliceValue, ClassType, EnumerateType, ExceptionType,
             ExceptionValue, ListType, ListValue, NDArrayType, OpaqueRefCountedType, ProxyTypeBase,
@@ -203,9 +204,17 @@ pub fn gen_assign<'ctx, G: CodeGenerator>(
 ) -> anyhow::Result<()> {
     // See https://docs.python.org/3/reference/simple_stmts.html#assignment-statements.
     match &target.node {
-        ExprKind::Subscript { value: target, slice: key, .. } => {
+        ExprKind::Subscript { value: sub_target, slice: key, .. } => {
+            use opt::ndarray_subscript_fusion::{gen_fused_scalar_setitem, try_fuse_scalar_chain};
+
             // Handle "slicing" or "subscription"
-            generator.gen_setitem(ctx, target, key, value, value_ty)?;
+            // Fuse chained integer subscripts (`a[i][j] = v`) into a single element store
+            // (`a[i, j] = v`) where possible
+            if let Some(chain) = try_fuse_scalar_chain(ctx, target) {
+                gen_fused_scalar_setitem(generator, ctx, &chain, value, value_ty)?;
+            } else {
+                generator.gen_setitem(ctx, sub_target, key, value, value_ty)?;
+            }
         }
         ExprKind::Tuple { elts, .. } | ExprKind::List { elts, .. } => {
             // Fold on `"[" [target_list] "]"` or `"(" [target_list] ")`
