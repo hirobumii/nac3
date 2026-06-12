@@ -71,6 +71,7 @@ pub mod irrt;
 mod llvm_fns;
 pub mod llvm_intrinsics;
 pub mod numpy;
+mod opt;
 pub mod stmt;
 pub mod types;
 
@@ -1010,6 +1011,7 @@ pub fn gen_func<'ctx, 'a, G: CodeGenerator>(
 ) -> anyhow::Result<FunctionValue<'ctx>> {
     let body = task.body.clone();
     gen_func_impl(context, builder, generator, registry, task, unifier_cache, |generator, ctx| {
+        let body = opt::ndarray_subscript_fusion::fuse_ndarray_subscripts(ctx, (*body).clone())?;
         generator.gen_block(ctx, body.iter())
     })
 }
