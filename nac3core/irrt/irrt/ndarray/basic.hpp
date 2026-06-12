@@ -5,6 +5,7 @@
 #include "irrt/debug.hpp"
 #include "irrt/exception.hpp"
 #include "irrt/ndarray/def.hpp"
+#include "irrt/slice.hpp"
 
 namespace {
 namespace ndarray::basic {
@@ -188,6 +189,31 @@ void* get_pelement_by_indices(const NDArray<SizeT>* ndarray, const __nac3_impl::
 }
 
 /**
+ * @brief Return the pointer to the single element selected by `indices`, performing Python-style
+ * negative-index resolution and bounds checking on every axis.
+ *
+ * This is the fast path for indexing that selects exactly one scalar element (by having exactly one integer index per
+ * axis).
+ *
+ * The caller must guarantee `indices` has exactly `ndarray->ndims` elements.
+ */
+template<typename SizeT>
+void* get_pelement_by_indices_single(const NDArray<SizeT>* ndarray,
+                                     const __nac3_impl::stdlib::make_signed_t<SizeT>* indices) {
+    auto* element = static_cast<void*>(ndarray->data->template data<uint8_t>() + ndarray->offset);
+    for (__nac3_impl::stdlib::make_signed_t<SizeT> axis = 0; axis < ndarray->ndims; axis++) {
+        auto input = static_cast<__nac3_impl::stdlib::make_signed_t<SizeT>>(indices[axis]);
+        auto k = slice::resolve_index_in_length(ndarray->shape->data()[axis], input);
+        if (k == -1) {
+            raise_exception(SizeT, EXN_INDEX_ERROR, "index {0} is out of bounds for axis {1} with size {2}", input,
+                            axis, ndarray->shape->data()[axis]);
+        }
+        element = static_cast<uint8_t*>(element) + k * ndarray->strides->data()[axis];
+    }
+    return element;
+}
+
+/**
  * @brief Return the pointer to the nth (0-based) element of `ndarray` in flattened view.
  *
  * This function does no bound check.
@@ -322,6 +348,14 @@ void* __nac3_ndarray_get_pelement_by_indices(const NDArray<uint32_t>* ndarray, i
 
 void* __nac3_ndarray_get_pelement_by_indices64(const NDArray<uint64_t>* ndarray, int64_t* indices) {
     return get_pelement_by_indices(ndarray, indices);
+}
+
+void* __nac3_ndarray_get_pelement_by_indices_single(const NDArray<uint32_t>* ndarray, int32_t* indices) {
+    return get_pelement_by_indices_single(ndarray, indices);
+}
+
+void* __nac3_ndarray_get_pelement_by_indices_single64(const NDArray<uint64_t>* ndarray, int64_t* indices) {
+    return get_pelement_by_indices_single(ndarray, indices);
 }
 
 void __nac3_ndarray_set_strides_by_shape(NDArray<uint32_t>* ndarray) {

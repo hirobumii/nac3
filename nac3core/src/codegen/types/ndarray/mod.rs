@@ -488,6 +488,40 @@ impl<'ctx> TypedRefCountedValue<'ctx, RawNDArrayType<'ctx>> {
         self.inner_value(ctx)?.first_element(ctx)
     }
 
+    /// Computes a pointer to the single scalar element selected by `indices` (one integer index per
+    /// dimension), performing Python-style negative-index resolution and bounds checking with the
+    /// same semantics as [`index`][Self::index].
+    ///
+    /// This is an allocation-free fast path for basic integer indexing that yields a scalar, but
+    /// requires all indices to be available at the time of the call.
+    pub fn get_scalar_pelement(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        indices: &[IntValue<'ctx>],
+    ) -> anyhow::Result<PointerValue<'ctx>> {
+        debug_assert_eq!(u64::try_from(indices.len()).unwrap(), self.inner_value(ctx)?.ty.ndims);
+
+        let indices_ty = ctx.size_t.array_type(u32::try_from(indices.len()).unwrap());
+        let indices_ptr =
+            ctx.build_allocate(AllocationScope::StackStartOfFunc, indices_ty, Some("indices"))?;
+        for (i, index) in indices.iter().enumerate() {
+            let elem_ptr = unsafe {
+                ctx.builder.build_in_bounds_gep(
+                    indices_ty,
+                    indices_ptr,
+                    &[ctx.i32.const_zero(), ctx.i32.const_int(i as u64, false)],
+                    "",
+                )?
+            };
+            let index = ctx.builder.build_int_s_extend_or_bit_cast(*index, ctx.size_t, "")?;
+            ctx.builder.build_store(elem_ptr, index)?;
+        }
+
+        let fn_name =
+            get_usize_dependent_function_name(ctx, "__nac3_ndarray_get_pelement_by_indices_single");
+        call_extern!(ctx: (ctx.ptr) "pelement" = fn_name(self.value, indices_ptr))
+    }
+
     /// Returns the length of the first dimension of the array.
     pub fn len(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> anyhow::Result<IntValue<'ctx>> {
         self.inner_value(ctx)?.len(ctx)

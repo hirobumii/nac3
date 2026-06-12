@@ -2422,7 +2422,26 @@ fn gen_subscript_expr<'ctx, G: CodeGenerator>(
                 .map_value(ndarray.into_pointer_value(), None);
 
             let indices = RustNDIndex::from_subscript_expr(generator, ctx, slice)?;
-            let result = ndarray.index(ctx, &indices)?.split_unsized(ctx)?.to_basic_value_enum();
+
+            // Fast path: basic integer indexing that selects a single scalar element (exactly one
+            // integer index per axis) loads directly from the computed element pointer
+            let ndims = ndarray.inner_value(ctx)?.ty.ndims;
+            let single_indices = indices
+                .iter()
+                .map(|idx| match idx {
+                    RustNDIndex::SingleElement(v) => Some(*v),
+                    _ => None,
+                })
+                .collect::<Option<Vec<_>>>();
+            let result = if let Some(single_indices) = single_indices
+                && u64::try_from(single_indices.len()).unwrap() == ndims
+            {
+                let elem_ptr = ndarray.get_scalar_pelement(ctx, &single_indices)?;
+                let dtype = ndarray.inner_value(ctx)?.ty.dtype;
+                ctx.builder.build_load(dtype, elem_ptr, "ndarray_elem")?
+            } else {
+                ndarray.index(ctx, &indices)?.split_unsized(ctx)?.to_basic_value_enum()
+            };
             RtValue::dynamic(ty, result)
         }
         TypeEnum::TTuple { .. } => {

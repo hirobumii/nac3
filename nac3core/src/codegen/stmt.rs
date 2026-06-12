@@ -756,31 +756,61 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
             // Process value
             let value = value.to_basic_value_enum(ctx, value_ty)?;
 
-            // Reference code:
-            // ```python
-            // target = target[key]
-            // value = np.asarray(value)
-            //
-            // shape = np.broadcast_shape((target, value))
-            //
-            // target = np.broadcast_to(target, shape)
-            // value = np.broadcast_to(value, shape)
-            //
-            // # ...and finally copy 1-1 from value to target.
-            // ```
-
             let target = NDArrayType::from_unifier_type(ctx, target_ty)
                 .map_value(target.into_pointer_value(), None);
-            let target = target.index(ctx, &key)?;
 
-            let value = ScalarOrNDArray::from_value(ctx, (value_ty, value)).to_ndarray(ctx)?;
+            // Fast path: assigning a scalar to a single element selected by basic integer indexing
+            // (exactly one integer index per axis) stores directly to the computed element pointer
+            let ndarray_obj_id = ctx.primitives.ndarray.obj_id(&ctx.unifier).unwrap();
+            let value_is_scalar = !matches!(
+                &*ctx.unifier.get_ty(value_ty),
+                TypeEnum::TObj { obj_id, .. } if *obj_id == ndarray_obj_id
+            );
+            let ndims = target.inner_value(ctx)?.ty.ndims;
+            let single_indices = key
+                .iter()
+                .map(|idx| match idx {
+                    RustNDIndex::SingleElement(v) => Some(*v),
+                    _ => None,
+                })
+                .collect::<Option<Vec<_>>>();
 
-            let broadcast_result = broadcast(ctx, &[target, value])?;
+            if let Some(single_indices) = single_indices
+                && value_is_scalar
+                && u64::try_from(single_indices.len()).unwrap() == ndims
+            {
+                let elem_ptr = target.get_scalar_pelement(ctx, &single_indices)?;
+                let value = if ctx.unifier.unioned(value_ty, ctx.primitives.bool) {
+                    bool_to_i8(ctx, value.into_int_value())?.into()
+                } else {
+                    value
+                };
+                ctx.builder.build_store(elem_ptr, value)?;
+            } else {
+                // Reference code:
+                // ```python
+                // target = target[key]
+                // value = np.asarray(value)
+                //
+                // shape = np.broadcast_shape((target, value))
+                //
+                // target = np.broadcast_to(target, shape)
+                // value = np.broadcast_to(value, shape)
+                //
+                // # ...and finally copy 1-1 from value to target.
+                // ```
 
-            let target = broadcast_result.ndarrays[0];
-            let value = broadcast_result.ndarrays[1];
+                let target = target.index(ctx, &key)?;
 
-            target.copy_data_from(ctx, &value)?;
+                let value = ScalarOrNDArray::from_value(ctx, (value_ty, value)).to_ndarray(ctx)?;
+
+                let broadcast_result = broadcast(ctx, &[target, value])?;
+
+                let target = broadcast_result.ndarrays[0];
+                let value = broadcast_result.ndarrays[1];
+
+                target.copy_data_from(ctx, &value)?;
+            }
         }
         _ => {
             panic!("encountered unknown target type: {}", ctx.unifier.stringify(target_ty));
