@@ -1760,6 +1760,7 @@ impl Unifier {
                         .filter_map(|(v1, v2)| {
                             self.get_intersection(*v1, *v2).map(|v| v.unwrap_or(*v1)).ok()
                         })
+                        .unique()
                         .collect_vec();
                     if range.is_empty() {
                         Err(())
