@@ -1,6 +1,6 @@
 ---
 source: nac3core/src/codegen/test.rs
-expression: generate_layouts(&ctx)
+expression: generate_layouts(&mut ctx)
 ---
 ObjectHeader:
   llvm_type: %__nac3_object_header = type { i32, i32 }
@@ -16,12 +16,12 @@ Typeinfo:
   abi_alignment: 8
 
 RefCountedArray<i32>:
-  llvm_type: { %__nac3_object_header, { i64, [0 x i32] } }
+  llvm_type: { %__nac3_object_header, { i64, [0 x i8], [0 x i32] } }
   abi_size: 16
   abi_alignment: 8
   fields (2):
     [0] offset=0, type=%__nac3_object_header = type { i32, i32 }
-    [1] offset=8, type={ i64, [0 x i32] }
+    [1] offset=8, type={ i64, [0 x i8], [0 x i32] }
 RefCountedArray<i32>.field[0]:
   llvm_type: %__nac3_object_header = type { i32, i32 }
   abi_size: 8
@@ -30,12 +30,13 @@ RefCountedArray<i32>.field[0]:
     [0] offset=0, type=i32
     [1] offset=4, type=i32
 RefCountedArray<i32>.field[1]:
-  llvm_type: { i64, [0 x i32] }
+  llvm_type: { i64, [0 x i8], [0 x i32] }
   abi_size: 8
   abi_alignment: 8
-  fields (2):
+  fields (3):
     [0] offset=0, type=i64
-    [1] offset=8, type=[0 x i32]
+    [1] offset=8, type=[0 x i8]
+    [2] offset=8, type=[0 x i32]
 
 List:
   llvm_type: { %__nac3_object_header, { ptr, i64 } }
@@ -87,12 +88,12 @@ NDArray<i32, 1>.field[1]:
     [6] offset=48, type=i64
 
 OptionSome<i32>:
-  llvm_type: { %__nac3_object_header, { i64, [1 x i32] } }
+  llvm_type: { %__nac3_object_header, { i64, [0 x i8], [1 x i32] } }
   abi_size: 24
   abi_alignment: 8
   fields (2):
     [0] offset=0, type=%__nac3_object_header = type { i32, i32 }
-    [1] offset=8, type={ i64, [1 x i32] }
+    [1] offset=8, type={ i64, [0 x i8], [1 x i32] }
 OptionSome<i32>.field[0]:
   llvm_type: %__nac3_object_header = type { i32, i32 }
   abi_size: 8
@@ -101,20 +102,21 @@ OptionSome<i32>.field[0]:
     [0] offset=0, type=i32
     [1] offset=4, type=i32
 OptionSome<i32>.field[1]:
-  llvm_type: { i64, [1 x i32] }
+  llvm_type: { i64, [0 x i8], [1 x i32] }
   abi_size: 16
   abi_alignment: 8
-  fields (2):
+  fields (3):
     [0] offset=0, type=i64
-    [1] offset=8, type=[1 x i32]
+    [1] offset=8, type=[0 x i8]
+    [2] offset=8, type=[1 x i32]
 
 OptionSome<ptr>:
-  llvm_type: { %__nac3_object_header, { i64, [1 x ptr] } }
+  llvm_type: { %__nac3_object_header, { i64, [0 x i8], [1 x ptr] } }
   abi_size: 24
   abi_alignment: 8
   fields (2):
     [0] offset=0, type=%__nac3_object_header = type { i32, i32 }
-    [1] offset=8, type={ i64, [1 x ptr] }
+    [1] offset=8, type={ i64, [0 x i8], [1 x ptr] }
 OptionSome<ptr>.field[0]:
   llvm_type: %__nac3_object_header = type { i32, i32 }
   abi_size: 8
@@ -123,12 +125,13 @@ OptionSome<ptr>.field[0]:
     [0] offset=0, type=i32
     [1] offset=4, type=i32
 OptionSome<ptr>.field[1]:
-  llvm_type: { i64, [1 x ptr] }
+  llvm_type: { i64, [0 x i8], [1 x ptr] }
   abi_size: 16
   abi_alignment: 8
-  fields (2):
+  fields (3):
     [0] offset=0, type=i64
-    [1] offset=8, type=[1 x ptr]
+    [1] offset=8, type=[0 x i8]
+    [2] offset=8, type=[1 x ptr]
 
 Tuple<i32, i32>:
   llvm_type: { %__nac3_object_header, { i32, i32 } }

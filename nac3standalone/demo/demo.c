@@ -33,7 +33,12 @@ typedef struct list_s {
 
 // Internal Functions
 static void* __nac3_list_get_data(const list* const slice) {
-    return slice->data + sizeof(object_header) + sizeof(size_t);
+    // The element storage of a reference-counted array begins after the object header + count
+    // fields, padded up to 8-byte alignment so 8-byte-aligned dtypes (e.g. double/int64) stay
+    // aligned on 32-bit targets. This offset must match `RefCountedArrayType`'s layout in the
+    // compiler.
+    size_t off = (sizeof(object_header) + sizeof(size_t) + 7u) & ~(size_t)7u;
+    return (char*)slice->data + off;
 }
 
 void output_refcount(const void* obj);

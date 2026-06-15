@@ -76,6 +76,8 @@ struct Array {
     // needed.
     //
     // https://devblogs.microsoft.com/oldnewthing/20040826-00/?p=38043
-    uint8_t elems[1];
+    //
+    // Align `elems` to 8 bytes to ensure that the element storage is aligned for both 32-bit and 64-bit targets.
+    alignas(8) uint8_t elems[1];
 };
 }  // namespace __nac3_impl::reference

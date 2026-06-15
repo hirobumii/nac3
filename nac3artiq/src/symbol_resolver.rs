@@ -2022,7 +2022,13 @@ fn build_refcounted_array_global<'ctx>(
     } else {
         ctx.size_t.const_zero()
     };
-    let arr_inner_val = arr_inner_ty.const_named_struct(&[walk_size.into(), elements_const]);
+
+    // Add padding to inner struct to ensure that `data` always appears 8 bytes after the start of
+    // the inner slice of `RefCountedArrayValue`
+    let count_pad_const =
+        arr_inner_ty.get_field_type_at_index(1).map(BasicTypeEnum::const_zero).unwrap();
+    let arr_inner_val =
+        arr_inner_ty.const_named_struct(&[walk_size.into(), count_pad_const, elements_const]);
 
     let typeinfo_offset = arr_ref_ty
         .typeinfo(ctx)

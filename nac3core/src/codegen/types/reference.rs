@@ -435,12 +435,20 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedArrayType<'ctx, T> {
             false
         };
 
+        // Pad the count field out to 8 bytes so the element array always begins at a fixed,
+        // 8-byte-aligned offset (16 bytes from the object base) regardless of `size_t`'s width
+        let count_pad_bytes = 8u32.saturating_sub(ctx.size_t.get_bit_width() / 8);
+        let count_pad_ty = ctx.ctx.i8_type().array_type(count_pad_bytes);
+
         Self {
             inner: ctx.ctx.struct_type(
                 &[
                     header_ty.into_struct_type().into(),
                     ctx.ctx
-                        .struct_type(&[ctx.size_t.into(), object.as_basic_type_enum()], false)
+                        .struct_type(
+                            &[ctx.size_t.into(), count_pad_ty.into(), object.as_basic_type_enum()],
+                            false,
+                        )
                         .into(),
                 ],
                 false,
@@ -675,7 +683,8 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedArrayValue<'ctx, T> {
             ctx.builder.build_gep(
                 self.ty.inner.get_field_type_at_index_unchecked(1),
                 self.inner_ptr(ctx)?,
-                &[ctx.size_t.const_zero(), ctx.i32.const_int(1, false)],
+                // Field 2 of the inner struct is the element array (field 1 is the count-padding).
+                &[ctx.size_t.const_zero(), ctx.i32.const_int(2, false)],
                 "",
             )?
         };
