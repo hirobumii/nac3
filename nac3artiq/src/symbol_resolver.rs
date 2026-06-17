@@ -1618,13 +1618,15 @@ impl InnerResolver {
                                 .write()
                                 .insert(id, obj.as_unbound().into_py_any(py)?);
                         }
-                        let global = ctx.module.add_global(
+                        let arr_global = build_refcounted_array_global(
+                            ctx,
                             v.get_type(),
-                            Some(AddressSpace::default()),
-                            &global_str,
+                            1,
+                            ctx.ptr.const_array(&[v.into_pointer_value()]).into(),
+                            &format!("{id}_arr"),
                         );
-                        global.set_initializer(&v);
-                        Ok(Some(global.as_pointer_value().into()))
+
+                        Ok(Some(arr_global.as_pointer_value().into()))
                     }
                     None => Ok(None),
                 }
