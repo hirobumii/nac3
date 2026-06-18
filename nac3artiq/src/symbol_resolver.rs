@@ -1618,11 +1618,36 @@ impl InnerResolver {
                                 .write()
                                 .insert(id, obj.as_unbound().into_py_any(py)?);
                         }
+                        let arr_const: BasicValueEnum = match v.get_type() {
+                            BasicTypeEnum::ArrayType(ty) => {
+                                ty.const_array([v.into_array_value()].as_ref()).into()
+                            }
+
+                            BasicTypeEnum::FloatType(ty) => {
+                                ty.const_array([v.into_float_value()].as_ref()).into()
+                            }
+
+                            BasicTypeEnum::IntType(ty) => {
+                                ty.const_array([v.into_int_value()].as_ref()).into()
+                            }
+
+                            BasicTypeEnum::PointerType(ty) => {
+                                ty.const_array([v.into_pointer_value()].as_ref()).into()
+                            }
+
+                            BasicTypeEnum::StructType(ty) => {
+                                ty.const_array([v.into_struct_value()].as_ref()).into()
+                            }
+
+                            BasicTypeEnum::VectorType(_) | BasicTypeEnum::ScalableVectorType(_) => {
+                                unreachable!()
+                            }
+                        };
                         let arr_global = build_refcounted_array_global(
                             ctx,
                             v.get_type(),
                             1,
-                            ctx.ptr.const_array(&[v.into_pointer_value()]).into(),
+                            arr_const,
                             &format!("{id}_arr"),
                         );
 
