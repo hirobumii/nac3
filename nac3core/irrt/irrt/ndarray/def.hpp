@@ -6,6 +6,7 @@
 #include "irrt/reference/array.hpp"
 #include "irrt/reference/header.hpp"
 
+namespace __nac3_impl {
 namespace {
 /**
  * @brief The NDArray object
@@ -68,3 +69,4 @@ struct NDArray {
     __nac3_impl::stdlib::make_signed_t<SizeT> offset;
 };
 }  // namespace
+}  // namespace __nac3_impl

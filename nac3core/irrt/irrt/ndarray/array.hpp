@@ -9,6 +9,7 @@
 #include "irrt/ndarray/def.hpp"
 #include "irrt/reference/array.hpp"
 
+namespace __nac3_impl {
 namespace {
 namespace ndarray::array {
 /**
@@ -121,9 +122,11 @@ void write_list_to_array(__nac3_impl::List<SizeT>* list, NDArray<SizeT>* ndarray
 }
 }  // namespace ndarray::array
 }  // namespace
+}  // namespace __nac3_impl
 
 extern "C" {
-using namespace ndarray::array;
+using namespace __nac3_impl;
+using namespace __nac3_impl::ndarray::array;
 
 void __nac3_ndarray_array_set_and_validate_list_shape(__nac3_impl::List<uint32_t>* list,
                                                       int32_t ndims,

@@ -17,6 +17,7 @@
  * Supporting it for now.
  */
 
+namespace __nac3_impl {
 namespace {
 namespace ndarray::transpose {
 /**
@@ -131,9 +132,11 @@ void transpose(NDArray<SizeT>* src_ndarray,
 }
 }  // namespace ndarray::transpose
 }  // namespace
+}  // namespace __nac3_impl
 
 extern "C" {
-using namespace ndarray::transpose;
+using namespace __nac3_impl;
+using namespace __nac3_impl::ndarray::transpose;
 void __nac3_ndarray_transpose(NDArray<uint32_t>* src_ndarray,
                               NDArray<uint32_t>* dst_ndarray,
                               int32_t num_axes,

@@ -10,6 +10,7 @@
 #include "irrt/reference/reference.hpp"
 #include "irrt/slice.hpp"
 
+namespace __nac3_impl {
 namespace {
 typedef uint8_t NDIndexType;
 
@@ -218,9 +219,11 @@ void index(__nac3_impl::stdlib::make_signed_t<SizeT> num_indices,
 }
 }  // namespace ndarray::indexing
 }  // namespace
+}  // namespace __nac3_impl
 
 extern "C" {
-using namespace ndarray::indexing;
+using namespace __nac3_impl;
+using namespace __nac3_impl::ndarray::indexing;
 
 void __nac3_ndarray_index(int32_t num_indices,
                           NDIndex* indices,

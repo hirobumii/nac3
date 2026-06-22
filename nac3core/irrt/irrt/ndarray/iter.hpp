@@ -6,6 +6,7 @@
 #include "irrt/ndarray/def.hpp"
 #include "irrt/reference/array.hpp"
 
+namespace __nac3_impl {
 namespace {
 /**
  * @brief Helper struct to enumerate through an ndarray *efficiently*.
@@ -124,8 +125,11 @@ struct RawNDIter {
     }
 };
 }  // namespace
+}  // namespace __nac3_impl
 
 extern "C" {
+using namespace __nac3_impl;
+
 void __nac3_nditer_initialize(RawNDIter<uint32_t>* iter, NDArray<uint32_t>* ndarray, void* indices) {
     iter->initialize(ndarray, indices);
 }

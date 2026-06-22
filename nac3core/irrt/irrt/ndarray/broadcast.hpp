@@ -8,6 +8,7 @@
 #include "irrt/reference/reference.hpp"
 #include "irrt/slice.hpp"
 
+namespace __nac3_impl {
 namespace {
 template<typename SizeT>
 struct ShapeEntry {
@@ -149,9 +150,11 @@ void broadcast_to(NDArray<SizeT>* src_ndarray, NDArray<SizeT>* dst_ndarray) {
 }
 }  // namespace ndarray::broadcast
 }  // namespace
+}  // namespace __nac3_impl
 
 extern "C" {
-using namespace ndarray::broadcast;
+using namespace __nac3_impl;
+using namespace __nac3_impl::ndarray::broadcast;
 
 void __nac3_ndarray_broadcast_to(NDArray<uint32_t>* src_ndarray, NDArray<uint32_t>* dst_ndarray) {
     broadcast_to(src_ndarray, dst_ndarray);

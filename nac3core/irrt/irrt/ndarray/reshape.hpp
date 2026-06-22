@@ -5,6 +5,7 @@
 #include "irrt/exception.hpp"
 #include "irrt/ndarray/def.hpp"
 
+namespace __nac3_impl {
 namespace {
 namespace ndarray::reshape {
 /**
@@ -86,6 +87,7 @@ void resolve_and_check_new_shape(SizeT size, SizeT new_ndims, SizeT* new_shape) 
 }
 }  // namespace ndarray::reshape
 }  // namespace
+}  // namespace __nac3_impl
 
 extern "C" {
 void __nac3_ndarray_reshape_resolve_and_check_new_shape(int32_t size, int32_t new_ndims, int32_t* new_shape) {

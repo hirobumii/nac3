@@ -7,6 +7,7 @@
 #include "irrt/ndarray/def.hpp"
 #include "irrt/slice.hpp"
 
+namespace __nac3_impl {
 namespace {
 namespace ndarray::basic {
 /**
@@ -276,9 +277,11 @@ void copy_data(const NDArray<SizeT>* src_ndarray, NDArray<SizeT>* dst_ndarray) {
 }
 }  // namespace ndarray::basic
 }  // namespace
+}  // namespace __nac3_impl
 
 extern "C" {
-using namespace ndarray::basic;
+using namespace __nac3_impl;
+using namespace __nac3_impl::ndarray::basic;
 
 void __nac3_ndarray_util_assert_shape_no_negative(int32_t ndims, int32_t* shape) {
     assert_shape_no_negative(ndims, shape);

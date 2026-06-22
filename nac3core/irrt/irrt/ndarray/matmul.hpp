@@ -12,6 +12,7 @@
 
 // NOTE: Everything would be much easier and elegant if einsum is implemented.
 
+namespace __nac3_impl {
 namespace {
 namespace ndarray::matmul {
 
@@ -75,7 +76,7 @@ void calculate_shapes(__nac3_impl::stdlib::make_signed_t<SizeT> a_ndims,
 }  // namespace
 
 extern "C" {
-using namespace ndarray::matmul;
+using namespace __nac3_impl::ndarray::matmul;
 
 void __nac3_ndarray_matmul_calculate_shapes(int32_t a_ndims,
                                             __nac3_impl::reference::Array<uint32_t, int32_t>* a_shape,
