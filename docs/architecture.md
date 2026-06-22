@@ -119,6 +119,7 @@ The IRRT is a small runtime library written in C++ under `nac3core/irrt/`. It pr
 The build process (in `nac3core/build.rs`):
 
 1. Compile `irrt.cpp` to LLVM IR using `clang-irrt` targeting `wasm32` (to get target-independent IR).
+   [TODO]: stale — build now compiles BOTH wasm32 and wasm64 to `irrt32.ll`/`irrt64.ll`, not wasm32-only to `irrt.ll`
 2. Filter the IR with regexes to keep only function definitions, declarations, type definitions, and globals.
 3. Strip debug metadata.
 4. Embed the IR via `include_bytes!()`.
