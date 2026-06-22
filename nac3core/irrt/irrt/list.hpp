@@ -8,6 +8,7 @@
 #include "irrt/reference/array.hpp"
 #include "irrt/reference/header.hpp"
 
+namespace __nac3_impl {
 namespace {
 /**
  * @brief A list in NAC3.
@@ -22,6 +23,7 @@ struct List {
     SizeT len;
 };
 }  // namespace
+}  // namespace __nac3_impl
 
 extern "C" {
 // Handle list assignment and dropping part of the list when

@@ -20,3 +20,12 @@ using uint64_t = unsigned _ExtInt(64);
 #pragma clang diagnostic pop
 
 #endif
+
+namespace __nac3_impl::stdlib {
+using ::int32_t;
+using ::int64_t;
+using ::int8_t;
+using ::uint32_t;
+using ::uint64_t;
+using ::uint8_t;
+}  // namespace __nac3_impl::stdlib

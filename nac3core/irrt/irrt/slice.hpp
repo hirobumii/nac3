@@ -8,6 +8,7 @@
 #include "irrt/int_types.hpp"
 #include "irrt/range.hpp"
 
+namespace __nac3_impl {
 namespace {
 namespace slice {
 /**
@@ -143,6 +144,7 @@ struct Slice {
     }
 };
 }  // namespace
+}  // namespace __nac3_impl
 
 extern "C" {
 SliceIndex __nac3_slice_index_bound(SliceIndex i, const SliceIndex len) {

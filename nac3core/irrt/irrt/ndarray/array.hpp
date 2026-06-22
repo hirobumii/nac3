@@ -22,7 +22,7 @@ namespace ndarray::array {
  */
 template<typename SizeT>
 void set_and_validate_list_shape_helper(__nac3_impl::stdlib::make_signed_t<SizeT> axis,
-                                        List<SizeT>* list,
+                                        __nac3_impl::List<SizeT>* list,
                                         __nac3_impl::stdlib::make_signed_t<SizeT> ndims,
                                         __nac3_impl::stdlib::make_signed_t<SizeT>* shape) {
     if (shape[axis] == -1) {
@@ -45,7 +45,7 @@ void set_and_validate_list_shape_helper(__nac3_impl::stdlib::make_signed_t<SizeT
         // Do nothing
     } else {
         // `list` has type `list[list[...]]`
-        auto** lists = list->items->template data<List<SizeT>*>();
+        auto** lists = list->items->template data<__nac3_impl::List<SizeT>*>();
         for (SizeT i = 0; i < list->len; i++) {
             set_and_validate_list_shape_helper<SizeT>(axis + 1, lists[i], ndims, shape);
         }
@@ -56,7 +56,7 @@ void set_and_validate_list_shape_helper(__nac3_impl::stdlib::make_signed_t<SizeT
  * @brief See `set_and_validate_list_shape_helper`.
  */
 template<typename SizeT>
-void set_and_validate_list_shape(List<SizeT>* list,
+void set_and_validate_list_shape(__nac3_impl::List<SizeT>* list,
                                  __nac3_impl::stdlib::make_signed_t<SizeT> ndims,
                                  __nac3_impl::stdlib::make_signed_t<SizeT>* shape) {
     for (auto axis = 0; axis < ndims; axis++) {
@@ -84,7 +84,7 @@ void set_and_validate_list_shape(List<SizeT>* list,
 template<typename SizeT>
 void write_list_to_array_helper(__nac3_impl::stdlib::make_signed_t<SizeT> axis,
                                 SizeT* index,
-                                List<SizeT>* list,
+                                __nac3_impl::List<SizeT>* list,
                                 NDArray<SizeT>* ndarray) {
     debug_assert_eq(SizeT, static_cast<__nac3_impl::stdlib::make_signed_t<SizeT>>(list->len),
                     ndarray->shape->data()[axis]);
@@ -103,7 +103,7 @@ void write_list_to_array_helper(__nac3_impl::stdlib::make_signed_t<SizeT> axis,
         *index += list->len;
     } else {
         // `list` has type `list[list[...]]`
-        auto** lists = list->items->template data<List<SizeT>*>();
+        auto** lists = list->items->template data<__nac3_impl::List<SizeT>*>();
 
         for (SizeT i = 0; i < list->len; i++) {
             write_list_to_array_helper<SizeT>(axis + 1, index, lists[i], ndarray);
@@ -115,7 +115,7 @@ void write_list_to_array_helper(__nac3_impl::stdlib::make_signed_t<SizeT> axis,
  * @brief See `write_list_to_array_helper`.
  */
 template<typename SizeT>
-void write_list_to_array(List<SizeT>* list, NDArray<SizeT>* ndarray) {
+void write_list_to_array(__nac3_impl::List<SizeT>* list, NDArray<SizeT>* ndarray) {
     SizeT index = 0;
     write_list_to_array_helper<SizeT>((SizeT)0, &index, list, ndarray);
 }
@@ -125,19 +125,23 @@ void write_list_to_array(List<SizeT>* list, NDArray<SizeT>* ndarray) {
 extern "C" {
 using namespace ndarray::array;
 
-void __nac3_ndarray_array_set_and_validate_list_shape(List<uint32_t>* list, int32_t ndims, int32_t* shape) {
+void __nac3_ndarray_array_set_and_validate_list_shape(__nac3_impl::List<uint32_t>* list,
+                                                      int32_t ndims,
+                                                      int32_t* shape) {
     set_and_validate_list_shape(list, ndims, shape);
 }
 
-void __nac3_ndarray_array_set_and_validate_list_shape64(List<uint64_t>* list, int64_t ndims, int64_t* shape) {
+void __nac3_ndarray_array_set_and_validate_list_shape64(__nac3_impl::List<uint64_t>* list,
+                                                        int64_t ndims,
+                                                        int64_t* shape) {
     set_and_validate_list_shape(list, ndims, shape);
 }
 
-void __nac3_ndarray_array_write_list_to_array(List<uint32_t>* list, NDArray<uint32_t>* ndarray) {
+void __nac3_ndarray_array_write_list_to_array(__nac3_impl::List<uint32_t>* list, NDArray<uint32_t>* ndarray) {
     write_list_to_array(list, ndarray);
 }
 
-void __nac3_ndarray_array_write_list_to_array64(List<uint64_t>* list, NDArray<uint64_t>* ndarray) {
+void __nac3_ndarray_array_write_list_to_array64(__nac3_impl::List<uint64_t>* list, NDArray<uint64_t>* ndarray) {
     write_list_to_array(list, ndarray);
 }
 }

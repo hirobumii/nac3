@@ -203,7 +203,7 @@ void* get_pelement_by_indices_single(const NDArray<SizeT>* ndarray,
     auto* element = static_cast<void*>(ndarray->data->template data<uint8_t>() + ndarray->offset);
     for (__nac3_impl::stdlib::make_signed_t<SizeT> axis = 0; axis < ndarray->ndims; axis++) {
         auto input = static_cast<__nac3_impl::stdlib::make_signed_t<SizeT>>(indices[axis]);
-        auto k = slice::resolve_index_in_length(ndarray->shape->data()[axis], input);
+        auto k = __nac3_impl::slice::resolve_index_in_length(ndarray->shape->data()[axis], input);
         if (k == -1) {
             raise_exception(SizeT, EXN_INDEX_ERROR, "index {0} is out of bounds for axis {1} with size {2}", input,
                             axis, ndarray->shape->data()[axis]);

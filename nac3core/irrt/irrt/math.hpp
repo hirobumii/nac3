@@ -2,6 +2,7 @@
 
 #include "irrt/stdlib/cstdint.h"
 
+namespace __nac3_impl {
 namespace {
 // adapted from GNU Scientific Library: https://git.savannah.gnu.org/cgit/gsl.git/tree/sys/pow_int.c
 // need to make sure `exp >= 0` before calling this function
@@ -19,10 +20,11 @@ T __nac3_int_exp_impl(T base, T exp) {
     return res;
 }
 }  // namespace
+}  // namespace __nac3_impl
 
-#define DEF_nac3_int_exp_(T)                   \
-    T __nac3_int_exp_##T(T base, T exp) {      \
-        return __nac3_int_exp_impl(base, exp); \
+#define DEF_nac3_int_exp_(T)                                \
+    T __nac3_int_exp_##T(T base, T exp) {                   \
+        return __nac3_impl::__nac3_int_exp_impl(base, exp); \
     }
 
 extern "C" {

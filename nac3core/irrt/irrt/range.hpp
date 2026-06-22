@@ -3,6 +3,7 @@
 #include "irrt/debug.hpp"
 #include "irrt/int_types.hpp"
 
+namespace __nac3_impl {
 namespace {
 namespace range {
 template<typename T>
@@ -37,9 +38,10 @@ struct Range {
     }
 };
 }  // namespace
+}  // namespace __nac3_impl
 
 extern "C" {
-using namespace range;
+using namespace __nac3_impl::range;
 
 SliceIndex __nac3_range_slice_len(const SliceIndex start, const SliceIndex end, const SliceIndex step) {
     return len(start, end, step);

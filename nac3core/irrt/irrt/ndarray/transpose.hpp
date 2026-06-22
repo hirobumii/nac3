@@ -42,7 +42,7 @@ void assert_transpose_axes(SizeT ndims, SizeT num_axes, const SizeT* axes) {
         axe_specified[i] = false;
 
     for (SizeT i = 0; i < ndims; i++) {
-        SizeT axis = slice::resolve_index_in_length(ndims, axes[i]);
+        SizeT axis = __nac3_impl::slice::resolve_index_in_length(ndims, axes[i]);
         if (axis == -1) {
             // TODO: numpy actually throws a `numpy.exceptions.AxisError`
             raise_exception(SizeT, EXN_VALUE_ERROR, "axis {0} is out of bounds for array of dimension {1}", axis, ndims,
@@ -122,7 +122,7 @@ void transpose(NDArray<SizeT>* src_ndarray,
         // Permute strides and shape according to `axes`, while resolving negative indices in `axes`
         for (auto axis = 0; axis < ndims; axis++) {
             // `i` cannot be OUT_OF_BOUNDS because of assertions
-            SizeT i = slice::resolve_index_in_length(ndims, axes[axis]);
+            SizeT i = __nac3_impl::slice::resolve_index_in_length(ndims, axes[axis]);
 
             dst_ndarray->shape->data()[axis] = src_ndarray->shape->data()[i];
             dst_ndarray->strides->data()[axis] = src_ndarray->strides->data()[i];

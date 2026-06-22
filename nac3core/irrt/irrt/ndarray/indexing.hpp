@@ -23,7 +23,7 @@ const NDIndexType ND_INDEX_TYPE_SINGLE_ELEMENT = 0;
 /**
  * @brief A slice index
  *
- * `data` points to a `Slice<int32_t>`.
+ * `data` points to a `__nac3_impl::Slice<int32_t>`.
  */
 const NDIndexType ND_INDEX_TYPE_SLICE = 1;
 
@@ -165,7 +165,7 @@ void index(__nac3_impl::stdlib::make_signed_t<SizeT> num_indices,
         if (index->type == ND_INDEX_TYPE_SINGLE_ELEMENT) {
             auto input = static_cast<__nac3_impl::stdlib::make_signed_t<SizeT>>(*((int32_t*)index->data));
 
-            auto k = slice::resolve_index_in_length(src_ndarray->shape->data()[src_axis], input);
+            auto k = __nac3_impl::slice::resolve_index_in_length(src_ndarray->shape->data()[src_axis], input);
             if (k == -1) {
                 raise_exception(SizeT, EXN_INDEX_ERROR,
                                 "index {0} is out of bounds for axis {1} "
@@ -177,9 +177,9 @@ void index(__nac3_impl::stdlib::make_signed_t<SizeT> num_indices,
 
             src_axis++;
         } else if (index->type == ND_INDEX_TYPE_SLICE) {
-            Slice<int32_t>* slice = (Slice<int32_t>*)index->data;
+            __nac3_impl::Slice<int32_t>* slice = (__nac3_impl::Slice<int32_t>*)index->data;
 
-            Range<int32_t> range = slice->indices_checked<SizeT>(src_ndarray->shape->data()[src_axis]);
+            __nac3_impl::Range<int32_t> range = slice->indices_checked<SizeT>(src_ndarray->shape->data()[src_axis]);
 
             dst_ndarray->offset += static_cast<SizeT>(range.start) * src_ndarray->strides->data()[src_axis];
             dst_ndarray->strides->data()[dst_axis] = ((SizeT)range.step) * src_ndarray->strides->data()[src_axis];
