@@ -1,7 +1,6 @@
 #pragma once
 
 #include "irrt/stdlib/cstdint.h"
-#include "irrt/stdlib/type_traits.h"
 
 #include "irrt/debug.hpp"
 #include "irrt/exception.hpp"
@@ -43,7 +42,7 @@ void assert_transpose_axes(SizeT ndims, SizeT num_axes, const SizeT* axes) {
         axe_specified[i] = false;
 
     for (SizeT i = 0; i < ndims; i++) {
-        SizeT axis = __nac3_impl::slice::resolve_index_in_length(ndims, axes[i]);
+        SizeT axis = slice::resolve_index_in_length(ndims, axes[i]);
         if (axis == -1) {
             // TODO: numpy actually throws a `numpy.exceptions.AxisError`
             raise_exception(SizeT, EXN_VALUE_ERROR, "axis {0} is out of bounds for array of dimension {1}", axis, ndims,
@@ -88,8 +87,8 @@ void assert_transpose_axes(SizeT ndims, SizeT num_axes, const SizeT* axes) {
 template<typename SizeT>
 void transpose(NDArray<SizeT>* src_ndarray,
                NDArray<SizeT>* dst_ndarray,
-               __nac3_impl::stdlib::make_signed_t<SizeT> num_axes,
-               const __nac3_impl::stdlib::make_signed_t<SizeT>* axes) {
+               intp_t<SizeT> num_axes,
+               const intp_t<SizeT>* axes) {
     debug_assert_eq(SizeT, src_ndarray->ndims, dst_ndarray->ndims);
     const auto ndims = src_ndarray->ndims;
 
@@ -123,7 +122,7 @@ void transpose(NDArray<SizeT>* src_ndarray,
         // Permute strides and shape according to `axes`, while resolving negative indices in `axes`
         for (auto axis = 0; axis < ndims; axis++) {
             // `i` cannot be OUT_OF_BOUNDS because of assertions
-            SizeT i = __nac3_impl::slice::resolve_index_in_length(ndims, axes[axis]);
+            SizeT i = slice::resolve_index_in_length(ndims, axes[axis]);
 
             dst_ndarray->shape->data()[axis] = src_ndarray->shape->data()[i];
             dst_ndarray->strides->data()[axis] = src_ndarray->strides->data()[i];
@@ -136,18 +135,19 @@ void transpose(NDArray<SizeT>* src_ndarray,
 
 extern "C" {
 using namespace __nac3_impl;
-using namespace __nac3_impl::ndarray::transpose;
+using namespace __nac3_impl::ndarray;
+
 void __nac3_ndarray_transpose(NDArray<uint32_t>* src_ndarray,
                               NDArray<uint32_t>* dst_ndarray,
                               int32_t num_axes,
                               const int32_t* axes) {
-    transpose(src_ndarray, dst_ndarray, num_axes, axes);
+    transpose::transpose(src_ndarray, dst_ndarray, num_axes, axes);
 }
 
 void __nac3_ndarray_transpose64(NDArray<uint64_t>* src_ndarray,
                                 NDArray<uint64_t>* dst_ndarray,
                                 int64_t num_axes,
                                 const int64_t* axes) {
-    transpose(src_ndarray, dst_ndarray, num_axes, axes);
+    transpose::transpose(src_ndarray, dst_ndarray, num_axes, axes);
 }
 }

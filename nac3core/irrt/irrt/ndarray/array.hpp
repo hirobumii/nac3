@@ -22,16 +22,16 @@ namespace ndarray::array {
  * of implementation details.
  */
 template<typename SizeT>
-void set_and_validate_list_shape_helper(__nac3_impl::stdlib::make_signed_t<SizeT> axis,
-                                        __nac3_impl::List<SizeT>* list,
-                                        __nac3_impl::stdlib::make_signed_t<SizeT> ndims,
-                                        __nac3_impl::stdlib::make_signed_t<SizeT>* shape) {
+void set_and_validate_list_shape_helper(intp_t<SizeT> axis,
+                                        List<SizeT>* list,
+                                        intp_t<SizeT> ndims,
+                                        intp_t<SizeT>* shape) {
     if (shape[axis] == -1) {
         // Dimension is unspecified. Set it.
         shape[axis] = list->len;
     } else {
         // Dimension is specified. Check.
-        if (shape[axis] != static_cast<__nac3_impl::stdlib::make_signed_t<SizeT>>(list->len)) {
+        if (shape[axis] != static_cast<intp_t<SizeT>>(list->len)) {
             // Mismatch, throw an error.
             // NOTE: NumPy's error message is more complex and needs more PARAMS to display.
             raise_exception(SizeT, EXN_VALUE_ERROR,
@@ -46,7 +46,7 @@ void set_and_validate_list_shape_helper(__nac3_impl::stdlib::make_signed_t<SizeT
         // Do nothing
     } else {
         // `list` has type `list[list[...]]`
-        auto** lists = list->items->template data<__nac3_impl::List<SizeT>*>();
+        auto** lists = list->items->template data<List<SizeT>*>();
         for (SizeT i = 0; i < list->len; i++) {
             set_and_validate_list_shape_helper<SizeT>(axis + 1, lists[i], ndims, shape);
         }
@@ -57,9 +57,7 @@ void set_and_validate_list_shape_helper(__nac3_impl::stdlib::make_signed_t<SizeT
  * @brief See `set_and_validate_list_shape_helper`.
  */
 template<typename SizeT>
-void set_and_validate_list_shape(__nac3_impl::List<SizeT>* list,
-                                 __nac3_impl::stdlib::make_signed_t<SizeT> ndims,
-                                 __nac3_impl::stdlib::make_signed_t<SizeT>* shape) {
+void set_and_validate_list_shape(List<SizeT>* list, intp_t<SizeT> ndims, intp_t<SizeT>* shape) {
     for (auto axis = 0; axis < ndims; axis++) {
         shape[axis] = -1;  // Sentinel to say this dimension is unspecified.
     }
@@ -83,14 +81,10 @@ void set_and_validate_list_shape(__nac3_impl::List<SizeT>* list,
  *   - `ndarray->data` is written with contents from `<list>`.
  */
 template<typename SizeT>
-void write_list_to_array_helper(__nac3_impl::stdlib::make_signed_t<SizeT> axis,
-                                SizeT* index,
-                                __nac3_impl::List<SizeT>* list,
-                                NDArray<SizeT>* ndarray) {
-    debug_assert_eq(SizeT, static_cast<__nac3_impl::stdlib::make_signed_t<SizeT>>(list->len),
-                    ndarray->shape->data()[axis]);
+void write_list_to_array_helper(intp_t<SizeT> axis, SizeT* index, List<SizeT>* list, NDArray<SizeT>* ndarray) {
+    debug_assert_eq(SizeT, static_cast<intp_t<SizeT>>(list->len), ndarray->shape->data()[axis]);
     if (IRRT_DEBUG_ASSERT_BOOL) {
-        if (!ndarray::basic::is_c_contiguous(ndarray)) {
+        if (!basic::is_c_contiguous(ndarray)) {
             raise_debug_assert(SizeT, "ndarray is not C-contiguous", ndarray->strides->data()[0],
                                ndarray->strides->data()[1], NO_PARAM);
         }
@@ -104,7 +98,7 @@ void write_list_to_array_helper(__nac3_impl::stdlib::make_signed_t<SizeT> axis,
         *index += list->len;
     } else {
         // `list` has type `list[list[...]]`
-        auto** lists = list->items->template data<__nac3_impl::List<SizeT>*>();
+        auto** lists = list->items->template data<List<SizeT>*>();
 
         for (SizeT i = 0; i < list->len; i++) {
             write_list_to_array_helper<SizeT>(axis + 1, index, lists[i], ndarray);
@@ -116,7 +110,7 @@ void write_list_to_array_helper(__nac3_impl::stdlib::make_signed_t<SizeT> axis,
  * @brief See `write_list_to_array_helper`.
  */
 template<typename SizeT>
-void write_list_to_array(__nac3_impl::List<SizeT>* list, NDArray<SizeT>* ndarray) {
+void write_list_to_array(List<SizeT>* list, NDArray<SizeT>* ndarray) {
     SizeT index = 0;
     write_list_to_array_helper<SizeT>((SizeT)0, &index, list, ndarray);
 }
@@ -126,25 +120,21 @@ void write_list_to_array(__nac3_impl::List<SizeT>* list, NDArray<SizeT>* ndarray
 
 extern "C" {
 using namespace __nac3_impl;
-using namespace __nac3_impl::ndarray::array;
+using namespace __nac3_impl::ndarray;
 
-void __nac3_ndarray_array_set_and_validate_list_shape(__nac3_impl::List<uint32_t>* list,
-                                                      int32_t ndims,
-                                                      int32_t* shape) {
-    set_and_validate_list_shape(list, ndims, shape);
+void __nac3_ndarray_array_set_and_validate_list_shape(List<uint32_t>* list, int32_t ndims, int32_t* shape) {
+    array::set_and_validate_list_shape(list, ndims, shape);
 }
 
-void __nac3_ndarray_array_set_and_validate_list_shape64(__nac3_impl::List<uint64_t>* list,
-                                                        int64_t ndims,
-                                                        int64_t* shape) {
-    set_and_validate_list_shape(list, ndims, shape);
+void __nac3_ndarray_array_set_and_validate_list_shape64(List<uint64_t>* list, int64_t ndims, int64_t* shape) {
+    array::set_and_validate_list_shape(list, ndims, shape);
 }
 
-void __nac3_ndarray_array_write_list_to_array(__nac3_impl::List<uint32_t>* list, NDArray<uint32_t>* ndarray) {
-    write_list_to_array(list, ndarray);
+void __nac3_ndarray_array_write_list_to_array(List<uint32_t>* list, NDArray<uint32_t>* ndarray) {
+    array::write_list_to_array(list, ndarray);
 }
 
-void __nac3_ndarray_array_write_list_to_array64(__nac3_impl::List<uint64_t>* list, NDArray<uint64_t>* ndarray) {
-    write_list_to_array(list, ndarray);
+void __nac3_ndarray_array_write_list_to_array64(List<uint64_t>* list, NDArray<uint64_t>* ndarray) {
+    array::write_list_to_array(list, ndarray);
 }
 }

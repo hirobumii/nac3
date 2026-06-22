@@ -2,7 +2,6 @@
 
 #include "irrt/stdlib/cstdint.h"
 #include "irrt/stdlib/algorithm.h"
-#include "irrt/stdlib/type_traits.h"
 
 #include "irrt/debug.hpp"
 #include "irrt/exception.hpp"
@@ -37,17 +36,17 @@ namespace ndarray::matmul {
  * `new_b_shape`, and `dst_shape` - the number of dimensions after broadcasting.
  */
 template<typename SizeT>
-void calculate_shapes(__nac3_impl::stdlib::make_signed_t<SizeT> a_ndims,
-                      __nac3_impl::reference::Array<SizeT, __nac3_impl::stdlib::make_signed_t<SizeT>>* a_shape,
-                      __nac3_impl::stdlib::make_signed_t<SizeT> b_ndims,
-                      __nac3_impl::reference::Array<SizeT, __nac3_impl::stdlib::make_signed_t<SizeT>>* b_shape,
-                      __nac3_impl::stdlib::make_signed_t<SizeT> final_ndims,
-                      __nac3_impl::reference::Array<SizeT, __nac3_impl::stdlib::make_signed_t<SizeT>>* new_a_shape,
-                      __nac3_impl::reference::Array<SizeT, __nac3_impl::stdlib::make_signed_t<SizeT>>* new_b_shape,
-                      __nac3_impl::reference::Array<SizeT, __nac3_impl::stdlib::make_signed_t<SizeT>>* dst_shape) {
+void calculate_shapes(intp_t<SizeT> a_ndims,
+                      reference::Array<SizeT, intp_t<SizeT>>* a_shape,
+                      intp_t<SizeT> b_ndims,
+                      reference::Array<SizeT, intp_t<SizeT>>* b_shape,
+                      intp_t<SizeT> final_ndims,
+                      reference::Array<SizeT, intp_t<SizeT>>* new_a_shape,
+                      reference::Array<SizeT, intp_t<SizeT>>* new_b_shape,
+                      reference::Array<SizeT, intp_t<SizeT>>* dst_shape) {
     debug_assert(SizeT, a_ndims >= 2);
     debug_assert(SizeT, b_ndims >= 2);
-    debug_assert_eq(SizeT, __nac3_impl::stdlib::max(a_ndims, b_ndims), final_ndims);
+    debug_assert_eq(SizeT, stdlib::max(a_ndims, b_ndims), final_ndims);
 
     // Check that a and b are compatible for matmul
     if (a_shape->data()[a_ndims - 1] != b_shape->data()[b_ndims - 2]) {
@@ -56,14 +55,14 @@ void calculate_shapes(__nac3_impl::stdlib::make_signed_t<SizeT> a_ndims,
                         a_shape->data()[a_ndims - 1], b_shape->data()[b_ndims - 2], NO_PARAM);
     }
 
-    constexpr __nac3_impl::stdlib::make_signed_t<SizeT> num_entries = 2;
+    constexpr intp_t<SizeT> num_entries = 2;
     ShapeEntry<SizeT> entries[num_entries] = {{.ndims = a_ndims - 2, .shape = a_shape},
                                               {.ndims = b_ndims - 2, .shape = b_shape}};
 
     // TODO: Optimize this
-    ndarray::broadcast::broadcast_shapes<SizeT>(num_entries, entries, final_ndims - 2, new_a_shape);
-    ndarray::broadcast::broadcast_shapes<SizeT>(num_entries, entries, final_ndims - 2, new_b_shape);
-    ndarray::broadcast::broadcast_shapes<SizeT>(num_entries, entries, final_ndims - 2, dst_shape);
+    broadcast::broadcast_shapes<SizeT>(num_entries, entries, final_ndims - 2, new_a_shape);
+    broadcast::broadcast_shapes<SizeT>(num_entries, entries, final_ndims - 2, new_b_shape);
+    broadcast::broadcast_shapes<SizeT>(num_entries, entries, final_ndims - 2, dst_shape);
 
     new_a_shape->data()[final_ndims - 2] = a_shape->data()[a_ndims - 2];
     new_a_shape->data()[final_ndims - 1] = a_shape->data()[a_ndims - 1];
@@ -74,29 +73,33 @@ void calculate_shapes(__nac3_impl::stdlib::make_signed_t<SizeT> a_ndims,
 }
 }  // namespace ndarray::matmul
 }  // namespace
+}  // namespace __nac3_impl
 
 extern "C" {
-using namespace __nac3_impl::ndarray::matmul;
+using namespace __nac3_impl;
+using namespace __nac3_impl::ndarray;
 
 void __nac3_ndarray_matmul_calculate_shapes(int32_t a_ndims,
-                                            __nac3_impl::reference::Array<uint32_t, int32_t>* a_shape,
+                                            reference::Array<uint32_t, int32_t>* a_shape,
                                             int32_t b_ndims,
-                                            __nac3_impl::reference::Array<uint32_t, int32_t>* b_shape,
+                                            reference::Array<uint32_t, int32_t>* b_shape,
                                             int32_t final_ndims,
-                                            __nac3_impl::reference::Array<uint32_t, int32_t>* new_a_shape,
-                                            __nac3_impl::reference::Array<uint32_t, int32_t>* new_b_shape,
-                                            __nac3_impl::reference::Array<uint32_t, int32_t>* dst_shape) {
-    calculate_shapes<uint32_t>(a_ndims, a_shape, b_ndims, b_shape, final_ndims, new_a_shape, new_b_shape, dst_shape);
+                                            reference::Array<uint32_t, int32_t>* new_a_shape,
+                                            reference::Array<uint32_t, int32_t>* new_b_shape,
+                                            reference::Array<uint32_t, int32_t>* dst_shape) {
+    matmul::calculate_shapes<uint32_t>(a_ndims, a_shape, b_ndims, b_shape, final_ndims, new_a_shape, new_b_shape,
+                                       dst_shape);
 }
 
 void __nac3_ndarray_matmul_calculate_shapes64(int64_t a_ndims,
-                                              __nac3_impl::reference::Array<uint64_t, int64_t>* a_shape,
+                                              reference::Array<uint64_t, int64_t>* a_shape,
                                               int64_t b_ndims,
-                                              __nac3_impl::reference::Array<uint64_t, int64_t>* b_shape,
+                                              reference::Array<uint64_t, int64_t>* b_shape,
                                               int64_t final_ndims,
-                                              __nac3_impl::reference::Array<uint64_t, int64_t>* new_a_shape,
-                                              __nac3_impl::reference::Array<uint64_t, int64_t>* new_b_shape,
-                                              __nac3_impl::reference::Array<uint64_t, int64_t>* dst_shape) {
-    calculate_shapes<uint64_t>(a_ndims, a_shape, b_ndims, b_shape, final_ndims, new_a_shape, new_b_shape, dst_shape);
+                                              reference::Array<uint64_t, int64_t>* new_a_shape,
+                                              reference::Array<uint64_t, int64_t>* new_b_shape,
+                                              reference::Array<uint64_t, int64_t>* dst_shape) {
+    matmul::calculate_shapes<uint64_t>(a_ndims, a_shape, b_ndims, b_shape, final_ndims, new_a_shape, new_b_shape,
+                                       dst_shape);
 }
 }

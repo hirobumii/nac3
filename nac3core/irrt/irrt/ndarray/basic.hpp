@@ -182,7 +182,7 @@ bool is_c_contiguous(const NDArray<SizeT>* ndarray) {
  * This function does no bound check.
  */
 template<typename SizeT>
-void* get_pelement_by_indices(const NDArray<SizeT>* ndarray, const __nac3_impl::stdlib::make_signed_t<SizeT>* indices) {
+void* get_pelement_by_indices(const NDArray<SizeT>* ndarray, const intp_t<SizeT>* indices) {
     auto* element = static_cast<void*>(ndarray->data->template data<uint8_t>() + ndarray->offset);
     for (auto dim_i = 0; dim_i < ndarray->ndims; dim_i++)
         element = static_cast<uint8_t*>(element) + indices[dim_i] * ndarray->strides->data()[dim_i];
@@ -199,11 +199,10 @@ void* get_pelement_by_indices(const NDArray<SizeT>* ndarray, const __nac3_impl::
  * The caller must guarantee `indices` has exactly `ndarray->ndims` elements.
  */
 template<typename SizeT>
-void* get_pelement_by_indices_single(const NDArray<SizeT>* ndarray,
-                                     const __nac3_impl::stdlib::make_signed_t<SizeT>* indices) {
+void* get_pelement_by_indices_single(const NDArray<SizeT>* ndarray, const intp_t<SizeT>* indices) {
     auto* element = static_cast<void*>(ndarray->data->template data<uint8_t>() + ndarray->offset);
-    for (__nac3_impl::stdlib::make_signed_t<SizeT> axis = 0; axis < ndarray->ndims; axis++) {
-        auto input = static_cast<__nac3_impl::stdlib::make_signed_t<SizeT>>(indices[axis]);
+    for (intp_t<SizeT> axis = 0; axis < ndarray->ndims; axis++) {
+        auto input = static_cast<intp_t<SizeT>>(indices[axis]);
         auto k = __nac3_impl::slice::resolve_index_in_length(ndarray->shape->data()[axis], input);
         if (k == -1) {
             raise_exception(SizeT, EXN_INDEX_ERROR, "index {0} is out of bounds for axis {1} with size {2}", input,
@@ -220,7 +219,7 @@ void* get_pelement_by_indices_single(const NDArray<SizeT>* ndarray,
  * This function does no bound check.
  */
 template<typename SizeT>
-void* get_nth_pelement(const NDArray<SizeT>* ndarray, __nac3_impl::stdlib::make_signed_t<SizeT> nth) {
+void* get_nth_pelement(const NDArray<SizeT>* ndarray, intp_t<SizeT> nth) {
     auto* element = static_cast<void*>(ndarray->data->template data<uint8_t>() + ndarray->offset);
     for (auto i = 0; i < ndarray->ndims; i++) {
         auto axis = ndarray->ndims - i - 1;
@@ -238,7 +237,7 @@ void* get_nth_pelement(const NDArray<SizeT>* ndarray, __nac3_impl::stdlib::make_
  */
 template<typename SizeT>
 void set_strides_by_shape(NDArray<SizeT>* ndarray) {
-    __nac3_impl::stdlib::make_signed_t<SizeT> stride_product = 1;
+    intp_t<SizeT> stride_product = 1;
     for (auto i = 0; i < ndarray->ndims; i++) {
         auto axis = ndarray->ndims - i - 1;
         ndarray->strides->data()[axis] = stride_product * ndarray->itemsize;
@@ -270,9 +269,9 @@ void copy_data(const NDArray<SizeT>* src_ndarray, NDArray<SizeT>* dst_ndarray) {
     debug_assert_eq(SizeT, src_ndarray->itemsize, dst_ndarray->itemsize);
 
     for (SizeT i = 0; i < size(src_ndarray); i++) {
-        auto src_element = ndarray::basic::get_nth_pelement(src_ndarray, i);
-        auto dst_element = ndarray::basic::get_nth_pelement(dst_ndarray, i);
-        ndarray::basic::set_pelement_value(dst_ndarray, dst_element, src_element);
+        auto src_element = basic::get_nth_pelement(src_ndarray, i);
+        auto dst_element = basic::get_nth_pelement(dst_ndarray, i);
+        basic::set_pelement_value(dst_ndarray, dst_element, src_element);
     }
 }
 }  // namespace ndarray::basic
@@ -281,99 +280,99 @@ void copy_data(const NDArray<SizeT>* src_ndarray, NDArray<SizeT>* dst_ndarray) {
 
 extern "C" {
 using namespace __nac3_impl;
-using namespace __nac3_impl::ndarray::basic;
+using namespace __nac3_impl::ndarray;
 
 void __nac3_ndarray_util_assert_shape_no_negative(int32_t ndims, int32_t* shape) {
-    assert_shape_no_negative(ndims, shape);
+    basic::assert_shape_no_negative(ndims, shape);
 }
 
 void __nac3_ndarray_util_assert_shape_no_negative64(int64_t ndims, int64_t* shape) {
-    assert_shape_no_negative(ndims, shape);
+    basic::assert_shape_no_negative(ndims, shape);
 }
 
 void __nac3_ndarray_util_assert_output_shape_same(int32_t ndarray_ndims,
                                                   const int32_t* ndarray_shape,
                                                   int32_t output_ndims,
                                                   const int32_t* output_shape) {
-    assert_output_shape_same(ndarray_ndims, ndarray_shape, output_ndims, output_shape);
+    basic::assert_output_shape_same(ndarray_ndims, ndarray_shape, output_ndims, output_shape);
 }
 
 void __nac3_ndarray_util_assert_output_shape_same64(int64_t ndarray_ndims,
                                                     const int64_t* ndarray_shape,
                                                     int64_t output_ndims,
                                                     const int64_t* output_shape) {
-    assert_output_shape_same(ndarray_ndims, ndarray_shape, output_ndims, output_shape);
+    basic::assert_output_shape_same(ndarray_ndims, ndarray_shape, output_ndims, output_shape);
 }
 
 uint32_t __nac3_ndarray_size(NDArray<uint32_t>* ndarray) {
-    return size(ndarray);
+    return basic::size(ndarray);
 }
 
 uint64_t __nac3_ndarray_size64(NDArray<uint64_t>* ndarray) {
-    return size(ndarray);
+    return basic::size(ndarray);
 }
 
 uint32_t __nac3_ndarray_nbytes(NDArray<uint32_t>* ndarray) {
-    return nbytes(ndarray);
+    return basic::nbytes(ndarray);
 }
 
 uint64_t __nac3_ndarray_nbytes64(NDArray<uint64_t>* ndarray) {
-    return nbytes(ndarray);
+    return basic::nbytes(ndarray);
 }
 
 int32_t __nac3_ndarray_len(NDArray<uint32_t>* ndarray) {
-    return len(ndarray);
+    return basic::len(ndarray);
 }
 
 int64_t __nac3_ndarray_len64(NDArray<uint64_t>* ndarray) {
-    return len(ndarray);
+    return basic::len(ndarray);
 }
 
 bool __nac3_ndarray_is_c_contiguous(NDArray<uint32_t>* ndarray) {
-    return is_c_contiguous(ndarray);
+    return basic::is_c_contiguous(ndarray);
 }
 
 bool __nac3_ndarray_is_c_contiguous64(NDArray<uint64_t>* ndarray) {
-    return is_c_contiguous(ndarray);
+    return basic::is_c_contiguous(ndarray);
 }
 
 void* __nac3_ndarray_get_nth_pelement(const NDArray<uint32_t>* ndarray, int32_t nth) {
-    return get_nth_pelement(ndarray, nth);
+    return basic::get_nth_pelement(ndarray, nth);
 }
 
 void* __nac3_ndarray_get_nth_pelement64(const NDArray<uint64_t>* ndarray, int64_t nth) {
-    return get_nth_pelement(ndarray, nth);
+    return basic::get_nth_pelement(ndarray, nth);
 }
 
 void* __nac3_ndarray_get_pelement_by_indices(const NDArray<uint32_t>* ndarray, int32_t* indices) {
-    return get_pelement_by_indices(ndarray, indices);
+    return basic::get_pelement_by_indices(ndarray, indices);
 }
 
 void* __nac3_ndarray_get_pelement_by_indices64(const NDArray<uint64_t>* ndarray, int64_t* indices) {
-    return get_pelement_by_indices(ndarray, indices);
+    return basic::get_pelement_by_indices(ndarray, indices);
 }
 
 void* __nac3_ndarray_get_pelement_by_indices_single(const NDArray<uint32_t>* ndarray, int32_t* indices) {
-    return get_pelement_by_indices_single(ndarray, indices);
+    return basic::get_pelement_by_indices_single(ndarray, indices);
 }
 
 void* __nac3_ndarray_get_pelement_by_indices_single64(const NDArray<uint64_t>* ndarray, int64_t* indices) {
-    return get_pelement_by_indices_single(ndarray, indices);
+    return basic::get_pelement_by_indices_single(ndarray, indices);
 }
 
 void __nac3_ndarray_set_strides_by_shape(NDArray<uint32_t>* ndarray) {
-    set_strides_by_shape(ndarray);
+    basic::set_strides_by_shape(ndarray);
 }
 
 void __nac3_ndarray_set_strides_by_shape64(NDArray<uint64_t>* ndarray) {
-    set_strides_by_shape(ndarray);
+    basic::set_strides_by_shape(ndarray);
 }
 
 void __nac3_ndarray_copy_data(NDArray<uint32_t>* src_ndarray, NDArray<uint32_t>* dst_ndarray) {
-    copy_data(src_ndarray, dst_ndarray);
+    basic::copy_data(src_ndarray, dst_ndarray);
 }
 
 void __nac3_ndarray_copy_data64(NDArray<uint64_t>* src_ndarray, NDArray<uint64_t>* dst_ndarray) {
-    copy_data(src_ndarray, dst_ndarray);
+    basic::copy_data(src_ndarray, dst_ndarray);
 }
 }

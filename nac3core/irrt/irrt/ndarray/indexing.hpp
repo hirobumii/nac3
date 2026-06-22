@@ -1,7 +1,6 @@
 #pragma once
 
 #include "irrt/stdlib/cstdint.h"
-#include "irrt/stdlib/type_traits.h"
 
 #include "irrt/exception.hpp"
 #include "irrt/ndarray/basic.hpp"
@@ -12,6 +11,7 @@
 
 namespace __nac3_impl {
 namespace {
+namespace ndarray {
 typedef uint8_t NDIndexType;
 
 /**
@@ -66,10 +66,8 @@ struct NDIndex {
      */
     void* data;
 };
-}  // namespace
 
-namespace {
-namespace ndarray::indexing {
+namespace indexing {
 /**
  * @brief Perform ndarray "basic indexing" (https://numpy.org/doc/stable/user/basics.indexing.html#basic-indexing)
  *
@@ -104,7 +102,7 @@ namespace ndarray::indexing {
  * @param dst_ndarray The resulting NDArray after indexing. Further details in the comments above,
  */
 template<typename SizeT>
-void index(__nac3_impl::stdlib::make_signed_t<SizeT> num_indices,
+void index(intp_t<SizeT> num_indices,
            const NDIndex* indices,
            NDArray<SizeT>* src_ndarray,
            NDArray<SizeT>* dst_ndarray) {
@@ -153,20 +151,20 @@ void index(__nac3_impl::stdlib::make_signed_t<SizeT> num_indices,
     dst_ndarray->base = src_ndarray;
     dst_ndarray->offset = src_ndarray->offset;
 
-    __nac3_impl::reference::refcount_incr<SizeT>(dst_ndarray->data);
-    __nac3_impl::reference::refcount_incr<SizeT>(dst_ndarray->base);
+    reference::refcount_incr<SizeT>(dst_ndarray->data);
+    reference::refcount_incr<SizeT>(dst_ndarray->base);
 
     // Reference code:
     // https://github.com/wadetb/tinynumpy/blob/0d23d22e07062ffab2afa287374c7b366eebdda1/tinynumpy/tinynumpy.py#L652
-    __nac3_impl::stdlib::make_signed_t<SizeT> src_axis = 0;
-    __nac3_impl::stdlib::make_signed_t<SizeT> dst_axis = 0;
+    intp_t<SizeT> src_axis = 0;
+    intp_t<SizeT> dst_axis = 0;
 
     for (int32_t i = 0; i < num_indices; i++) {
         const NDIndex* index = &indices[i];
         if (index->type == ND_INDEX_TYPE_SINGLE_ELEMENT) {
-            auto input = static_cast<__nac3_impl::stdlib::make_signed_t<SizeT>>(*((int32_t*)index->data));
+            auto input = static_cast<intp_t<SizeT>>(*((int32_t*)index->data));
 
-            auto k = __nac3_impl::slice::resolve_index_in_length(src_ndarray->shape->data()[src_axis], input);
+            auto k = slice::resolve_index_in_length(src_ndarray->shape->data()[src_axis], input);
             if (k == -1) {
                 raise_exception(SizeT, EXN_INDEX_ERROR,
                                 "index {0} is out of bounds for axis {1} "
@@ -178,9 +176,9 @@ void index(__nac3_impl::stdlib::make_signed_t<SizeT> num_indices,
 
             src_axis++;
         } else if (index->type == ND_INDEX_TYPE_SLICE) {
-            __nac3_impl::Slice<int32_t>* slice = (__nac3_impl::Slice<int32_t>*)index->data;
+            Slice<int32_t>* slice = (Slice<int32_t>*)index->data;
 
-            __nac3_impl::Range<int32_t> range = slice->indices_checked<SizeT>(src_ndarray->shape->data()[src_axis]);
+            Range<int32_t> range = slice->indices_checked<SizeT>(src_ndarray->shape->data()[src_axis]);
 
             dst_ndarray->offset += static_cast<SizeT>(range.start) * src_ndarray->strides->data()[src_axis];
             dst_ndarray->strides->data()[dst_axis] = ((SizeT)range.step) * src_ndarray->strides->data()[src_axis];
@@ -217,25 +215,26 @@ void index(__nac3_impl::stdlib::make_signed_t<SizeT> num_indices,
     debug_assert_eq(SizeT, src_ndarray->ndims, src_axis);
     debug_assert_eq(SizeT, dst_ndarray->ndims, dst_axis);
 }
-}  // namespace ndarray::indexing
+}  // namespace indexing
+}  // namespace ndarray
 }  // namespace
 }  // namespace __nac3_impl
 
 extern "C" {
 using namespace __nac3_impl;
-using namespace __nac3_impl::ndarray::indexing;
+using namespace __nac3_impl::ndarray;
 
 void __nac3_ndarray_index(int32_t num_indices,
                           NDIndex* indices,
                           NDArray<uint32_t>* src_ndarray,
                           NDArray<uint32_t>* dst_ndarray) {
-    index(num_indices, indices, src_ndarray, dst_ndarray);
+    indexing::index(num_indices, indices, src_ndarray, dst_ndarray);
 }
 
 void __nac3_ndarray_index64(int64_t num_indices,
                             NDIndex* indices,
                             NDArray<uint64_t>* src_ndarray,
                             NDArray<uint64_t>* dst_ndarray) {
-    index(num_indices, indices, src_ndarray, dst_ndarray);
+    indexing::index(num_indices, indices, src_ndarray, dst_ndarray);
 }
 }

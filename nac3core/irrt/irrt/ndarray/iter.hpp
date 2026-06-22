@@ -1,13 +1,13 @@
 #pragma once
 
 #include "irrt/stdlib/cstdint.h"
-#include "irrt/stdlib/type_traits.h"
 
 #include "irrt/ndarray/def.hpp"
 #include "irrt/reference/array.hpp"
 
 namespace __nac3_impl {
 namespace {
+namespace ndarray {
 /**
  * @brief Helper struct to enumerate through an ndarray *efficiently*.
  *
@@ -38,7 +38,7 @@ namespace {
  */
 template<typename SizeT>
 struct RawNDIter {
-    using Index = __nac3_impl::stdlib::make_signed_t<SizeT>;
+    using Index = intp_t<SizeT>;
 
     /**
      * @brief The ndarray being iterated.
@@ -52,7 +52,7 @@ struct RawNDIter {
      *
      * Must be allocated by the caller.
      */
-    __nac3_impl::reference::Array<SizeT, Index>* indices;
+    reference::Array<SizeT, Index>* indices;
 
     /**
      * @brief The nth (0-based) index of the current indices.
@@ -78,7 +78,7 @@ struct RawNDIter {
     void initialize(NDArray<SizeT>* array, void* element, void* indices) {
         this->array = array;
 
-        this->indices = static_cast<__nac3_impl::reference::Array<SizeT, Index>*>(indices);
+        this->indices = static_cast<reference::Array<SizeT, Index>*>(indices);
         this->offset = static_cast<uint8_t*>(element) - static_cast<uint8_t*>(array->data->data());
 
         // Compute size
@@ -124,11 +124,13 @@ struct RawNDIter {
         nth++;
     }
 };
+}  // namespace ndarray
 }  // namespace
 }  // namespace __nac3_impl
 
 extern "C" {
 using namespace __nac3_impl;
+using namespace __nac3_impl::ndarray;
 
 void __nac3_nditer_initialize(RawNDIter<uint32_t>* iter, NDArray<uint32_t>* ndarray, void* indices) {
     iter->initialize(ndarray, indices);

@@ -2,7 +2,6 @@
 
 #include "irrt/stdlib/cstdint.h"
 #include "irrt/stdlib/algorithm.h"
-#include "irrt/stdlib/type_traits.h"
 
 #include "irrt/ndarray/def.hpp"
 #include "irrt/reference/reference.hpp"
@@ -10,15 +9,14 @@
 
 namespace __nac3_impl {
 namespace {
+namespace ndarray {
 template<typename SizeT>
 struct ShapeEntry {
-    __nac3_impl::stdlib::make_signed_t<SizeT> ndims;
-    __nac3_impl::reference::Array<SizeT, __nac3_impl::stdlib::make_signed_t<SizeT>>* shape;
+    intp_t<SizeT> ndims;
+    __nac3_impl::reference::Array<SizeT, intp_t<SizeT>>* shape;
 };
-}  // namespace
 
-namespace {
-namespace ndarray::broadcast {
+namespace broadcast {
 /**
  * @brief Return true if `src_shape` can broadcast to `dst_shape`.
  *
@@ -52,16 +50,16 @@ bool can_broadcast_shape_to(SizeT target_ndims, const SizeT* target_shape, SizeT
  *   of `np.broadcast_shapes` and write it here.
  */
 template<typename SizeT>
-void broadcast_shapes(__nac3_impl::stdlib::make_signed_t<SizeT> num_shapes,
+void broadcast_shapes(intp_t<SizeT> num_shapes,
                       const ShapeEntry<SizeT>* shapes,
-                      __nac3_impl::stdlib::make_signed_t<SizeT> dst_ndims,
-                      __nac3_impl::reference::Array<SizeT, __nac3_impl::stdlib::make_signed_t<SizeT>>* dst_shape) {
+                      intp_t<SizeT> dst_ndims,
+                      reference::Array<SizeT, intp_t<SizeT>>* dst_shape) {
     for (auto dst_axis = 0; dst_axis < dst_ndims; dst_axis++) {
         dst_shape->data()[dst_axis] = 1;
     }
 
 #ifdef IRRT_DEBUG_ASSERT
-    __nac3_impl::stdlib::make_signed_t<SizeT> max_ndims_found = 0;
+    intp_t<SizeT> max_ndims_found = 0;
 #endif
 
     for (auto i = 0; i < num_shapes; i++) {
@@ -71,7 +69,7 @@ void broadcast_shapes(__nac3_impl::stdlib::make_signed_t<SizeT> num_shapes,
         debug_assert(SizeT, entry.ndims <= dst_ndims);
 
 #ifdef IRRT_DEBUG_ASSERT
-        max_ndims_found = __nac3_impl::stdlib::max(max_ndims_found, entry.ndims);
+        max_ndims_found = stdlib::max(max_ndims_found, entry.ndims);
 #endif
 
         for (auto j = 0; j < entry.ndims; j++) {
@@ -123,8 +121,8 @@ void broadcast_shapes(__nac3_impl::stdlib::make_signed_t<SizeT> num_shapes,
  */
 template<typename SizeT>
 void broadcast_to(NDArray<SizeT>* src_ndarray, NDArray<SizeT>* dst_ndarray) {
-    if (!ndarray::broadcast::can_broadcast_shape_to(dst_ndarray->ndims, dst_ndarray->shape->data(), src_ndarray->ndims,
-                                                    src_ndarray->shape->data())) {
+    if (!broadcast::can_broadcast_shape_to(dst_ndarray->ndims, dst_ndarray->shape->data(), src_ndarray->ndims,
+                                           src_ndarray->shape->data())) {
         raise_exception(SizeT, EXN_VALUE_ERROR, "operands could not be broadcast together", NO_PARAM, NO_PARAM,
                         NO_PARAM);
     }
@@ -134,8 +132,8 @@ void broadcast_to(NDArray<SizeT>* src_ndarray, NDArray<SizeT>* dst_ndarray) {
     dst_ndarray->base = src_ndarray->base;
     dst_ndarray->offset = src_ndarray->offset;
 
-    __nac3_impl::reference::refcount_incr<SizeT>(dst_ndarray->data);
-    __nac3_impl::reference::refcount_incr<SizeT>(dst_ndarray->base);
+    reference::refcount_incr<SizeT>(dst_ndarray->data);
+    reference::refcount_incr<SizeT>(dst_ndarray->base);
 
     for (auto i = 0; i < dst_ndarray->ndims; i++) {
         auto src_axis = src_ndarray->ndims - i - 1;
@@ -148,33 +146,34 @@ void broadcast_to(NDArray<SizeT>* src_ndarray, NDArray<SizeT>* dst_ndarray) {
         }
     }
 }
-}  // namespace ndarray::broadcast
+}  // namespace broadcast
+}  // namespace ndarray
 }  // namespace
 }  // namespace __nac3_impl
 
 extern "C" {
 using namespace __nac3_impl;
-using namespace __nac3_impl::ndarray::broadcast;
+using namespace __nac3_impl::ndarray;
 
 void __nac3_ndarray_broadcast_to(NDArray<uint32_t>* src_ndarray, NDArray<uint32_t>* dst_ndarray) {
-    broadcast_to(src_ndarray, dst_ndarray);
+    broadcast::broadcast_to(src_ndarray, dst_ndarray);
 }
 
 void __nac3_ndarray_broadcast_to64(NDArray<uint64_t>* src_ndarray, NDArray<uint64_t>* dst_ndarray) {
-    broadcast_to(src_ndarray, dst_ndarray);
+    broadcast::broadcast_to(src_ndarray, dst_ndarray);
 }
 
 void __nac3_ndarray_broadcast_shapes(int32_t num_shapes,
-                                     const __nac3_impl::reference::Array<uint32_t, ShapeEntry<uint32_t>>* shapes,
+                                     const reference::Array<uint32_t, ShapeEntry<uint32_t>>* shapes,
                                      int32_t dst_ndims,
-                                     __nac3_impl::reference::Array<uint32_t, int32_t>* dst_shape) {
-    broadcast_shapes(num_shapes, shapes->data(), dst_ndims, dst_shape);
+                                     reference::Array<uint32_t, int32_t>* dst_shape) {
+    broadcast::broadcast_shapes(num_shapes, shapes->data(), dst_ndims, dst_shape);
 }
 
 void __nac3_ndarray_broadcast_shapes64(int64_t num_shapes,
-                                       const __nac3_impl::reference::Array<uint64_t, ShapeEntry<uint64_t>>* shapes,
+                                       const reference::Array<uint64_t, ShapeEntry<uint64_t>>* shapes,
                                        int64_t dst_ndims,
-                                       __nac3_impl::reference::Array<uint64_t, int64_t>* dst_shape) {
-    broadcast_shapes(num_shapes, shapes->data(), dst_ndims, dst_shape);
+                                       reference::Array<uint64_t, int64_t>* dst_shape) {
+    broadcast::broadcast_shapes(num_shapes, shapes->data(), dst_ndims, dst_shape);
 }
 }

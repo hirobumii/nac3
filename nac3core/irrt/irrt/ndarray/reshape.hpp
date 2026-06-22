@@ -90,11 +90,14 @@ void resolve_and_check_new_shape(SizeT size, SizeT new_ndims, SizeT* new_shape) 
 }  // namespace __nac3_impl
 
 extern "C" {
+using namespace __nac3_impl;
+using namespace __nac3_impl::ndarray;
+
 void __nac3_ndarray_reshape_resolve_and_check_new_shape(int32_t size, int32_t new_ndims, int32_t* new_shape) {
-    ndarray::reshape::resolve_and_check_new_shape(size, new_ndims, new_shape);
+    reshape::resolve_and_check_new_shape(size, new_ndims, new_shape);
 }
 
 void __nac3_ndarray_reshape_resolve_and_check_new_shape64(int64_t size, int64_t new_ndims, int64_t* new_shape) {
-    ndarray::reshape::resolve_and_check_new_shape(size, new_ndims, new_shape);
+    reshape::resolve_and_check_new_shape(size, new_ndims, new_shape);
 }
 }
