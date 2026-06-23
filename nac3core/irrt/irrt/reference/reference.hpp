@@ -158,31 +158,34 @@ void refcount_decr(void* const object) {
 }  // namespace __nac3_impl::reference
 
 extern "C" {
+using namespace __nac3_impl;
+using namespace __nac3_impl::reference;
+
 /**
  * @brief See `codegen::types::ObjectHeaderValue::init`.
  */
 void __nac3_object_header_init(void* object, bool is_refcounted, void* typeinfo) {
-    __nac3_impl::reference::object_header_init(object, is_refcounted, typeinfo);
+    object_header_init(object, is_refcounted, typeinfo);
 }
 
 /**
  * @brief See `codegen::types::ObjectHeaderValue::is_refcounted`.
  */
 bool __nac3_is_object_refcounted(void* object) {
-    return __nac3_impl::reference::is_object_refcounted(object);
+    return is_object_refcounted(object);
 }
 
 /**
  * @brief See `codegen::types::ObjectHeaderValue::increment_refcount`.
  */
 void __nac3_refcount_incr(void* object) {
-    __nac3_impl::reference::refcount_incr(object);
+    refcount_incr(object);
 }
 
 /**
  * @brief See `codegen::types::ObjectHeaderValue::decrement_refcount`.
  */
 void __nac3_refcount_decr(void* object) {
-    __nac3_impl::reference::refcount_decr(object);
+    refcount_decr(object);
 }
 }  // extern "C"

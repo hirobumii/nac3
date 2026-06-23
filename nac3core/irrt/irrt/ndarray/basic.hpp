@@ -193,7 +193,7 @@ void* get_pelement_by_indices_single(const NDArray* ndarray, const intp_t* indic
     auto* element = static_cast<void*>(ndarray->data->template data<uint8_t>() + ndarray->offset);
     for (intp_t axis = 0; axis < ndarray->ndims; axis++) {
         auto input = indices[axis];
-        auto k = __nac3_impl::slice::resolve_index_in_length(ndarray->shape->data()[axis], input);
+        auto k = slice::resolve_index_in_length(ndarray->shape->data()[axis], input);
         if (k == -1) {
             raise_exception(EXN_INDEX_ERROR, "index {0} is out of bounds for axis {1} with size {2}", input, axis,
                             ndarray->shape->data()[axis]);

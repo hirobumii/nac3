@@ -13,7 +13,7 @@ namespace {
 namespace ndarray {
 struct ShapeEntry {
     intp_t ndims;
-    __nac3_impl::reference::Array<intp_t>* shape;
+    reference::Array<intp_t>* shape;
 };
 
 namespace broadcast {

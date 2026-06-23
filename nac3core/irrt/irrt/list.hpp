@@ -17,8 +17,8 @@ namespace {
  * know how to interpret it.
  */
 struct List {
-    __nac3_impl::reference::ObjectHeader header;
-    __nac3_impl::reference::Array<>* items;
+    reference::ObjectHeader header;
+    reference::Array<>* items;
     size_t len;
 };
 }  // namespace
@@ -67,8 +67,8 @@ SliceIndex __nac3_list_slice_assign_var_size(SliceIndex dest_start,
     /* if two range overlaps, need alloca */
     uint8_t need_alloca =
         (dest_arr == src_arr)
-        && !(__nac3_impl::stdlib::max(dest_start, dest_end) < __nac3_impl::stdlib::min(src_start, src_end)
-             || __nac3_impl::stdlib::max(src_start, src_end) < __nac3_impl::stdlib::min(dest_start, dest_end));
+        && !(stdlib::max(dest_start, dest_end) < stdlib::min(src_start, src_end)
+             || stdlib::max(src_start, src_end) < stdlib::min(dest_start, dest_end));
     if (need_alloca) {
         void* tmp = __builtin_alloca(src_arr_len * size);
         __builtin_memcpy(tmp, src_arr, src_arr_len * size);

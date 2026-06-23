@@ -54,14 +54,13 @@ void indices(bool start_defined,
     }
 
     if (start_defined) {
-        *range_start =
-            start < 0 ? __nac3_impl::stdlib::max(lower, start + length) : __nac3_impl::stdlib::min(upper, start);
+        *range_start = start < 0 ? stdlib::max(lower, start + length) : stdlib::min(upper, start);
     } else {
         *range_start = step_is_negative ? upper : lower;
     }
 
     if (stop_defined) {
-        *range_stop = stop < 0 ? __nac3_impl::stdlib::max(lower, stop + length) : __nac3_impl::stdlib::min(upper, stop);
+        *range_stop = stop < 0 ? stdlib::max(lower, stop + length) : stdlib::min(upper, stop);
     } else {
         *range_stop = step_is_negative ? lower : upper;
     }

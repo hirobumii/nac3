@@ -24,7 +24,7 @@ const NDIndexType ND_INDEX_TYPE_SINGLE_ELEMENT = 0;
 /**
  * @brief A slice index
  *
- * `data` points to a `__nac3_impl::Slice<int32_t>`.
+ * `data` points to a `Slice<int32_t>`.
  */
 const NDIndexType ND_INDEX_TYPE_SLICE = 1;
 

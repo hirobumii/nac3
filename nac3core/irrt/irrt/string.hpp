@@ -19,7 +19,9 @@ bool __nac3_str_eq_impl(const char* str1, size_t len1, const char* str2, size_t 
 }  // namespace __nac3_impl
 
 extern "C" {
+using namespace __nac3_impl;
+
 bool nac3_str_eq(const char* str1, size_t len1, const char* str2, size_t len2) {
-    return __nac3_impl::__nac3_str_eq_impl(str1, len1, str2, len2);
+    return __nac3_str_eq_impl(str1, len1, str2, len2);
 }
 }

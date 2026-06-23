@@ -22,12 +22,13 @@ T __nac3_int_exp_impl(T base, T exp) {
 }  // namespace
 }  // namespace __nac3_impl
 
-#define DEF_nac3_int_exp_(T)                                \
-    T __nac3_int_exp_##T(T base, T exp) {                   \
-        return __nac3_impl::__nac3_int_exp_impl(base, exp); \
+#define DEF_nac3_int_exp_(T)                  \
+    T __nac3_int_exp_##T(T base, T exp) {      \
+        return __nac3_int_exp_impl(base, exp); \
     }
 
 extern "C" {
+using namespace __nac3_impl;
 
 // Putting semicolons here to make clang-format not reformat this into
 // a stair shape.
