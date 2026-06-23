@@ -1809,9 +1809,23 @@ impl Nac3 {
 
         let mut string_store: HashMap<String, i32> = HashMap::default();
 
-        // Keep this list of exceptions in sync with `EXCEPTION_ID_LOOKUP` in `artiq::firmware::ksupport::eh_artiq`
-        // The exceptions declared here must be defined in `artiq.coredevice.exceptions`
-        // Verify synchronization by running the test cases in `artiq.test.coredevice.test_exceptions`
+        // The names of the exceptions follow one of two schemes:
+        //
+        // - Python builtin exceptions are always prefixed with `0:`. When thrown on-device, these
+        //   exceptions are thrown verbatim correspondingly on the host.
+        // - ARTIQ-specific runtime exceptions are referred to by their class name (they are
+        //   implicitly prefixed with `artiq.coredevice.exceptions` - see below). When thrown
+        //   on-device, these exceptions are mapped into their corresponding reserved exception ID
+        //   in `EXCEPTION_ID_LOOKUP` (located in `artiq::firmware::ksupport::eh_artiq`) and thrown.
+        //   The host then looks up the exception ID in the string store of the embedding map to
+        //   obtain the fully-qualified exception class name, and throws the corresponding
+        //   exception.
+        //
+        // This list of exception must be kept in sync with `EXCEPTION_ID_LOOKUP`, and all
+        // exceptions declared here must be defined in `artiq.coredevice.exceptions`.
+        //
+        // Synchronization shall be verified by running the test cases in
+        // `artiq.test.coredevice.test_exceptions`.
         let runtime_exception_names = [
             "RTIOUnderflow",
             "RTIOOverflow",
