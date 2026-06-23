@@ -12,7 +12,7 @@ malloc = []
 
 [dependencies]
 anyhow = "1.0"
-itertools = "0.14"
+itertools = "0.15"
 crossbeam = "0.8"
 indexmap = "2.14"
 parking_lot = "0.12"
