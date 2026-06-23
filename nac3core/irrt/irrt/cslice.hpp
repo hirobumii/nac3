@@ -1,11 +1,12 @@
 #pragma once
 
+#include "irrt/stdlib/cstddef.h"
+
 namespace __nac3_impl {
 namespace {
-template<typename SizeT>
 struct CSlice {
     void* base;
-    SizeT len;
+    size_t len;
 };
 }  // namespace
 }  // namespace __nac3_impl

@@ -1,11 +1,9 @@
 #pragma once
 
-#include "irrt/stdlib/cstdint.h"
 #include "irrt/stdlib/algorithm.h"
 
 #include "irrt/debug.hpp"
 #include "irrt/exception.hpp"
-#include "irrt/int_types.hpp"
 #include "irrt/range.hpp"
 
 namespace __nac3_impl {
@@ -112,11 +110,10 @@ struct Slice {
      *
      * In Python, this would be `range(*slice(start, stop, step).indices(length))`.
      */
-    template<typename SizeT>
     Range<T> indices(T length) {
         // Reference:
         // https://github.com/python/cpython/blob/main/Objects/sliceobject.c#L388
-        debug_assert(SizeT, length >= 0);
+        debug_assert(length >= 0);
 
         Range<T> result;
         slice::indices(start_defined, start, stop_defined, stop, step_defined, step, length, &result.start,
@@ -127,26 +124,24 @@ struct Slice {
     /**
      * @brief Like `.indices()` but with assertions.
      */
-    template<typename SizeT>
     Range<T> indices_checked(T length) {
-        // TODO: Switch to `SizeT length`
-
         if (length < 0) {
-            raise_exception(SizeT, EXN_VALUE_ERROR, "length should not be negative, got {0}", length, NO_PARAM,
-                            NO_PARAM);
+            raise_exception(EXN_VALUE_ERROR, "length should not be negative, got {0}", length, NO_PARAM, NO_PARAM);
         }
 
         if (this->step_defined && this->step == 0) {
-            raise_exception(SizeT, EXN_VALUE_ERROR, "slice step cannot be zero", NO_PARAM, NO_PARAM, NO_PARAM);
+            raise_exception(EXN_VALUE_ERROR, "slice step cannot be zero", NO_PARAM, NO_PARAM, NO_PARAM);
         }
 
-        return this->indices<SizeT>(length);
+        return this->indices(length);
     }
 };
 }  // namespace
 }  // namespace __nac3_impl
 
 extern "C" {
+using namespace __nac3_impl;
+
 SliceIndex __nac3_slice_index_bound(SliceIndex i, const SliceIndex len) {
     if (i < 0) {
         i = len + i;

@@ -36,49 +36,48 @@ namespace ndarray {
  * - If `my_ndarray.ndims` == 0, there is one iteration.
  * - If `my_ndarray.shape` contains zeroes, there are no iterations.
  */
-template<typename SizeT>
 struct RawNDIter {
-    using Index = intp_t<SizeT>;
+    using Index = intp_t;
 
     /**
      * @brief The ndarray being iterated.
      *
      * Must be allocated by the caller.
      */
-    NDArray<SizeT>* array;
+    NDArray* array;
 
     /**
      * @brief The current indices.
      *
      * Must be allocated by the caller.
      */
-    reference::Array<SizeT, Index>* indices;
+    reference::Array<Index>* indices;
 
     /**
      * @brief The nth (0-based) index of the current indices.
      *
      * Initially this is 0.
      */
-    SizeT nth;
+    intp_t nth;
 
     /**
      * @brief Pointer to the current element.
      *
      * Initially this points to first element of the ndarray.
      */
-    SizeT offset;
+    intp_t offset;
 
     /**
      * @brief Cache for the product of shape.
      *
      * Could be 0 if `shape` has 0s in it.
      */
-    SizeT size;
+    intp_t size;
 
-    void initialize(NDArray<SizeT>* array, void* element, void* indices) {
+    void initialize(NDArray* array, void* element, void* indices) {
         this->array = array;
 
-        this->indices = static_cast<reference::Array<SizeT, Index>*>(indices);
+        this->indices = static_cast<reference::Array<Index>*>(indices);
         this->offset = static_cast<uint8_t*>(element) - static_cast<uint8_t*>(array->data->data());
 
         // Compute size
@@ -93,7 +92,7 @@ struct RawNDIter {
         nth = 0;
     }
 
-    void initialize(NDArray<SizeT>* ndarray, void* indices) {
+    void initialize(NDArray* ndarray, void* indices) {
         // NOTE: `RawNDIter`'s `element` should point to the first element of the ndarray view,
         // which is at `data + offset`.
         void* first_element = static_cast<void*>(ndarray->data->template data<uint8_t>() + ndarray->offset);
@@ -132,27 +131,15 @@ extern "C" {
 using namespace __nac3_impl;
 using namespace __nac3_impl::ndarray;
 
-void __nac3_nditer_initialize(RawNDIter<uint32_t>* iter, NDArray<uint32_t>* ndarray, void* indices) {
+void __nac3_nditer_initialize(RawNDIter* iter, NDArray* ndarray, void* indices) {
     iter->initialize(ndarray, indices);
 }
 
-void __nac3_nditer_initialize64(RawNDIter<uint64_t>* iter, NDArray<uint64_t>* ndarray, void* indices) {
-    iter->initialize(ndarray, indices);
-}
-
-bool __nac3_nditer_has_element(RawNDIter<uint32_t>* iter) {
+bool __nac3_nditer_has_element(RawNDIter* iter) {
     return iter->has_element();
 }
 
-bool __nac3_nditer_has_element64(RawNDIter<uint64_t>* iter) {
-    return iter->has_element();
-}
-
-void __nac3_nditer_next(RawNDIter<uint32_t>* iter) {
-    iter->next();
-}
-
-void __nac3_nditer_next64(RawNDIter<uint64_t>* iter) {
+void __nac3_nditer_next(RawNDIter* iter) {
     iter->next();
 }
 }

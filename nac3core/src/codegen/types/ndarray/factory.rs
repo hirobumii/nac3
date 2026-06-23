@@ -9,7 +9,6 @@ use crate::{
     codegen::{
         CodeGenContext,
         expr::call_extern,
-        irrt::get_usize_dependent_function_name,
         types::{
             NDArrayType, NDArrayValue, RefCountedArrayValue, array::ArrayLikeIndexer,
             ndarray::RawNDArrayType,
@@ -200,9 +199,7 @@ impl<'ctx> NDArrayType<'ctx> {
         // Validate `shape`
         let (shape_ptr, shape_len) =
             shape.inner_value(ctx, Some(ctx.size_t.const_int(self.object.ndims, false)))?.value;
-        let name =
-            get_usize_dependent_function_name(ctx, "__nac3_ndarray_util_assert_shape_no_negative");
-        call_extern!(ctx: (ctx.size_t) _ = name(shape_len, shape_ptr))?;
+        call_extern!(ctx: (ctx.size_t) _ = "__nac3_ndarray_util_assert_shape_no_negative"(shape_len, shape_ptr))?;
 
         ndarray.shape(ctx)?.inner_value(ctx, None)?.memcpy_from(ctx, shape_ptr)?;
         ndarray.create_data(ctx)?;

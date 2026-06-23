@@ -16,11 +16,10 @@ namespace ndarray::basic {
  * @param ndims Number of dimensions in `shape`
  * @param shape The shape to check on
  */
-template<typename SizeT>
-void assert_shape_no_negative(SizeT ndims, const SizeT* shape) {
-    for (SizeT axis = 0; axis < ndims; axis++) {
+void assert_shape_no_negative(intp_t ndims, const intp_t* shape) {
+    for (intp_t axis = 0; axis < ndims; axis++) {
         if (shape[axis] < 0) {
-            raise_exception(SizeT, EXN_VALUE_ERROR,
+            raise_exception(EXN_VALUE_ERROR,
                             "negative dimensions are not allowed; axis {0} "
                             "has dimension {1}",
                             axis, shape[axis], NO_PARAM);
@@ -31,21 +30,20 @@ void assert_shape_no_negative(SizeT ndims, const SizeT* shape) {
 /**
  * @brief Assert that two shapes are the same in the context of writing output to an ndarray.
  */
-template<typename SizeT>
-void assert_output_shape_same(SizeT ndarray_ndims,
-                              const SizeT* ndarray_shape,
-                              SizeT output_ndims,
-                              const SizeT* output_shape) {
+void assert_output_shape_same(intp_t ndarray_ndims,
+                              const intp_t* ndarray_shape,
+                              intp_t output_ndims,
+                              const intp_t* output_shape) {
     if (ndarray_ndims != output_ndims) {
         // There is no corresponding NumPy error message like this.
-        raise_exception(SizeT, EXN_VALUE_ERROR, "Cannot write output of ndims {0} to an ndarray with ndims {1}",
-                        output_ndims, ndarray_ndims, NO_PARAM);
+        raise_exception(EXN_VALUE_ERROR, "Cannot write output of ndims {0} to an ndarray with ndims {1}", output_ndims,
+                        ndarray_ndims, NO_PARAM);
     }
 
-    for (SizeT axis = 0; axis < ndarray_ndims; axis++) {
+    for (intp_t axis = 0; axis < ndarray_ndims; axis++) {
         if (ndarray_shape[axis] != output_shape[axis]) {
             // There is no corresponding NumPy error message like this.
-            raise_exception(SizeT, EXN_VALUE_ERROR,
+            raise_exception(EXN_VALUE_ERROR,
                             "Mismatched dimensions on axis {0}, output has "
                             "dimension {1}, but destination ndarray has dimension {2}.",
                             axis, output_shape[axis], ndarray_shape[axis]);
@@ -59,10 +57,9 @@ void assert_output_shape_same(SizeT ndarray_ndims,
  * @param ndims Number of dimensions in `shape`
  * @param shape The shape of the ndarray
  */
-template<typename SizeT>
-SizeT calc_size_from_shape(SizeT ndims, const SizeT* shape) {
-    SizeT size = 1;
-    for (SizeT axis = 0; axis < ndims; axis++)
+intp_t calc_size_from_shape(intp_t ndims, const intp_t* shape) {
+    intp_t size = 1;
+    for (intp_t axis = 0; axis < ndims; axis++)
         size *= shape[axis];
     return size;
 }
@@ -75,11 +72,10 @@ SizeT calc_size_from_shape(SizeT ndims, const SizeT* shape) {
  * @param indices The returned indices indexing the ndarray with shape `shape`.
  * @param nth The index of the element of interest.
  */
-template<typename SizeT>
-void set_indices_by_nth(SizeT ndims, const SizeT* shape, SizeT* indices, SizeT nth) {
-    for (SizeT i = 0; i < ndims; i++) {
-        SizeT axis = ndims - i - 1;
-        SizeT dim = shape[axis];
+[[maybe_unused]] void set_indices_by_nth(intp_t ndims, const intp_t* shape, intp_t* indices, intp_t nth) {
+    for (intp_t i = 0; i < ndims; i++) {
+        intp_t axis = ndims - i - 1;
+        intp_t dim = shape[axis];
 
         indices[axis] = nth % dim;
         nth /= dim;
@@ -91,8 +87,7 @@ void set_indices_by_nth(SizeT ndims, const SizeT* shape, SizeT* indices, SizeT n
  *
  * This function corresponds to `<an_ndarray>.size`
  */
-template<typename SizeT>
-SizeT size(const NDArray<SizeT>* ndarray) {
+intp_t size(const NDArray* ndarray) {
     return calc_size_from_shape(ndarray->ndims, ndarray->shape->data());
 }
 
@@ -101,8 +96,7 @@ SizeT size(const NDArray<SizeT>* ndarray) {
  *
  * This function corresponds to `<an_ndarray>.nbytes`.
  */
-template<typename SizeT>
-SizeT nbytes(const NDArray<SizeT>* ndarray) {
+intp_t nbytes(const NDArray* ndarray) {
     return size(ndarray) * ndarray->itemsize;
 }
 
@@ -113,14 +107,13 @@ SizeT nbytes(const NDArray<SizeT>* ndarray) {
  *
  * @param dst_length The length.
  */
-template<typename SizeT>
-SizeT len(const NDArray<SizeT>* ndarray) {
+intp_t len(const NDArray* ndarray) {
     if (ndarray->ndims != 0) {
         return ndarray->shape->data()[0];
     }
 
     // numpy prohibits `__len__` on unsized objects
-    raise_exception(SizeT, EXN_TYPE_ERROR, "len() of unsized object", NO_PARAM, NO_PARAM, NO_PARAM);
+    raise_exception(EXN_TYPE_ERROR, "len() of unsized object", NO_PARAM, NO_PARAM, NO_PARAM);
     __builtin_unreachable();
 }
 
@@ -130,8 +123,7 @@ SizeT len(const NDArray<SizeT>* ndarray) {
  * You may want to see ndarray's rules for C-contiguity:
  * https://github.com/numpy/numpy/blob/df256d0d2f3bc6833699529824781c58f9c6e697/numpy/core/src/multiarray/flagsobject.c#L95C1-L99C45
  */
-template<typename SizeT>
-bool is_c_contiguous(const NDArray<SizeT>* ndarray) {
+bool is_c_contiguous(const NDArray* ndarray) {
     // References:
     // - tinynumpy's implementation:
     // https://github.com/wadetb/tinynumpy/blob/0d23d22e07062ffab2afa287374c7b366eebdda1/tinynumpy/tinynumpy.py#L102
@@ -165,7 +157,7 @@ bool is_c_contiguous(const NDArray<SizeT>* ndarray) {
         return false;
     }
 
-    for (auto i = 1; i < ndarray->ndims; i++) {
+    for (intp_t i = 1; i < ndarray->ndims; i++) {
         auto axis_i = ndarray->ndims - i - 1;
         if (ndarray->strides->data()[axis_i]
             != ndarray->shape->data()[axis_i + 1] * ndarray->strides->data()[axis_i + 1]) {
@@ -181,10 +173,9 @@ bool is_c_contiguous(const NDArray<SizeT>* ndarray) {
  *
  * This function does no bound check.
  */
-template<typename SizeT>
-void* get_pelement_by_indices(const NDArray<SizeT>* ndarray, const intp_t<SizeT>* indices) {
+void* get_pelement_by_indices(const NDArray* ndarray, const intp_t* indices) {
     auto* element = static_cast<void*>(ndarray->data->template data<uint8_t>() + ndarray->offset);
-    for (auto dim_i = 0; dim_i < ndarray->ndims; dim_i++)
+    for (intp_t dim_i = 0; dim_i < ndarray->ndims; dim_i++)
         element = static_cast<uint8_t*>(element) + indices[dim_i] * ndarray->strides->data()[dim_i];
     return element;
 }
@@ -198,15 +189,14 @@ void* get_pelement_by_indices(const NDArray<SizeT>* ndarray, const intp_t<SizeT>
  *
  * The caller must guarantee `indices` has exactly `ndarray->ndims` elements.
  */
-template<typename SizeT>
-void* get_pelement_by_indices_single(const NDArray<SizeT>* ndarray, const intp_t<SizeT>* indices) {
+void* get_pelement_by_indices_single(const NDArray* ndarray, const intp_t* indices) {
     auto* element = static_cast<void*>(ndarray->data->template data<uint8_t>() + ndarray->offset);
-    for (intp_t<SizeT> axis = 0; axis < ndarray->ndims; axis++) {
-        auto input = static_cast<intp_t<SizeT>>(indices[axis]);
+    for (intp_t axis = 0; axis < ndarray->ndims; axis++) {
+        auto input = indices[axis];
         auto k = __nac3_impl::slice::resolve_index_in_length(ndarray->shape->data()[axis], input);
         if (k == -1) {
-            raise_exception(SizeT, EXN_INDEX_ERROR, "index {0} is out of bounds for axis {1} with size {2}", input,
-                            axis, ndarray->shape->data()[axis]);
+            raise_exception(EXN_INDEX_ERROR, "index {0} is out of bounds for axis {1} with size {2}", input, axis,
+                            ndarray->shape->data()[axis]);
         }
         element = static_cast<uint8_t*>(element) + k * ndarray->strides->data()[axis];
     }
@@ -218,10 +208,9 @@ void* get_pelement_by_indices_single(const NDArray<SizeT>* ndarray, const intp_t
  *
  * This function does no bound check.
  */
-template<typename SizeT>
-void* get_nth_pelement(const NDArray<SizeT>* ndarray, intp_t<SizeT> nth) {
+void* get_nth_pelement(const NDArray* ndarray, intp_t nth) {
     auto* element = static_cast<void*>(ndarray->data->template data<uint8_t>() + ndarray->offset);
-    for (auto i = 0; i < ndarray->ndims; i++) {
+    for (intp_t i = 0; i < ndarray->ndims; i++) {
         auto axis = ndarray->ndims - i - 1;
         auto dim = ndarray->shape->data()[axis];
         element = static_cast<uint8_t*>(element) + ndarray->strides->data()[axis] * (nth % dim);
@@ -235,10 +224,9 @@ void* get_nth_pelement(const NDArray<SizeT>* ndarray, intp_t<SizeT> nth) {
  *
  * You might want to read https://ajcr.net/stride-guide-part-1/.
  */
-template<typename SizeT>
-void set_strides_by_shape(NDArray<SizeT>* ndarray) {
-    intp_t<SizeT> stride_product = 1;
-    for (auto i = 0; i < ndarray->ndims; i++) {
+void set_strides_by_shape(NDArray* ndarray) {
+    intp_t stride_product = 1;
+    for (intp_t i = 0; i < ndarray->ndims; i++) {
         auto axis = ndarray->ndims - i - 1;
         ndarray->strides->data()[axis] = stride_product * ndarray->itemsize;
         stride_product *= ndarray->shape->data()[axis];
@@ -251,8 +239,7 @@ void set_strides_by_shape(NDArray<SizeT>* ndarray) {
  * @param pelement Pointer to the element in `ndarray` to be set.
  * @param pvalue Pointer to the value `pelement` will be set to.
  */
-template<typename SizeT>
-void set_pelement_value(NDArray<SizeT>* ndarray, void* pelement, const void* pvalue) {
+void set_pelement_value(NDArray* ndarray, void* pelement, const void* pvalue) {
     __builtin_memcpy(pelement, pvalue, ndarray->itemsize);
 }
 
@@ -261,14 +248,13 @@ void set_pelement_value(NDArray<SizeT>* ndarray, void* pelement, const void* pva
  *
  * Both ndarrays will be viewed in their flatten views when copying the elements.
  */
-template<typename SizeT>
-void copy_data(const NDArray<SizeT>* src_ndarray, NDArray<SizeT>* dst_ndarray) {
+void copy_data(const NDArray* src_ndarray, NDArray* dst_ndarray) {
     // TODO: Make this faster with memcpy when we see a contiguous segment.
     // TODO: Handle overlapping.
 
-    debug_assert_eq(SizeT, src_ndarray->itemsize, dst_ndarray->itemsize);
+    debug_assert_eq(src_ndarray->itemsize, dst_ndarray->itemsize);
 
-    for (SizeT i = 0; i < size(src_ndarray); i++) {
+    for (intp_t i = 0; i < size(src_ndarray); i++) {
         auto src_element = basic::get_nth_pelement(src_ndarray, i);
         auto dst_element = basic::get_nth_pelement(dst_ndarray, i);
         basic::set_pelement_value(dst_ndarray, dst_element, src_element);
@@ -282,97 +268,50 @@ extern "C" {
 using namespace __nac3_impl;
 using namespace __nac3_impl::ndarray;
 
-void __nac3_ndarray_util_assert_shape_no_negative(int32_t ndims, int32_t* shape) {
+void __nac3_ndarray_util_assert_shape_no_negative(intp_t ndims, intp_t* shape) {
     basic::assert_shape_no_negative(ndims, shape);
 }
 
-void __nac3_ndarray_util_assert_shape_no_negative64(int64_t ndims, int64_t* shape) {
-    basic::assert_shape_no_negative(ndims, shape);
-}
-
-void __nac3_ndarray_util_assert_output_shape_same(int32_t ndarray_ndims,
-                                                  const int32_t* ndarray_shape,
-                                                  int32_t output_ndims,
-                                                  const int32_t* output_shape) {
+void __nac3_ndarray_util_assert_output_shape_same(intp_t ndarray_ndims,
+                                                  const intp_t* ndarray_shape,
+                                                  intp_t output_ndims,
+                                                  const intp_t* output_shape) {
     basic::assert_output_shape_same(ndarray_ndims, ndarray_shape, output_ndims, output_shape);
 }
 
-void __nac3_ndarray_util_assert_output_shape_same64(int64_t ndarray_ndims,
-                                                    const int64_t* ndarray_shape,
-                                                    int64_t output_ndims,
-                                                    const int64_t* output_shape) {
-    basic::assert_output_shape_same(ndarray_ndims, ndarray_shape, output_ndims, output_shape);
-}
-
-uint32_t __nac3_ndarray_size(NDArray<uint32_t>* ndarray) {
+intp_t __nac3_ndarray_size(NDArray* ndarray) {
     return basic::size(ndarray);
 }
 
-uint64_t __nac3_ndarray_size64(NDArray<uint64_t>* ndarray) {
-    return basic::size(ndarray);
-}
-
-uint32_t __nac3_ndarray_nbytes(NDArray<uint32_t>* ndarray) {
+intp_t __nac3_ndarray_nbytes(NDArray* ndarray) {
     return basic::nbytes(ndarray);
 }
 
-uint64_t __nac3_ndarray_nbytes64(NDArray<uint64_t>* ndarray) {
-    return basic::nbytes(ndarray);
-}
-
-int32_t __nac3_ndarray_len(NDArray<uint32_t>* ndarray) {
+intp_t __nac3_ndarray_len(NDArray* ndarray) {
     return basic::len(ndarray);
 }
 
-int64_t __nac3_ndarray_len64(NDArray<uint64_t>* ndarray) {
-    return basic::len(ndarray);
-}
-
-bool __nac3_ndarray_is_c_contiguous(NDArray<uint32_t>* ndarray) {
+bool __nac3_ndarray_is_c_contiguous(NDArray* ndarray) {
     return basic::is_c_contiguous(ndarray);
 }
 
-bool __nac3_ndarray_is_c_contiguous64(NDArray<uint64_t>* ndarray) {
-    return basic::is_c_contiguous(ndarray);
-}
-
-void* __nac3_ndarray_get_nth_pelement(const NDArray<uint32_t>* ndarray, int32_t nth) {
+void* __nac3_ndarray_get_nth_pelement(const NDArray* ndarray, intp_t nth) {
     return basic::get_nth_pelement(ndarray, nth);
 }
 
-void* __nac3_ndarray_get_nth_pelement64(const NDArray<uint64_t>* ndarray, int64_t nth) {
-    return basic::get_nth_pelement(ndarray, nth);
-}
-
-void* __nac3_ndarray_get_pelement_by_indices(const NDArray<uint32_t>* ndarray, int32_t* indices) {
+void* __nac3_ndarray_get_pelement_by_indices(const NDArray* ndarray, intp_t* indices) {
     return basic::get_pelement_by_indices(ndarray, indices);
 }
 
-void* __nac3_ndarray_get_pelement_by_indices64(const NDArray<uint64_t>* ndarray, int64_t* indices) {
-    return basic::get_pelement_by_indices(ndarray, indices);
-}
-
-void* __nac3_ndarray_get_pelement_by_indices_single(const NDArray<uint32_t>* ndarray, int32_t* indices) {
+void* __nac3_ndarray_get_pelement_by_indices_single(const NDArray* ndarray, intp_t* indices) {
     return basic::get_pelement_by_indices_single(ndarray, indices);
 }
 
-void* __nac3_ndarray_get_pelement_by_indices_single64(const NDArray<uint64_t>* ndarray, int64_t* indices) {
-    return basic::get_pelement_by_indices_single(ndarray, indices);
-}
-
-void __nac3_ndarray_set_strides_by_shape(NDArray<uint32_t>* ndarray) {
+void __nac3_ndarray_set_strides_by_shape(NDArray* ndarray) {
     basic::set_strides_by_shape(ndarray);
 }
 
-void __nac3_ndarray_set_strides_by_shape64(NDArray<uint64_t>* ndarray) {
-    basic::set_strides_by_shape(ndarray);
-}
-
-void __nac3_ndarray_copy_data(NDArray<uint32_t>* src_ndarray, NDArray<uint32_t>* dst_ndarray) {
-    basic::copy_data(src_ndarray, dst_ndarray);
-}
-
-void __nac3_ndarray_copy_data64(NDArray<uint64_t>* src_ndarray, NDArray<uint64_t>* dst_ndarray) {
+void __nac3_ndarray_copy_data(NDArray* src_ndarray, NDArray* dst_ndarray) {
     basic::copy_data(src_ndarray, dst_ndarray);
 }
 }

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "irrt/stdlib/cstddef.h"
+#include "irrt/stdlib/cstdint.h"
 #include "irrt/stdlib/concepts.h"
 
 #include "irrt/reference/header.hpp"
@@ -10,7 +12,7 @@ namespace __nac3_impl::reference {
  *
  * Corresponds to `RefCountedArray{Type,Value}` in the compiler sources.
  */
-template<typename SizeT, typename T = void>
+template<typename T = void>
 struct Array {
     /**
      * @brief Returns a type-erased pointer to the data of the array.
@@ -69,7 +71,7 @@ struct Array {
     }
 
     ObjectHeader header;
-    SizeT refcounted_elems;
+    size_t refcounted_elems;
 
     // Since C++ doesn't have flexible array members like C, we declare the `elems` array with a size of 1.
     // In practice, this struct will always be allocated with enough memory to hold the actual number of elements

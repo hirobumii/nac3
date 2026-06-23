@@ -1,6 +1,6 @@
 #pragma once
 
-#include "irrt/int_types.hpp"
+#include "irrt/stdlib/cstdint.h"
 
 /**
  * @brief A dummy global variable acting as a marker for the beginning of NAC3-related globals.

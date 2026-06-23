@@ -10,7 +10,6 @@ use crate::{
         CodeGenContext, CodeGenerator, ModuleContext,
         allocator::AllocationScope,
         expr::call_extern,
-        irrt::get_usize_dependent_function_name,
         types::{
             NDArrayType, ProxyTypeBase, RawNDArrayValue, RefType, Value, WithTypeinfo,
             array::{ArrayLikeIndexer, ArraySliceValue},
@@ -300,9 +299,8 @@ impl<'ctx> NDArrayValue<'ctx> {
             .construct(ctx, None)?;
         let indices = NDIndexType::new(ctx).construct(ctx, indices)?;
 
-        let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_index");
         let (idx_ptr, idx_len) = indices.value;
-        call_extern!(ctx: void _ = name(idx_len, idx_ptr, self.value, dst.value))?;
+        call_extern!(ctx: void _ = "__nac3_ndarray_index"(idx_len, idx_ptr, self.value, dst.value))?;
 
         Ok(dst)
     }

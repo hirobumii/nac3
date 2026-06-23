@@ -6,7 +6,6 @@ use itertools::Itertools as _;
 use crate::codegen::{
     CodeGenContext,
     expr::call_extern,
-    irrt::get_usize_dependent_function_name,
     stmt::gen_if_callback,
     types::{
         NDArrayType, NDArrayValue, RefCountedValue, array::ArraySliceValue, field,
@@ -68,11 +67,7 @@ impl<'ctx> NDArrayValue<'ctx> {
         // Resolve negative indices
         let size = self.size(ctx)?;
         let (dst_shape, dst_ndims) = dst_ndarray.shape(ctx)?.inner_value(ctx, None)?.value;
-        let name = get_usize_dependent_function_name(
-            ctx,
-            "__nac3_ndarray_reshape_resolve_and_check_new_shape",
-        );
-        call_extern!(ctx: void _ = name(size, dst_ndims, dst_shape))?;
+        call_extern!(ctx: void _ = "__nac3_ndarray_reshape_resolve_and_check_new_shape"(size, dst_ndims, dst_shape))?;
 
         gen_if_callback(
             &mut (),
@@ -120,8 +115,7 @@ impl<'ctx> NDArrayValue<'ctx> {
             None => (ctx.ptr.const_null(), ctx.size_t.const_zero()),
         };
 
-        let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_transpose");
-        call_extern!(ctx: void _ = name(
+        call_extern!(ctx: void _ = "__nac3_ndarray_transpose"(
             self.value,
             transposed_ndarray.value,
             num_axes, axes,

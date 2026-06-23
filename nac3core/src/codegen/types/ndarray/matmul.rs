@@ -5,7 +5,6 @@ use crate::{
     codegen::{
         CodeGenContext,
         expr::{call_extern, gen_prim_binop_expr},
-        irrt::get_usize_dependent_function_name,
         stmt::gen_for_callback_incrementing,
         types::{
             NDArrayValue, RefCountedArrayType,
@@ -49,10 +48,9 @@ fn matmul_at_least_2d<'ctx>(
         });
         let [lhs_shape, rhs_shape, dst_shape] = [lhs_shape?, rhs_shape?, dst_shape?];
 
-        let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_matmul_calculate_shapes");
         let a_ndims = ctx.size_t.const_int(in_a.ty.object.ndims, false);
         let b_ndims = ctx.size_t.const_int(in_b.ty.object.ndims, false);
-        call_extern!(ctx: void _ = name(
+        call_extern!(ctx: void _ = "__nac3_ndarray_matmul_calculate_shapes"(
             a_ndims, in_lhs_shape.value,
             b_ndims, in_rhs_shape.value,
             ndims,

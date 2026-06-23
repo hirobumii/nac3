@@ -9,7 +9,6 @@ use nac3core_derive::{ProxyType, StructFields};
 use crate::codegen::{
     CodeGenContext, ModuleContext,
     expr::call_extern,
-    irrt::get_usize_dependent_function_name,
     stmt::gen_for_callback,
     types::{
         NDArrayValue, ProxyTypeBase, RefCountedArrayType, RefCountedArrayValue,
@@ -81,8 +80,7 @@ impl<'ctx> NDArrayValue<'ctx> {
             target_shape.inner_value(ctx, Some(ctx.size_t.const_int(target_ndims, false)))?.value.0,
         )?;
 
-        let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_broadcast_to");
-        call_extern!(ctx: void _ = name(self.value, broadcast_ndarray.value))?;
+        call_extern!(ctx: void _ = "__nac3_ndarray_broadcast_to"(self.value, broadcast_ndarray.value))?;
         Ok(broadcast_ndarray)
     }
 }
@@ -135,8 +133,7 @@ pub fn broadcast<'ctx>(
     let new_shape = RefCountedArrayType::new(ctx, ctx.size_t, Some(ndims as u32))
         .allocate(ctx, ndims_v, None)?;
 
-    let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_broadcast_shapes");
-    call_extern!(ctx: void _ = name(shape_entries, arr.value, ndims_v, new_shape.value))?;
+    call_extern!(ctx: void _ = "__nac3_ndarray_broadcast_shapes"(shape_entries, arr.value, ndims_v, new_shape.value))?;
 
     // new_shape_ptr is now initialized with the broadcast result shape.
     let new_ndarrays = ndarrays

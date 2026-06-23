@@ -53,6 +53,16 @@ template<typename T>
 struct make_signed {};
 
 template<>
+struct make_signed<unsigned long> {
+    using type = long;
+};
+
+template<>
+struct make_signed<unsigned long long> {
+    using type = long long;
+};
+
+template<>
 struct make_signed<uint32_t> {
     using type = int32_t;
 };

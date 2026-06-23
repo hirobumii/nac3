@@ -1,10 +1,10 @@
 #pragma once
 
+#include "irrt/stdlib/cstddef.h"
 #include "irrt/stdlib/cstdint.h"
 #include "irrt/stdlib/algorithm.h"
 
-#include "irrt/int_types.hpp"
-#include "irrt/slice.hpp"
+#include "irrt/range.hpp"
 #include "irrt/reference/array.hpp"
 #include "irrt/reference/header.hpp"
 
@@ -16,16 +16,17 @@ namespace {
  * The `items` field is opaque. You must rely on external contexts to
  * know how to interpret it.
  */
-template<typename SizeT>
 struct List {
     __nac3_impl::reference::ObjectHeader header;
-    __nac3_impl::reference::Array<SizeT>* items;
-    SizeT len;
+    __nac3_impl::reference::Array<>* items;
+    size_t len;
 };
 }  // namespace
 }  // namespace __nac3_impl
 
 extern "C" {
+using namespace __nac3_impl;
+
 // Handle list assignment and dropping part of the list when
 // both dest_step and src_step are +1.
 // - All the index must *not* be out-of-bound or negative,

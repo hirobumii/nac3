@@ -1,7 +1,5 @@
 #pragma once
 
-#include "irrt/stdlib/cstdint.h"
-
 #include "irrt/exception.hpp"
 #include "irrt/ndarray/def.hpp"
 
@@ -21,23 +19,22 @@ namespace ndarray::reshape {
  * @param new_ndims Number of elements in `new_shape`
  * @param new_shape Target shape to reshape to
  */
-template<typename SizeT>
-void resolve_and_check_new_shape(SizeT size, SizeT new_ndims, SizeT* new_shape) {
+void resolve_and_check_new_shape(intp_t size, intp_t new_ndims, intp_t* new_shape) {
     // Is there a -1 in `new_shape`?
     bool neg1_exists = false;
     // Location of -1, only initialized if `neg1_exists` is true
-    SizeT neg1_axis_i;
+    intp_t neg1_axis_i;
     // The computed ndarray size of `new_shape`
-    SizeT new_size = 1;
+    intp_t new_size = 1;
 
-    for (SizeT axis_i = 0; axis_i < new_ndims; axis_i++) {
-        SizeT dim = new_shape[axis_i];
+    for (intp_t axis_i = 0; axis_i < new_ndims; axis_i++) {
+        intp_t dim = new_shape[axis_i];
         if (dim < 0) {
             if (dim == -1) {
                 if (neg1_exists) {
                     // Multiple `-1` found. Throw an error.
-                    raise_exception(SizeT, EXN_VALUE_ERROR, "can only specify one unknown dimension", NO_PARAM,
-                                    NO_PARAM, NO_PARAM);
+                    raise_exception(EXN_VALUE_ERROR, "can only specify one unknown dimension", NO_PARAM, NO_PARAM,
+                                    NO_PARAM);
                 } else {
                     neg1_exists = true;
                     neg1_axis_i = axis_i;
@@ -51,7 +48,7 @@ void resolve_and_check_new_shape(SizeT size, SizeT new_ndims, SizeT* new_shape) 
                 // It is not documented by numpy.
                 // Throw an error for now...
 
-                raise_exception(SizeT, EXN_VALUE_ERROR, "Found non -1 negative dimension {0} on axis {1}", dim, axis_i,
+                raise_exception(EXN_VALUE_ERROR, "Found non -1 negative dimension {0} on axis {1}", dim, axis_i,
                                 NO_PARAM);
             }
         } else {
@@ -81,7 +78,7 @@ void resolve_and_check_new_shape(SizeT size, SizeT new_ndims, SizeT* new_shape) 
     }
 
     if (!can_reshape) {
-        raise_exception(SizeT, EXN_VALUE_ERROR, "cannot reshape array of size {0} into given shape", size, NO_PARAM,
+        raise_exception(EXN_VALUE_ERROR, "cannot reshape array of size {0} into given shape", size, NO_PARAM,
                         NO_PARAM);
     }
 }
@@ -93,11 +90,7 @@ extern "C" {
 using namespace __nac3_impl;
 using namespace __nac3_impl::ndarray;
 
-void __nac3_ndarray_reshape_resolve_and_check_new_shape(int32_t size, int32_t new_ndims, int32_t* new_shape) {
-    reshape::resolve_and_check_new_shape(size, new_ndims, new_shape);
-}
-
-void __nac3_ndarray_reshape_resolve_and_check_new_shape64(int64_t size, int64_t new_ndims, int64_t* new_shape) {
+void __nac3_ndarray_reshape_resolve_and_check_new_shape(intp_t size, intp_t new_ndims, intp_t* new_shape) {
     reshape::resolve_and_check_new_shape(size, new_ndims, new_shape);
 }
 }

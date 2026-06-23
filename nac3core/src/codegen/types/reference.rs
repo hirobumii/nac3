@@ -11,7 +11,6 @@ use crate::{
         CodeGenContext, ModuleContext,
         allocator::AllocationScope,
         expr::call_extern,
-        irrt::get_usize_dependent_function_name,
         llvm_intrinsics,
         stmt::gen_if_callback,
         type_aligned_allocate,
@@ -139,9 +138,7 @@ impl<'ctx> ObjectHeaderValue<'ctx> {
     pub fn increment_refcount(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> anyhow::Result<()> {
         let value = self.value;
 
-        let func_name = get_usize_dependent_function_name(ctx, "__nac3_refcount_incr");
-
-        call_extern!(ctx: void _ = func_name(value))?;
+        call_extern!(ctx: void _ = "__nac3_refcount_incr"(value))?;
         Ok(())
     }
 
@@ -169,9 +166,7 @@ impl<'ctx> ObjectHeaderValue<'ctx> {
     pub fn decrement_refcount(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> anyhow::Result<()> {
         let value = self.value;
 
-        let func_name = get_usize_dependent_function_name(ctx, "__nac3_refcount_decr");
-
-        call_extern!(ctx: void _ = func_name(value))?;
+        call_extern!(ctx: void _ = "__nac3_refcount_decr"(value))?;
         Ok(())
     }
 

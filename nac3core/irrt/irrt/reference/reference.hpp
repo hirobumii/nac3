@@ -1,5 +1,8 @@
 #pragma once
 
+#include "irrt/stdlib/cstddef.h"
+#include "irrt/stdlib/cstdint.h"
+
 #include "irrt/reference/header.hpp"
 #include "irrt/reference/typeinfo.hpp"
 
@@ -54,10 +57,9 @@ const ObjectHeader* get_object_header(const void* object) {
 /**
  * @brief Returns a pointer to the `Typeinfo` instance for the given object.
  */
-template<typename SizeT>
-const Typeinfo<SizeT>* get_object_typeinfo(const void* object) {
+const Typeinfo* get_object_typeinfo(const void* object) {
     if (const auto* const header = get_object_header(object)) {
-        return reinterpret_cast<const Typeinfo<SizeT>*>(&__nac3_global_begin + header->typeinfo_offset);
+        return reinterpret_cast<const Typeinfo*>(&__nac3_global_begin + header->typeinfo_offset);
     }
 
     return nullptr;
@@ -93,7 +95,6 @@ void object_header_init(void* const object, bool is_refcounted, const void* cons
 /**
  * @brief Increments the reference count of the given object if it is refcounted.
  */
-template<typename SizeT>
 void refcount_incr(void* const object) {
     if (is_object_refcounted(object)) {
         auto* const header = get_object_header(object);
@@ -104,35 +105,34 @@ void refcount_incr(void* const object) {
 /**
  * @brief Decrements the reference count of the given object if it is refcounted.
  */
-template<typename SizeT>
 void refcount_decr(void* const object) {
     static constexpr auto walk_children = [](void* const object) {
-        const auto* const typeinfo = get_object_typeinfo<SizeT>(object);
+        const auto* const typeinfo = get_object_typeinfo(object);
         const uint32_t num_refcounted_fields = typeinfo->refcounted_field_offsets[0];
 
         if (num_refcounted_fields == REFCOUNT_ARRAY_MAGIC) {
             // Array of pointer elements - dereference each element and pass to `refcount_decr`
             auto* const obj_start = static_cast<unsigned char*>(get_object_start(object));
-            const SizeT size = *reinterpret_cast<SizeT*>(obj_start);
-            for (SizeT i = 0; i < size; ++i) {
-                void* const field = obj_start + (i + 1) * sizeof(SizeT);
-                refcount_decr<SizeT>(*reinterpret_cast<void**>(field));
+            const size_t size = *reinterpret_cast<size_t*>(obj_start);
+            for (size_t i = 0; i < size; ++i) {
+                void* const field = obj_start + (i + 1) * sizeof(size_t);
+                refcount_decr(*reinterpret_cast<void**>(field));
             }
         } else if (num_refcounted_fields == REFCOUNT_ARRAY_INLINE_MAGIC) {
             // Array of inline elements with ObjectHeaders - directly pass each element to `refcount_decr`
             auto* const obj_start = static_cast<unsigned char*>(get_object_start(object));
-            const SizeT size = *reinterpret_cast<SizeT*>(obj_start);
+            const size_t size = *reinterpret_cast<size_t*>(obj_start);
             const uint32_t stride = typeinfo->refcounted_field_offsets[1];
-            for (SizeT i = 0; i < size; ++i) {
-                void* const elem = obj_start + sizeof(SizeT) + i * stride;
-                refcount_decr<SizeT>(elem);
+            for (size_t i = 0; i < size; ++i) {
+                void* const elem = obj_start + sizeof(size_t) + i * stride;
+                refcount_decr(elem);
             }
         } else {
             // Struct with fixed refcounted fields - dereference each refcounted field and pass to `refcount_decr`
             for (uint32_t i = 0; i < num_refcounted_fields; ++i) {
                 void* const field =
                     static_cast<unsigned char*>(get_object_start(object)) + typeinfo->refcounted_field_offsets[i + 1];
-                refcount_decr<SizeT>(*reinterpret_cast<void**>(field));
+                refcount_decr(*reinterpret_cast<void**>(field));
             }
         }
     };
@@ -176,27 +176,13 @@ bool __nac3_is_object_refcounted(void* object) {
  * @brief See `codegen::types::ObjectHeaderValue::increment_refcount`.
  */
 void __nac3_refcount_incr(void* object) {
-    __nac3_impl::reference::refcount_incr<uint32_t>(object);
-}
-
-/**
- * @brief See `codegen::types::ObjectHeaderValue::increment_refcount`.
- */
-void __nac3_refcount_incr64(void* object) {
-    __nac3_impl::reference::refcount_incr<uint64_t>(object);
+    __nac3_impl::reference::refcount_incr(object);
 }
 
 /**
  * @brief See `codegen::types::ObjectHeaderValue::decrement_refcount`.
  */
 void __nac3_refcount_decr(void* object) {
-    __nac3_impl::reference::refcount_decr<uint32_t>(object);
-}
-
-/**
- * @brief See `codegen::types::ObjectHeaderValue::decrement_refcount`.
- */
-void __nac3_refcount_decr64(void* object) {
-    __nac3_impl::reference::refcount_decr<uint64_t>(object);
+    __nac3_impl::reference::refcount_decr(object);
 }
 }  // extern "C"

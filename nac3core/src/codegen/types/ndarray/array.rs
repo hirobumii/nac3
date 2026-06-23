@@ -7,7 +7,6 @@ use crate::{
     codegen::{
         CodeGenContext,
         expr::call_extern,
-        irrt::get_usize_dependent_function_name,
         stmt::gen_if_else_expr_callback,
         types::{
             ListValue, NDArrayType, ProxyTypeBase, RefCountedArrayType, RefCountedValue,
@@ -48,11 +47,7 @@ impl<'ctx> TypedRefCountedValue<'ctx, RawNDArrayType<'ctx>> {
         let ndims = ctx.size_t.const_int(ndims_int, false);
         let shape = RefCountedArrayType::new(ctx, ctx.size_t, Some(ndims_int as u32))
             .allocate(ctx, ndims, None)?;
-        let fn_name = get_usize_dependent_function_name(
-            ctx,
-            "__nac3_ndarray_array_set_and_validate_list_shape",
-        );
-        call_extern!(ctx: void _ = fn_name(list.value, ndims, shape.inner_value(ctx, None)?.value.0))?;
+        call_extern!(ctx: void _ = "__nac3_ndarray_array_set_and_validate_list_shape"(list.value, ndims, shape.inner_value(ctx, None)?.value.0))?;
 
         let ndarray = NDArrayType::create(ctx, dtype, ndims_int).construct(ctx, name)?;
         ndarray
@@ -62,9 +57,7 @@ impl<'ctx> TypedRefCountedValue<'ctx, RawNDArrayType<'ctx>> {
         ndarray.create_data(ctx)?;
 
         // Copy all contents from the list.
-        let fn_name =
-            get_usize_dependent_function_name(ctx, "__nac3_ndarray_array_write_list_to_array");
-        call_extern!(ctx: void _ = fn_name(list.value, ndarray.value))?;
+        call_extern!(ctx: void _ = "__nac3_ndarray_array_write_list_to_array"(list.value, ndarray.value))?;
 
         Ok(ndarray)
     }

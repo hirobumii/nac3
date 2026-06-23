@@ -12,7 +12,6 @@ use crate::{
         CodeGenContext, ModuleContext,
         allocator::AllocationScope,
         expr::call_extern,
-        irrt::get_usize_dependent_function_name,
         llvm_intrinsics::call_int_umin,
         stmt::gen_for_callback_incrementing,
         types::{
@@ -517,9 +516,7 @@ impl<'ctx> TypedRefCountedValue<'ctx, RawNDArrayType<'ctx>> {
             ctx.builder.build_store(elem_ptr, index)?;
         }
 
-        let fn_name =
-            get_usize_dependent_function_name(ctx, "__nac3_ndarray_get_pelement_by_indices_single");
-        call_extern!(ctx: (ctx.ptr) "pelement" = fn_name(self.value, indices_ptr))
+        call_extern!(ctx: (ctx.ptr) "pelement" = "__nac3_ndarray_get_pelement_by_indices_single"(self.value, indices_ptr))
     }
 
     /// Returns the length of the first dimension of the array.
@@ -567,8 +564,7 @@ impl<'ctx> TypedRefCountedValue<'ctx, RawNDArrayType<'ctx>> {
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
     ) -> anyhow::Result<IntValue<'ctx>> {
-        let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_is_c_contiguous");
-        call_extern!(ctx: (ctx.i1) "is_c_contiguous" = name(self.value))
+        call_extern!(ctx: (ctx.i1) "is_c_contiguous" = "__nac3_ndarray_is_c_contiguous"(self.value))
     }
 
     /// Copies data from `src` into this array.
@@ -577,8 +573,7 @@ impl<'ctx> TypedRefCountedValue<'ctx, RawNDArrayType<'ctx>> {
         ctx: &mut CodeGenContext<'ctx, '_>,
         src: &Self,
     ) -> anyhow::Result<()> {
-        let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_copy_data");
-        call_extern!(ctx: void _ = name(src.value, self.value))?;
+        call_extern!(ctx: void _ = "__nac3_ndarray_copy_data"(src.value, self.value))?;
         Ok(())
     }
 
@@ -621,9 +616,7 @@ impl<'ctx> ArrayLikeIndexer<'ctx, ArraySliceValue<'ctx, IntType<'ctx>>> for NDAr
         name: Option<&str>,
     ) -> anyhow::Result<PointerValue<'ctx>> {
         let name = name.unwrap_or("pelement");
-        let fn_name =
-            get_usize_dependent_function_name(ctx, "__nac3_ndarray_get_pelement_by_indices");
-        call_extern!(ctx: (ctx.ptr) name = fn_name(self.value, idx.value.0))
+        call_extern!(ctx: (ctx.ptr) name = "__nac3_ndarray_get_pelement_by_indices"(self.value, idx.value.0))
     }
 
     fn ptr_offset(
@@ -698,10 +691,8 @@ pub fn assert_ndarray_can_be_written_by_out<'ctx>(
     src_shape: ArraySliceValue<'ctx, IntType<'ctx>>,
     dst_shape: ArraySliceValue<'ctx, IntType<'ctx>>,
 ) -> anyhow::Result<()> {
-    let name =
-        get_usize_dependent_function_name(ctx, "__nac3_ndarray_util_assert_output_shape_same");
     let ((src_ptr, src_len), (dst_ptr, dst_len)) = (src_shape.value, dst_shape.value);
-    call_extern!(ctx: (ctx.size_t) _ = name(src_len, src_ptr, dst_len, dst_ptr))?;
+    call_extern!(ctx: (ctx.size_t) _ = "__nac3_ndarray_util_assert_output_shape_same"(src_len, src_ptr, dst_len, dst_ptr))?;
     Ok(())
 }
 

@@ -11,7 +11,6 @@ use crate::codegen::{
     CodeGenContext,
     allocator::AllocationScope,
     expr::call_extern,
-    irrt::get_usize_dependent_function_name,
     stmt::{BreakContinueHooks, gen_for_callback},
     types::{
         NDArrayType, NDArrayValue, ProxyTypeBase, RefCountedArrayType, TypedRefCountedType,
@@ -55,8 +54,7 @@ pub type NDIterValue<'ctx> = TypedRefCountedValue<'ctx, RawNDIterType<'ctx>>;
 impl<'ctx> RawNDIterValue<'ctx> {
     /// Advances the iterator to the next element.
     pub fn next(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> anyhow::Result<()> {
-        let name = get_usize_dependent_function_name(ctx, "__nac3_nditer_next");
-        call_extern!(ctx: void _ = name(self.value))?;
+        call_extern!(ctx: void _ = "__nac3_nditer_next"(self.value))?;
         Ok(())
     }
 
@@ -65,8 +63,7 @@ impl<'ctx> RawNDIterValue<'ctx> {
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
     ) -> anyhow::Result<IntValue<'ctx>> {
-        let name = get_usize_dependent_function_name(ctx, "__nac3_nditer_has_element");
-        call_extern!(ctx: (ctx.i1) _ = name(self.value))
+        call_extern!(ctx: (ctx.i1) _ = "__nac3_nditer_has_element"(self.value))
     }
 
     fn array(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> anyhow::Result<NDArrayValue<'ctx>> {
@@ -148,8 +145,7 @@ impl<'ctx> NDIterValue<'ctx> {
         let indices =
             RefCountedArrayType::new(ctx, ctx.size_t, Some(ndarray.ty.object.ndims as u32))
                 .allocate(ctx, ctx.size_t.const_int(ndarray.ty.object.ndims, false), None)?;
-        let name = get_usize_dependent_function_name(ctx, "__nac3_nditer_initialize");
-        call_extern!(ctx: void _ = name(nditer.inner_value(ctx)?.value, ndarray.value, indices.value))?;
+        call_extern!(ctx: void _ = "__nac3_nditer_initialize"(nditer.inner_value(ctx)?.value, ndarray.value, indices.value))?;
 
         Ok(nditer)
     }

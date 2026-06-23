@@ -10,7 +10,6 @@ use crate::{
         allocator::AllocationScope,
         bool_to_i8,
         expr::call_extern,
-        irrt::get_usize_dependent_function_name,
         types::{ArrayLikeIndexer, NDArrayType, ProxyTypeBase},
     },
     symbol_resolver::ValueEnum,
@@ -197,6 +196,5 @@ fn gen_chain_element_ptr<'ctx, G: CodeGenerator>(
         ctx.builder.build_store(slot, resolved)?;
     }
 
-    let fn_name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_get_pelement_by_indices");
-    call_extern!(ctx: (ctx.ptr) "pelement" = fn_name(base.value, indices_ptr))
+    call_extern!(ctx: (ctx.ptr) "pelement" = "__nac3_ndarray_get_pelement_by_indices"(base.value, indices_ptr))
 }

@@ -1,6 +1,7 @@
 #pragma once
 
-#include "irrt/int_types.hpp"
+#include "irrt/stdlib/cstdint.h"
+
 #include "irrt/string.hpp"
 
 namespace __nac3_impl::reference {
@@ -9,12 +10,11 @@ namespace __nac3_impl::reference {
  *
  * Corresponds to `Typeinfo{Type,Value}` in the compiler sources.
  */
-template<typename SizeT>
 struct Typeinfo {
     /**
      * @brief The name of the type.
      */
-    String<SizeT>* name;
+    String* name;
 
     /**
      * @brief The byte offsets of the reference counted fields in the type.
