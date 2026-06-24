@@ -37,9 +37,9 @@ pub fn load_irrt<'ctx>(
     let target = target.create_target_machine();
     let size_t = ctx.ptr_sized_int_type(&target.get_target_data(), None);
     let ir_bytes: &[u8] = if size_t == ctx.i64_type() {
-        include_bytes!(concat!(env!("OUT_DIR"), "/irrt64.ll"))
+        include_bytes!(concat!(env!("OUT_DIR"), "/irrt64.bc"))
     } else if size_t == ctx.i32_type() {
-        include_bytes!(concat!(env!("OUT_DIR"), "/irrt32.ll"))
+        include_bytes!(concat!(env!("OUT_DIR"), "/irrt32.bc"))
     } else {
         unreachable!("Unsupported size_t type bit width, must be either 32-bit or 64-bit")
     };

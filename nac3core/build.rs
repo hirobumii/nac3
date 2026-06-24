@@ -2,7 +2,13 @@
 #![warn(clippy::cargo, clippy::pedantic, clippy::nursery)]
 #![allow(clippy::cargo_common_metadata)]
 
-use std::{env, fs::File, io::Write, path::Path, process::Command};
+use std::{
+    env,
+    fs::File,
+    io::Write,
+    path::Path,
+    process::{Command, Stdio},
+};
 
 use regex::Regex;
 
@@ -19,6 +25,14 @@ fn compile_irrt(target: &str, flags: &[&str]) -> String {
     std::str::from_utf8(&output.stdout).unwrap().replace("\r\n", "\n")
 }
 
+/// Assembles the LLVM IR and writes the result into `output_file`.
+fn assemble_irrt(ir: &str, output_file: &Path) {
+    let mut llvm_as =
+        Command::new("llvm-as").stdin(Stdio::piped()).arg("-o").arg(output_file).spawn().unwrap();
+    llvm_as.stdin.as_mut().unwrap().write_all(ir.as_bytes()).unwrap();
+    assert!(llvm_as.wait().unwrap().success());
+}
+
 fn main() {
     // For debugging
     // Doing `DEBUG_DUMP_IRRT=1 cargo build -p nac3core` dumps the LLVM IR generated
@@ -31,7 +45,7 @@ fn main() {
     let irrt_cpp_path = irrt_dir.join("irrt.cpp");
 
     /*
-     * HACK: Sadly, clang doesn't let us emit generic LLVM IR.
+     * HACK: Sadly, clang doesn't let us emit generic LLVM bitcode.
      * Compiling for WASM (wasm32 for 32-bit, wasm64 for 64-bit) and
      * filtering the output with regex is the closest we can get.
      */
@@ -39,7 +53,6 @@ fn main() {
         "-x",
         "c++",
         "-std=c++20",
-        "-fno-discard-value-names",
         "-fno-exceptions",
         "-fno-rtti",
         "-emit-llvm",
@@ -135,12 +148,6 @@ fn main() {
         file.write_all(wasm64_filtered_output.as_bytes()).unwrap();
     }
 
-    File::create(out_dir.join("irrt32.ll"))
-        .unwrap()
-        .write_all(wasm32_filtered_output.as_bytes())
-        .unwrap();
-    File::create(out_dir.join("irrt64.ll"))
-        .unwrap()
-        .write_all(wasm64_filtered_output.as_bytes())
-        .unwrap();
+    assemble_irrt(&wasm32_filtered_output, &out_dir.join("irrt32.bc"));
+    assemble_irrt(&wasm64_filtered_output, &out_dir.join("irrt64.bc"));
 }
