@@ -56,6 +56,7 @@ fn main() {
     match env::var("PROFILE").as_deref() {
         Ok("debug") => {
             flags.push("-g");
+            flags.push("-fno-discard-value-names");
             flags.push("-O0");
             flags.push("-DIRRT_DEBUG_ASSERT");
             flags.extend_from_slice(&["-Xclang", "-disable-O0-optnone"]);
