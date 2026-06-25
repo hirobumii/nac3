@@ -106,6 +106,7 @@ in rec {
     ''
       mkdir -p $out/bin
       ln -s ${llvm}/bin/clang${exe_suffix} $out/bin/clang-irrt${exe_suffix}
+      ln -s ${llvm}/bin/llvm-as${exe_suffix} $out/bin/llvm-as-irrt${exe_suffix}
     '';
   clang = wrapCCWith rec {
     cc = stdenv.mkDerivation {

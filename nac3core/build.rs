@@ -27,8 +27,12 @@ fn compile_irrt(target: &str, flags: &[&str]) -> String {
 
 /// Assembles the LLVM IR and writes the result into `output_file`.
 fn assemble_irrt(ir: &str, output_file: &Path) {
-    let mut llvm_as =
-        Command::new("llvm-as").stdin(Stdio::piped()).arg("-o").arg(output_file).spawn().unwrap();
+    let mut llvm_as = Command::new("llvm-as-irrt")
+        .stdin(Stdio::piped())
+        .arg("-o")
+        .arg(output_file)
+        .spawn()
+        .unwrap();
     llvm_as.stdin.as_mut().unwrap().write_all(ir.as_bytes()).unwrap();
     assert!(llvm_as.wait().unwrap().success());
 }
