@@ -384,6 +384,54 @@ fn test_recursive_subst() {
 }
 
 #[test]
+fn test_distributive_subst() {
+    let mut env = TestEnvironment::new();
+    let int = *env.type_mapping.get("int").unwrap();
+
+    // type Foo[U]
+    let foo_u = *env.type_mapping.get("Foo").unwrap();
+    let foo_u_ty = env.unifier.get_ty(foo_u);
+
+    // refinement [U |-> int]
+    let TypeEnum::TObj { params, .. } = &*foo_u_ty else { unreachable!() };
+    let foo_mapping = params.iter().map(|(id, _)| (*id, int)).collect();
+
+    // type Bar[V]
+    let bar_tvar = env.unifier.get_dummy_var();
+    let bar_id = env.unifier.add_ty(TypeEnum::TObj {
+        obj_id: DefinitionId(5),
+        fields: [
+            ("b".into(), (bar_tvar.ty, AttrKind::Field { mutable: false })),
+        ]
+        .into(),
+        params: into_var_map([bar_tvar]),
+    });
+    let bar_ty = env.unifier.get_ty(bar_id);
+
+    // refinement [V |-> Foo[U]]
+    let TypeEnum::TObj { params, .. } = &*bar_ty else { unreachable!() };
+    let bar_mapping = params.iter().map(|(id, _)| (*id, foo_u)).collect();
+
+    // [V |-> Foo[U]](Bar[V])
+    let bar_foo_u = env.unifier.subst(bar_id, &bar_mapping).unwrap();
+    let bar_foo_u_ty = env.unifier.get_ty(bar_foo_u);
+    let TypeEnum::TObj { fields, params, .. } = &*bar_foo_u_ty else { unreachable!() };
+    assert!(env.unifier.unioned(fields.get(&"b".into()).unwrap().0, foo_u));
+    assert!(env.unifier.unioned(*params.get(&bar_tvar.id).unwrap(), foo_u));
+
+    // [U |-> int]([V |-> Foo[U]](Bar[V]))
+    let bar_foo_int = env.unifier.subst(bar_foo_u, &foo_mapping).unwrap();
+
+    // [U |-> int](Foo[U])
+    let foo_int = env.unifier.subst(foo_u, &foo_mapping).unwrap();
+
+    let bar_foo_int_ty = env.unifier.get_ty(bar_foo_int);
+    let TypeEnum::TObj { fields, params, .. } = &*bar_foo_int_ty else { unreachable!() };
+    assert!(env.unifier.unioned(fields.get(&"b".into()).unwrap().0, foo_int));
+    assert!(env.unifier.unioned(*params.get(&bar_tvar.id).unwrap(), foo_int));
+}
+
+#[test]
 fn test_virtual() {
     let mut env = TestEnvironment::new();
     let int = env.parse("int", &HashMap::new());
