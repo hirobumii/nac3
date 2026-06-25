@@ -1672,21 +1672,28 @@ impl Unifier {
                 .subst_impl(*ty, mapping, cache)
                 .map(|t| self.add_ty(TypeEnum::TVirtual { ty: t })),
             TypeEnum::TObj { obj_id, fields, params } => {
-                // Type variables in field types must be present in the type parameter.
+                // Type variables in field types must be present in the type parameter,
+                // either directly, or indirectly due to nested typevar.
                 // If the mapping does not contain any type variables in the
-                // parameter list, we don't need to substitute the fields.
-                // This is also used to prevent infinite substitution...
+                // parameter list, it may require distributing to the type parameters
+                // before performing the substituting.
                 let need_subst = params.values().any(|v| {
                     let ty = self.unification_table.probe_value(*v);
                     // TODO(Derppening): #444
                     if let TypeEnum::TVar { id, .. } = ty.as_ref() {
+                        // substitution
                         mapping.contains_key(id)
+                    } else if let TypeEnum::TObj { params: field_params, .. } = ty.as_ref() {
+                        // nested typevar
+                        !field_params.is_empty()
                     } else {
                         false
                     }
                 });
                 if need_subst {
-                    cache.insert(a, None);
+                    if !cache.contains_key(&a) {
+                        cache.insert(a, None);
+                    }
                     let obj_id = *obj_id;
                     let params =
                         self.subst_map(params, mapping, cache).unwrap_or_else(|| params.clone());
@@ -1695,6 +1702,8 @@ impl Unifier {
                     let new_ty = self.add_ty(TypeEnum::TObj { obj_id, params, fields });
                     if let Some(var) = cache.get(&a).unwrap() {
                         self.unify_impl(new_ty, *var, false).unwrap();
+                    } else {
+                        cache.insert(a, Some(new_ty));
                     }
                     Some(new_ty)
                 } else {
