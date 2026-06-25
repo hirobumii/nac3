@@ -329,7 +329,7 @@ pub struct Unifier {
     pub(crate) calls: Vec<Call>,
     var_id_counter: u32,
     unify_cache: HashSet<(Type, Type)>,
-    subst_cache: HashMap<Type, Vec<(VarMap, Type)>>,
+    subst_cache: Vec<(VarMap, HashMap<Type, Option<Type>>)>,
     snapshot: Option<(usize, u32)>,
     primitive_store: Option<PrimitiveStore>,
 }
@@ -349,7 +349,7 @@ impl Unifier {
             var_id_counter: 0,
             calls: Vec::new(),
             unify_cache: HashSet::new(),
-            subst_cache: HashMap::new(),
+            subst_cache: Vec::new(),
             top_level: None,
             snapshot: None,
             primitive_store: None,
@@ -390,7 +390,7 @@ impl Unifier {
             calls: lock.2.clone(),
             top_level: None,
             unify_cache: HashSet::new(),
-            subst_cache: HashMap::new(),
+            subst_cache: Vec::new(),
             snapshot: None,
             primitive_store: None,
         }
@@ -1601,33 +1601,24 @@ impl Unifier {
     /// (no substitution has to be done).
     pub fn subst(&mut self, a: Type, mapping: &VarMap) -> Option<Type> {
         let rep_a = self.get_representative(a);
-        if self.subst_cache.contains_key(&rep_a) {
-            let past_substs = self.subst_cache.get(&rep_a).unwrap().clone();
-            'subst_loop: for (subst_map, result_ty) in past_substs {
-                if subst_map.len() != mapping.len() {
-                    continue 'subst_loop;
-                }
+        // Normalize mapping to use representative types...
+        let norm_mapping: VarMap = mapping.iter().map(|(tvar, subst_ty)| {
+            (*tvar, self.get_representative(*subst_ty))
+        }).collect();
+        let subst_handle = self.subst_cache.iter().position(|past_subst| {
+            // ...so I don't perform mutable borrow of self here
+            // by calling unioned to check type equivalence
+            past_subst.0 == norm_mapping
+        }).unwrap_or_else(|| {
+            self.subst_cache.push((norm_mapping.clone(), HashMap::new()));
+            self.subst_cache.len() - 1
+        });
 
-                for ((k, v), (subst_k, subst_v)) in zip(mapping, subst_map) {
-                    if !(*k == subst_k && self.unioned(*v, subst_v)) {
-                        continue 'subst_loop;
-                    }
-                }
+        let mut cache = self.subst_cache[subst_handle].1.clone();
+        let new_ty = self.subst_impl(rep_a, &norm_mapping, &mut cache);
+        self.subst_cache[subst_handle].1 = cache;
 
-                return Some(result_ty);
-            }
-        }
-
-        if let Some(result_ty) = self.subst_impl(a, mapping, &mut HashMap::new()) {
-            let curr_subst = ((*mapping).clone(), result_ty);
-            self.subst_cache
-                .entry(rep_a)
-                .and_modify(|substs| substs.push(curr_subst.clone()))
-                .or_insert_with(|| vec![curr_subst]);
-            Some(result_ty)
-        } else {
-            None
-        }
+        new_ty
     }
 
     fn subst_impl(
