@@ -1687,7 +1687,7 @@ impl Unifier {
                     }
                 });
                 if need_subst {
-                    cache.entry(a).or_insert(None);
+                    cache.insert(a, None);
                     let obj_id = *obj_id;
                     let params =
                         self.subst_map(params, mapping, cache).unwrap_or_else(|| params.clone());
