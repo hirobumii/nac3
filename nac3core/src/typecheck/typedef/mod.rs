@@ -1602,17 +1602,22 @@ impl Unifier {
     pub fn subst(&mut self, a: Type, mapping: &VarMap) -> Option<Type> {
         let rep_a = self.get_representative(a);
         // Normalize mapping to use representative types...
-        let norm_mapping: VarMap = mapping.iter().map(|(tvar, subst_ty)| {
-            (*tvar, self.get_representative(*subst_ty))
-        }).collect();
-        let subst_handle = self.subst_cache.iter().position(|past_subst| {
-            // ...so I don't perform mutable borrow of self here
-            // by calling unioned to check type equivalence
-            past_subst.0 == norm_mapping
-        }).unwrap_or_else(|| {
-            self.subst_cache.push((norm_mapping.clone(), HashMap::new()));
-            self.subst_cache.len() - 1
-        });
+        let norm_mapping: VarMap = mapping
+            .iter()
+            .map(|(tvar, subst_ty)| (*tvar, self.get_representative(*subst_ty)))
+            .collect();
+        let subst_handle = self
+            .subst_cache
+            .iter()
+            .position(|past_subst| {
+                // ...so I don't perform mutable borrow of self here
+                // by calling unioned to check type equivalence
+                past_subst.0 == norm_mapping
+            })
+            .unwrap_or_else(|| {
+                self.subst_cache.push((norm_mapping.clone(), HashMap::new()));
+                self.subst_cache.len() - 1
+            });
 
         let mut cache = self.subst_cache[subst_handle].1.clone();
         let new_ty = self.subst_impl(rep_a, &norm_mapping, &mut cache);
@@ -1682,9 +1687,7 @@ impl Unifier {
                     }
                 });
                 if need_subst {
-                    if !cache.contains_key(&a) {
-                        cache.insert(a, None);
-                    }
+                    cache.entry(a).or_insert(None);
                     let obj_id = *obj_id;
                     let params =
                         self.subst_map(params, mapping, cache).unwrap_or_else(|| params.clone());

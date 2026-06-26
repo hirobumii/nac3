@@ -400,10 +400,7 @@ fn test_distributive_subst() {
     let bar_tvar = env.unifier.get_dummy_var();
     let bar_id = env.unifier.add_ty(TypeEnum::TObj {
         obj_id: DefinitionId(5),
-        fields: [
-            ("b".into(), (bar_tvar.ty, AttrKind::Field { mutable: false })),
-        ]
-        .into(),
+        fields: [("b".into(), (bar_tvar.ty, AttrKind::Field { mutable: false }))].into(),
         params: into_var_map([bar_tvar]),
     });
     let bar_ty = env.unifier.get_ty(bar_id);
