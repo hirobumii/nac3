@@ -24,7 +24,7 @@ constexpr const uint32_t REFCOUNT_ARRAY_INLINE_MAGIC = 0xffff'fffe;
 /**
  * @brief Returns a pointer to the start of the user data of the object after the `ObjectHeader`.
  */
-void* get_object_start(void* object) {
+[[gnu::always_inline]] void* get_object_start(void* object) {
     if (object == nullptr) {
         return nullptr;
     }
@@ -35,7 +35,7 @@ void* get_object_start(void* object) {
 /**
  * @brief Returns a pointer to the object header for the given object.
  */
-ObjectHeader* get_object_header(void* object) {
+[[gnu::always_inline]] ObjectHeader* get_object_header(void* object) {
     if (object == nullptr) {
         return nullptr;
     }
@@ -46,7 +46,7 @@ ObjectHeader* get_object_header(void* object) {
 /**
  * @brief Returns a const pointer to the object header for the given object.
  */
-const ObjectHeader* get_object_header(const void* object) {
+[[gnu::always_inline]] const ObjectHeader* get_object_header(const void* object) {
     if (object == nullptr) {
         return nullptr;
     }
@@ -57,7 +57,7 @@ const ObjectHeader* get_object_header(const void* object) {
 /**
  * @brief Returns a pointer to the `Typeinfo` instance for the given object.
  */
-const Typeinfo* get_object_typeinfo(const void* object) {
+[[gnu::always_inline]] const Typeinfo* get_object_typeinfo(const void* object) {
     if (const auto* const header = get_object_header(object)) {
         return reinterpret_cast<const Typeinfo*>(&__nac3_global_begin + header->typeinfo_offset);
     }
@@ -70,7 +70,7 @@ const Typeinfo* get_object_typeinfo(const void* object) {
  *
  * An object is reference-counted if it has a non-zero reference count.
  */
-bool is_object_refcounted(const void* object) {
+[[gnu::always_inline]] bool is_object_refcounted(const void* object) {
     if (const auto* const header = get_object_header(object)) {
         return header->refcount != 0;
     }
@@ -85,7 +85,7 @@ bool is_object_refcounted(const void* object) {
  * (refcount=0).
  * @param typeinfo A pointer to the `Typeinfo` instance for the object's type.
  */
-void object_header_init(void* const object, bool is_refcounted, const void* const typeinfo) {
+[[gnu::always_inline]] void object_header_init(void* const object, bool is_refcounted, const void* const typeinfo) {
     if (auto* const header = get_object_header(object)) {
         header->refcount = is_refcounted ? 1 : 0;
         header->typeinfo_offset = static_cast<const unsigned char*>(typeinfo) - &__nac3_global_begin;
@@ -95,7 +95,7 @@ void object_header_init(void* const object, bool is_refcounted, const void* cons
 /**
  * @brief Increments the reference count of the given object if it is refcounted.
  */
-void refcount_incr(void* const object) {
+[[gnu::always_inline]] void refcount_incr(void* const object) {
     if (is_object_refcounted(object)) {
         auto* const header = get_object_header(object);
         ++header->refcount;
@@ -164,28 +164,28 @@ using namespace __nac3_impl::reference;
 /**
  * @brief See `codegen::types::ObjectHeaderValue::init`.
  */
-void __nac3_object_header_init(void* object, bool is_refcounted, void* typeinfo) {
+[[gnu::always_inline]] void __nac3_object_header_init(void* object, bool is_refcounted, void* typeinfo) {
     object_header_init(object, is_refcounted, typeinfo);
 }
 
 /**
  * @brief See `codegen::types::ObjectHeaderValue::is_refcounted`.
  */
-bool __nac3_is_object_refcounted(void* object) {
+[[gnu::always_inline]] bool __nac3_is_object_refcounted(void* object) {
     return is_object_refcounted(object);
 }
 
 /**
  * @brief See `codegen::types::ObjectHeaderValue::increment_refcount`.
  */
-void __nac3_refcount_incr(void* object) {
+[[gnu::always_inline]] void __nac3_refcount_incr(void* object) {
     refcount_incr(object);
 }
 
 /**
  * @brief See `codegen::types::ObjectHeaderValue::decrement_refcount`.
  */
-void __nac3_refcount_decr(void* object) {
+[[gnu::always_inline]] void __nac3_refcount_decr(void* object) {
     refcount_decr(object);
 }
 }  // extern "C"

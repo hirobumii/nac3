@@ -141,7 +141,7 @@ struct Slice {
 extern "C" {
 using namespace __nac3_impl;
 
-SliceIndex __nac3_slice_index_bound(SliceIndex i, const SliceIndex len) {
+[[gnu::always_inline]] SliceIndex __nac3_slice_index_bound(SliceIndex i, const SliceIndex len) {
     if (i < 0) {
         i = len + i;
     }

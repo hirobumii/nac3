@@ -32,8 +32,8 @@ using namespace __nac3_impl;
 
 // Putting semicolons here to make clang-format not reformat this into
 // a stair shape.
-DEF_nac3_int_exp_(int32_t);
-DEF_nac3_int_exp_(int64_t);
+[[gnu::always_inline]] DEF_nac3_int_exp_(int32_t);
+[[gnu::always_inline]] DEF_nac3_int_exp_(int64_t);
 DEF_nac3_int_exp_(uint32_t);
 DEF_nac3_int_exp_(uint64_t);
 

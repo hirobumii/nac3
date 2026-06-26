@@ -53,7 +53,7 @@ extern "C" {
 using namespace __nac3_impl;
 using namespace __nac3_impl::range;
 
-SliceIndex __nac3_range_slice_len(const SliceIndex start, const SliceIndex end, const SliceIndex step) {
+[[gnu::always_inline]] SliceIndex __nac3_range_slice_len(const SliceIndex start, const SliceIndex end, const SliceIndex step) {
     return len(start, end, step);
 }
 }

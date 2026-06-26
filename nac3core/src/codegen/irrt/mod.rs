@@ -1,6 +1,5 @@
 use inkwell::{
     IntPredicate,
-    attributes::{Attribute, AttributeLoc},
     context::ContextRef,
     memory_buffer::MemoryBuffer,
     module::Module,
@@ -49,17 +48,6 @@ pub fn load_irrt<'ctx>(
     ir_bytes.push(b'\0');
     let ir_buf = MemoryBuffer::create_from_memory_range_copy(&ir_bytes, "irrt_ir_buffer");
     let irrt_mod = ctx.create_module_from_ir(ir_buf).unwrap();
-
-    let inline_attr = Attribute::get_named_enum_kind_id("alwaysinline");
-    for symbol in &[
-        "__nac3_int_exp_int32_t",
-        "__nac3_int_exp_int64_t",
-        "__nac3_range_slice_len",
-        "__nac3_slice_index_bound",
-    ] {
-        let function = irrt_mod.get_function(symbol).unwrap();
-        function.add_attribute(AttributeLoc::Function, ctx.create_enum_attribute(inline_attr, 0));
-    }
 
     // Initialize all global `EXN_*` exception IDs in IRRT with the [`SymbolResolver`].
     let exn_id_type = ctx.i32_type();
