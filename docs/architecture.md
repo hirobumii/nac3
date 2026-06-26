@@ -116,14 +116,4 @@ Key differences from the standalone frontend:
 
 The IRRT is a small runtime library written in C++ under `nac3core/irrt/`. It provides helper functions for operations that are too complex to emit inline (integer exponentiation, range slicing, string operations, list helpers, etc.).
 
-The build process (in `nac3core/build.rs`):
-
-1. Compile `irrt.cpp` to LLVM IR using `clang-irrt` targeting `wasm32` (to get target-independent IR).
-   [TODO]: stale — build now compiles BOTH wasm32 and wasm64 to `irrt32.ll`/`irrt64.ll`, not wasm32-only to `irrt.ll`
-2. Filter the IR with regexes to keep only function definitions, declarations, type definitions, and globals.
-3. Strip debug metadata.
-4. Embed the IR via `include_bytes!()`.
-
-At compile time, `load_irrt()` parses this embedded IR into an LLVM module and initializes exception ID globals. The module is then linked into the final output.
-
-To debug IRRT issues, set `DEBUG_DUMP_IRRT=1` when building nac3core. This writes `irrt.ll` (raw) and `irrt-filtered.ll` (after regex filtering) to the build output directory.
+See the [IRRT documentation](./irrt.md) for more details.

@@ -118,8 +118,7 @@ Each exception class is assigned a numeric ID via `SymbolResolver::get_exception
 
 When you need a runtime helper that is too complex for inline LLVM IR, add it to the IRRT (`nac3core/irrt/`). The C++ source is compiled to target-independent LLVM bitcode and linked into every compilation. See `irrt/irrt.cpp` and the submodule headers.
 
-To call an IRRT function from Rust codegen, declare it in the appropriate `codegen/irrt/*.rs` module and call it through the LLVM builder. Functions that need to differ between 32-bit and 64-bit `size_t` use the `get_usize_dependent_function_name()` helper to select the right variant.
-[TODO]: stale — `get_usize_dependent_function_name()` was removed in commit `22e6ce8e`; width is now resolved at load time by selecting `irrt32.ll` vs `irrt64.ll`, and all bindings call a single canonical symbol name
+To call an IRRT function from Rust codegen, declare it in the appropriate `codegen/irrt/*.rs` module and call it through the LLVM builder. Alternatively, use the `call_extern!` macro directly if there is only one call site to the IRRT function.
 
 ## Builtin Functions
 
