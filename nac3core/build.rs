@@ -8,10 +8,62 @@ use std::{
     io::Write,
     path::Path,
     process::{Command, Stdio},
+    sync::LazyLock,
 };
 
 use regex::Regex;
 
+// For debugging
+// Doing `DEBUG_DUMP_IRRT=1 cargo build -p nac3core` dumps the LLVM IR generated
+const DEBUG_DUMP_IRRT: &str = "DEBUG_DUMP_IRRT";
+
+/// A regex that captures all LLVM IR declarations and definitions, used to extract meaningful
+/// declarations and (in debug mode) metadata.
+///
+/// - `(?ms:^define.*?\}$)` captures LLVM `define` blocks
+/// - `(?m:^declare.*?$)` captures LLVM `declare` lines
+/// - `(?m:^%.+?=\s*type\s*(?:\{.+?\}|opaque)$)` captures LLVM `type` declarations
+/// - `(?m:^\$.+=\s*comdat.+$)` captures COMDAT entries (only in debug builds)
+/// - `(?m:^@.+?=.+$)` captures global constants
+/// - `(?m:^!.+?=.+$)` captures metadata (only in debug builds)
+/// - `(?m:^attributes #\d+\s*=.+$)` captures attribute groups (only in debug builds)
+static LLVM_IR_EXTRACT_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+    match env::var("PROFILE").as_deref() {
+        Ok("debug") => {
+            Regex::new(
+                r"(?ms:^define.*?\}$)|(?m:^declare.*?$)|(?m:^%.+?=\s*type\s*(?:\{.+?\}|opaque)$)|(?m:^\$.+=\s*comdat.+$)|(?m:^@.+?=.+$)|(?m:^!.+?=.+$)|(?m:^attributes #\d+\s*=.+$)",
+            )
+        },
+        Ok("release") => Regex::new(
+            r"(?ms:^define.*?\}$)|(?m:^declare.*?$)|(?m:^%.+?=\s*type\s*(?:\{.+?\}|opaque)$)|(?m:^@.+?=.+$)",
+        ),
+        _ => unreachable!(),
+    }.unwrap()
+});
+
+/// A regex that matches all non-essential information, used to strip target-specific information
+/// and other non-essential information from the LLVM IR output.
+///
+/// In debug builds:
+///
+/// - `(\"target-features\"=\".*\")` matches the `target-features` attribute
+///
+/// In release builds:
+///
+/// - `(#\d+)` matches attribute group references
+/// - `(, *![0-9A-Za-z.]+)` matches metadata references in function definitions
+/// - `(![0-9A-Za-z.]+)` matches metadata references in instructions
+/// - `(!\".*?\")` matches metadata definitions
+static LLVM_IR_SANITIZE_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+    match env::var("PROFILE").as_deref() {
+        Ok("debug") => Regex::new("(\"target-features\"=\".*\")"),
+        Ok("release") => Regex::new("(#\\d+)|(, *![0-9A-Za-z.]+)|(![0-9A-Za-z.]+)|(!\".*?\")"),
+        _ => unreachable!(),
+    }
+    .unwrap()
+});
+
+/// Compiles the source file into LLVM IR for the given target and returns the output as a string.
 fn compile_irrt(target: &str, flags: &[&str]) -> String {
     let output = Command::new("clang-irrt")
         .arg(format!("--target={target}"))
@@ -21,8 +73,7 @@ fn compile_irrt(target: &str, flags: &[&str]) -> String {
             assert!(o.status.success(), "{}", std::str::from_utf8(&o.stderr).unwrap());
         })
         .unwrap();
-    // https://github.com/rust-lang/regex/issues/244
-    std::str::from_utf8(&output.stdout).unwrap().replace("\r\n", "\n")
+    String::from_utf8(output.stdout).unwrap()
 }
 
 /// Assembles the LLVM IR and writes the result into `output_file`.
@@ -37,16 +88,14 @@ fn assemble_irrt(ir: &str, output_file: &Path) {
     assert!(llvm_as.wait().unwrap().success());
 }
 
-fn main() {
-    // For debugging
-    // Doing `DEBUG_DUMP_IRRT=1 cargo build -p nac3core` dumps the LLVM IR generated
-    const DEBUG_DUMP_IRRT: &str = "DEBUG_DUMP_IRRT";
-
+/// Compiles an IRRT source file with the given `input` name (without the file extension) into LLVM
+/// bitcode for the given target and writes it to the output directory as `{input}{suffix}.bc`.
+fn compile_to_bc_with_target(target: &str, input: &str, suffix: &str) {
     let out_dir = env::var("OUT_DIR").unwrap();
     let out_dir = Path::new(&out_dir);
     let irrt_dir = Path::new("irrt");
 
-    let irrt_cpp_path = irrt_dir.join("irrt.cpp");
+    let irrt_cpp_path = irrt_dir.join(format!("{input}.cpp"));
 
     /*
      * HACK: Sadly, clang doesn't let us emit generic LLVM bitcode.
@@ -87,71 +136,37 @@ fn main() {
     // Tell Cargo to rerun if any file under `irrt_dir` (recursive) changes
     println!("cargo:rerun-if-changed={}", irrt_dir.to_str().unwrap());
 
-    let wasm32_output = compile_irrt("wasm32", &flags);
-    let wasm64_output = compile_irrt("wasm64", &flags);
-    let mut wasm32_filtered_output = String::with_capacity(wasm32_output.len());
-    let mut wasm64_filtered_output = String::with_capacity(wasm64_output.len());
+    let output = compile_irrt(target, &flags);
+    let mut filtered_output = String::with_capacity(output.len());
 
-    // Filter out irrelevant IR
-    //
-    // Regex:
-    // - `(?ms:^define.*?\}$)` captures LLVM `define` blocks
-    // - `(?m:^declare.*?$)` captures LLVM `declare` lines
-    // - `(?m:^%.+?=\s*type\s*(?:\{.+?\}|opaque)$)` captures LLVM `type` declarations
-    // - `(?m:^\$.+=\s*comdat.+$)` captures COMDAT entries (only in debug mode)
-    // - `(?m:^@.+?=.+$)` captures global constants
-    // - `(?m:^!.+?=.+$)` captures metadata (only in debug mode)
-    // - `(?m:^attributes #\d+\s*=.+$)` captures attribute groups (only in debug mode)
-    let regex_filter = match env::var("PROFILE").as_deref() {
-        Ok("debug") => {
-            Regex::new(
-                r"(?ms:^define.*?\}$)|(?m:^declare.*?$)|(?m:^%.+?=\s*type\s*(?:\{.+?\}|opaque)$)|(?m:^\$.+=\s*comdat.+$)|(?m:^@.+?=.+$)|(?m:^!.+?=.+$)|(?m:^attributes #\d+\s*=.+$)",
-            ).unwrap()
-        },
-        Ok("release") => Regex::new(
-            r"(?ms:^define.*?\}$)|(?m:^declare.*?$)|(?m:^%.+?=\s*type\s*(?:\{.+?\}|opaque)$)|(?m:^@.+?=.+$)",
-        )
-        .unwrap(),
-        _ => unreachable!(),
-    };
-
-    for f in regex_filter.captures_iter(&wasm32_output) {
+    for f in LLVM_IR_EXTRACT_REGEX.captures_iter(&output) {
         assert_eq!(f.len(), 1);
-        wasm32_filtered_output.push_str(&f[0]);
-        wasm32_filtered_output.push('\n');
+        filtered_output.push_str(&f[0]);
+        filtered_output.push('\n');
     }
 
-    for f in regex_filter.captures_iter(&wasm64_output) {
-        assert_eq!(f.len(), 1);
-        wasm64_filtered_output.push_str(&f[0]);
-        wasm64_filtered_output.push('\n');
-    }
-
-    let regex_filter = match env::var("PROFILE").as_deref() {
-        Ok("debug") => Regex::new("(\"target-features\"=\".*\")").unwrap(),
-        Ok("release") => {
-            Regex::new("(#\\d+)|(, *![0-9A-Za-z.]+)|(![0-9A-Za-z.]+)|(!\".*?\")").unwrap()
-        }
-        _ => unreachable!(),
-    };
-
-    let wasm32_filtered_output = regex_filter.replace_all(&wasm32_filtered_output, "");
-    let wasm64_filtered_output = regex_filter.replace_all(&wasm64_filtered_output, "");
+    let filtered_output = LLVM_IR_SANITIZE_REGEX.replace_all(&filtered_output, "");
 
     if env::var(DEBUG_DUMP_IRRT).is_ok() {
-        let mut file = File::create(out_dir.join("irrt-wasm32.ll")).unwrap();
-        file.write_all(wasm32_output.as_bytes()).unwrap();
+        let mut file = File::create(out_dir.join(format!("{input}{suffix}.ll"))).unwrap();
+        file.write_all(output.as_bytes()).unwrap();
 
-        let mut file = File::create(out_dir.join("irrt-wasm64.ll")).unwrap();
-        file.write_all(wasm64_output.as_bytes()).unwrap();
-
-        let mut file = File::create(out_dir.join("irrt-wasm32-filtered.ll")).unwrap();
-        file.write_all(wasm32_filtered_output.as_bytes()).unwrap();
-
-        let mut file = File::create(out_dir.join("irrt-wasm64-filtered.ll")).unwrap();
-        file.write_all(wasm64_filtered_output.as_bytes()).unwrap();
+        let mut file = File::create(out_dir.join(format!("{input}{suffix}-filtered.ll"))).unwrap();
+        file.write_all(filtered_output.as_bytes()).unwrap();
     }
 
-    assemble_irrt(&wasm32_filtered_output, &out_dir.join("irrt32.bc"));
-    assemble_irrt(&wasm64_filtered_output, &out_dir.join("irrt64.bc"));
+    assemble_irrt(&filtered_output, &out_dir.join(format!("{input}{suffix}.bc")));
+}
+
+/// Compiles an IRRT source file with the given `input` name (without the file extension) into LLVM
+/// bitcode for both 32-bit and 64-bit targets.
+///
+/// The result is written into the output directory as `{input}32.bc` and `{input}64.bc`.
+fn compile_to_bc(input: &str) {
+    compile_to_bc_with_target("wasm32", input, "32");
+    compile_to_bc_with_target("wasm64", input, "64");
+}
+
+fn main() {
+    compile_to_bc("irrt");
 }
