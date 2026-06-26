@@ -1,7 +1,8 @@
 # RPC (Remote Procedure Calls)
 
 RPC is the mechanism by which a compiled ARTIQ kernel calls back into the host
-Python runtime. It is ARTIQ-specific and lives almost entirely in `nac3artiq/src/`:
+Python runtime. It is ARTIQ-specific and lives almost entirely in
+`nac3artiq/src/`:
 
 - `codegen.rs` - all marshalling and codegen (the bulk of the implementation).
 - `lib.rs` - `@rpc` decorator detection and callback registration.
@@ -34,10 +35,10 @@ The callback proceeds in four stages:
 The kernel communicates with the host via two C-ABI functions:
 
 - **`rpc_send(service_id, tag, args)`** / **`rpc_send_async(...)`**: Initiates
-  an RPC call. `service_id` is an `i32` uniquely identifying the callee
-  (its `DefinitionId` as assigned by the kernel compiler); `tag` is a
-  `{*i8, size_t}` descriptor encoding the signature; and `args` is an array of
-  type-erased pointers to each argument's wire representation.
+  an RPC call. `service_id` is an `i32` uniquely identifying the callee (its
+  `DefinitionId` as assigned by the kernel compiler); `tag` is a `{*i8, size_t}`
+  descriptor encoding the signature; and `args` is an array of type-erased
+  pointers to each argument's wire representation.
 - **`rpc_recv(*i8) -> i32`**: Receives the return value into a caller-provided
   buffer. Returns `0` when the response is complete, or a positive integer `N`
   meaning "allocate `N` more bytes and call again." The caller loops, growing a
@@ -92,8 +93,8 @@ the stack. The per-argument marshalling dispatches as follows:
 - **Scalars and strings**: Stored as-is and pointed at directly.
 - **Lists**: If the element type is bit-compatible (scalars only), the elements
   are bulk-`memcpy`'d into a flat buffer. Otherwise, each element is
-  individually marshalled (handling nested ndarrays and composites) and a pointer
-  array is built.
+  individually marshalled (handling nested ndarrays and composites) and a
+  pointer array is built.
 - **Tuples**: Each field is marshalled inline, one field at a time.
 - **NDArrays**: The array is made contiguous first, then a wire descriptor
   `{*data, shape[ndims]}` is written by a dedicated helper.
@@ -112,8 +113,8 @@ This protocol allows the host to return variable-length and deeply nested data
 without the kernel needing to know the size upfront.
 
 Once the loop completes, the demarshalling code reconstructs NAC3 values from
-the wire data. This is the inverse of marshalling: `ObjectHeader`s are
-re-inserted, refcounted objects (lists, ndarrays, tuples) are allocated on the
+the wire data. This is the inverse of marshalling: `ObjectHeader`s are re-
+inserted, refcounted objects (lists, ndarrays, tuples) are allocated on the
 heap, and nested types are processed recursively.
 
 A `None` return value short-circuits this process entirely: the kernel calls

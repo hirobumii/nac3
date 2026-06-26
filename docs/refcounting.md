@@ -23,9 +23,9 @@ zero frees the object and recursively decrements its refcounted children.
 Every refcounted object and tuples carries an `ObjectHeader` at byte offset 0.
 It is 8 bytes wide and consists of two fields:
 
-- **`refcount`** (`uint32_t`): A value of `0` means the object is not
-  heap-allocated and should never be freed; a value of `1` or greater is the
-  live reference count.
+- **`refcount`** (`uint32_t`): A value of `0` means the object is not heap-
+  allocated and should never be freed; a value of `1` or greater is the live
+  reference count.
 - **`typeinfo_offset`** (`int32_t`): An offset to this type's `Typeinfo`
   metadata, relative to the global symbol `__nac3_global_begin`. Using a
   relative offset allows the location of the `typeinfo` to fit within 32 bits.
@@ -50,8 +50,8 @@ struct RefCountedArray {
 The `refcounted_elems` count field is padded so that `elems` always begins at a
 **fixed 16-byte offset** from the start of the struct, regardless of whether
 `size_t` is 32 or 64 bits wide. This ensures that the location of `elems` is
-independent of the type of the elements, and makes element access a
-constant-offset operation on every target.
+independent of the type of the elements, and makes element access a constant-
+offset operation on every target.
 
 The C++ definition is in `reference/array.hpp`; the mirroring Rust type is
 `RefCountedArrayType` in `reference.rs`.
@@ -68,12 +68,12 @@ the array as a simple list of field offsets:
 
 - **`REFCOUNT_ARRAY_MAGIC`**: The field is an array of object pointers; walk
   each element with pointer-size stride.
-- **`REFCOUNT_ARRAY_INLINE_MAGIC`**: The field is an array of inline
-  header-bearing elements (e.g. tuples); the second entry in the offsets array
-  gives the per-element stride.
+- **`REFCOUNT_ARRAY_INLINE_MAGIC`**: The field is an array of inline header-
+  bearing elements (e.g. tuples); the second entry in the offsets array gives
+  the per-element stride.
 
-The C++ definition is in `reference/typeinfo.hpp`; the mirroring Rust type is
-in `typeinfo.rs`.
+The C++ definition is in `reference/typeinfo.hpp`; the mirroring Rust type is in
+`typeinfo.rs`.
 
 ## 3. Runtime Functions
 
@@ -93,15 +93,15 @@ The IRRT provides the following functions for reference counting (declared in
 `refcount > 0`).
 
 **Decrement** decrements `refcount` when non-zero and, on reaching zero, walks
-all refcounted children via `Typeinfo` then frees the allocation. When `refcount`
-is already zero (e.g. an inline tuple that is never heap-allocated directly), the
-decrement still walks children but does not free. There are three child-traversal
-modes: fixed struct fields, pointer array, and inline array - selected by the
-`Typeinfo` count value (see [here](#-Typeinfo-)).
+all refcounted children via `Typeinfo` then frees the allocation. When
+`refcount` is already zero (e.g. an inline tuple that is never heap-allocated
+directly), the decrement still walks children but does not free. There are three
+child-traversal modes: fixed struct fields, pointer array, and inline array -
+selected by the `Typeinfo` count value (see [here](#-Typeinfo-)).
 
 On the Rust side, `ObjectHeaderValue` provides `init`, `increment_refcount`, and
-`decrement_refcount` methods, plus null-checked `safe_*` variants that guard with
-a null check before calling - used for nullable objects such as `Option`.
+`decrement_refcount` methods, plus null-checked `safe_*` variants that guard
+with a null check before calling - used for nullable objects such as `Option`.
 
 ## 4. When Increment/Decrement Are Emitted
 
@@ -112,8 +112,8 @@ Codegen emits refcount operations at the following points:
   [§6](#6-extern-abi) for the rationale.
 - **Variable assignment**: The new value is incremented and the old value is
   decremented.
-- **List element assignment**: The new element is incremented and the old element
-  is decremented.
+- **List element assignment**: The new element is incremented and the old
+  element is decremented.
 - **NDArray view creation**: The `base` buffer is incremented when it is shared
   between two ndarrays.
 
