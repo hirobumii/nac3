@@ -1104,31 +1104,6 @@ pub fn type_aligned_allocate<'ctx>(
     size: IntValue<'ctx>,
     name: Option<&'ctx str>,
 ) -> anyhow::Result<ArraySliceValue<'ctx>> {
-    /// Round `val` up to its modulo `power_of_two`.
-    fn round_up<'ctx>(
-        ctx: &CodeGenContext<'ctx, '_>,
-        val: IntValue<'ctx>,
-        power_of_two: IntValue<'ctx>,
-    ) -> anyhow::Result<IntValue<'ctx>> {
-        debug_assert_eq!(
-            val.get_type().get_bit_width(),
-            power_of_two.get_type().get_bit_width(),
-            "`val` ({}) and `power_of_two` ({}) must be the same type",
-            val.get_type(),
-            power_of_two.get_type(),
-        );
-
-        let llvm_val_t = val.get_type();
-
-        let max_rem =
-            ctx.builder.build_int_sub(power_of_two, llvm_val_t.const_int(1, false), "")?;
-        Ok(ctx.builder.build_and(
-            ctx.builder.build_int_add(val, max_rem, "")?,
-            ctx.builder.build_not(max_rem, "")?,
-            "",
-        )?)
-    }
-
     let llvm_usize = ctx.size_t;
     let align_ty: BasicTypeEnum<'ctx> = align_ty.into();
 
@@ -1142,30 +1117,19 @@ pub fn type_aligned_allocate<'ctx>(
         size.get_type(),
     );
 
-    let alignment = align_ty.get_alignment();
-    let alignment = ctx.builder.build_int_truncate_or_bit_cast(alignment, llvm_usize, "")?;
+    let sizeof_align_ty =
+        ctx.builder.build_int_truncate_or_bit_cast(align_ty.size_of().unwrap(), llvm_usize, "")?;
 
-    if ctx.registry.codegen_options.debug {
-        let alignment_bitcount = llvm_intrinsics::call_int_ctpop(ctx, alignment, None)?;
+    // Allocate the buffer as whole `align_ty`-sized slices to keep the allocation aligned to
+    // `align_ty`'s alignment; the number of slices is `ceil(size / sizeof(align_ty))` so that the
+    // buffer holds at least `size` bytes.
+    let max_rem = ctx.builder.build_int_sub(sizeof_align_ty, llvm_usize.const_int(1, false), "")?;
+    let aligned_slices = ctx.builder.build_int_unsigned_div(
+        ctx.builder.build_int_add(size, max_rem, "")?,
+        sizeof_align_ty,
+        "",
+    )?;
 
-        ctx.make_assert(
-            ctx.builder.build_int_compare(
-                IntPredicate::EQ,
-                alignment_bitcount,
-                alignment_bitcount.get_type().const_int(1, false),
-                "",
-            )?,
-            "0:AssertionError",
-            "Expected power-of-two alignment for aligned_alloca, got {0}",
-            [Some(alignment), None, None],
-            ctx.current_loc,
-        )?;
-    }
-
-    let buffer_size = round_up(ctx, size, alignment)?;
-    let aligned_slices = ctx.builder.build_int_unsigned_div(buffer_size, alignment, "")?;
-
-    // Just to be absolutely sure, alloca in [i8 x alignment] slices
     ctx.build_dyn_array_allocate(scope, align_ty, aligned_slices, name)
 }
 

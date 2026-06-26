@@ -1,0 +1,13 @@
+---
+source: nac3core/src/codegen/test.rs
+expression: ir
+---
+define fastcc void @dummy() {
+init:
+  %0 = udiv i64 add (i64 sub (i64 ptrtoint (ptr getelementptr ({ %__nac3_object_header, { i64, [0 x i8], [0 x i32] } }, ptr null, i32 1) to i64), i64 1), i64 4112), ptrtoint (ptr getelementptr ({ %__nac3_object_header, { i64, [0 x i8], [0 x i32] } }, ptr null, i32 1) to i64)
+  %1 = trunc i64 %0 to i32, !dbg !4
+  %mallocsize = mul i32 %1, ptrtoint (ptr getelementptr ({ %__nac3_object_header, { i64, [0 x i8], [0 x i32] } }, ptr null, i32 1) to i32), !dbg !4
+  %2 = tail call ptr @malloc(i32 %mallocsize), !dbg !4
+  store ptr %2, ptr @keep_alloc, align 8, !dbg !4
+  ret void, !dbg !4
+}
