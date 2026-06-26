@@ -636,7 +636,7 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> WithTypeinfo<'ctx> for RefCountedArrayType
             let elem_size = data_layout.get_store_size(&self.array.get_element_type());
             vec![ctx.i32.const_int(0xFFFF_FFFE, false), ctx.i32.const_int(elem_size, false)]
         } else {
-            // REFCOUNT_ARRAY_MAGIC (0xFFFFFFFF) — pointer-element arrays
+            // REFCOUNT_ARRAY_MAGIC (0xFFFFFFFF) - pointer-element arrays
             vec![ctx.i32.const_all_ones()]
         }
     }

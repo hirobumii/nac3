@@ -60,6 +60,7 @@ impl<'ctx, S> NDArrayLikeType<'ctx, S> {
     pub fn ndims_val(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
         ctx.size_t.const_int(self.ndims, false)
     }
+
     /// Returns the item size in bytes as an `IntValue`.
     pub fn itemsize_val(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
         let size = ctx.sizeof(self.dtype);
@@ -90,18 +91,20 @@ pub struct NDArrayStructFields<'ctx> {
     /// Number of dimensions in the array.
     #[value_type(size_t)]
     pub ndims: StructField<'ctx, IntValue<'ctx>>,
-    /// Pointer to an array containing the shape of the `NDArray`.
+    /// Pointer to a [reference-counted array][`RefCountedArrayValue`] containing the shape of the
+    /// `NDArray`.
     // TODO: We currently store shape and strides as `size_t`, but np_shape returns `int32`.
     // Consider picking one.
     #[value_type(ptr)]
     shape: StructField<'ctx, PointerValue<'ctx>>,
-    /// Pointer to an array indicating the number of bytes between each element at a dimension.
+    /// Pointer to a [reference-counted array][`RefCountedArrayValue`] indicating the number of
+    /// bytes between each element at a dimension.
     #[value_type(ptr)]
     strides: StructField<'ctx, PointerValue<'ctx>>,
-    /// Pointer to an array containing the array data
+    /// Pointer to a [reference-counted array][`RefCountedArrayValue`] containing the array data.
     #[value_type(ptr)]
     data: StructField<'ctx, PointerValue<'ctx>>,
-    /// Pointer to the base of the array if this array is a view.
+    /// Pointer to the [base of the array][`NDArrayValue`] if this array is a view.
     #[value_type(ptr)]
     base: StructField<'ctx, PointerValue<'ctx>>,
     /// The offset in bytes from the base pointer to the first element of this array.

@@ -21,7 +21,7 @@ use crate::{
 
 #[derive(Clone, Copy, StructFields)]
 pub struct ListStructFields<'ctx> {
-    /// Array pointer to content.
+    /// A pointer to the [reference-counted array][`RefCountedArrayValue`] storing the list content.
     #[value_type(ptr)]
     items: StructField<'ctx, PointerValue<'ctx>>,
 
