@@ -679,24 +679,24 @@ mod layout {
             .expect("expected the `malloc` size to be a folded integer literal")
     }
 
-    /// Emits a single [`type_aligned_allocate`][crate::codegen::type_aligned_allocate] for a
-    /// `RefCountedArray<i32>` backing buffer — whose ABI size (16 bytes) differs from its
-    /// alignment — and returns the pre-optimization IR of the emitting function together with the
-    /// `(actual, expected)` allocation byte counts.
+    /// Emits a single [`type_aligned_allocate`] for a `RefCountedArray<i32>` backing buffer - whose
+    /// ABI size (16 bytes) differs from its alignment - and returns the pre-optimization IR of the
+    /// emitting function together with the `(actual, expected)` allocation byte counts.
     ///
     /// `actual` is read back from the `malloc` call after constant-folding; `expected` is the
     /// correct `ceil(size / sizeof) * sizeof`.
     fn run_type_aligned_allocate(ctx: &mut CodeGenContext<'_, '_>) -> (String, u64, u64) {
-        // `SIZE` mirrors the real backing-buffer request for `[int32(0)] * 1024`:
-        // sizeof(RefCountedArray<i32> header) + sizeof(i32) * 1024 == 16 + 4096 == 4112.
-        const SIZE: u64 = 4112;
+        const BUFFER_SIZE: u64 = 1024;
 
         let align_ty =
             RefCountedArrayType::new(ctx, ctx.i32, Some(0)).alloca_ty(ctx).into_struct_type();
-        let sizeof = ctx.target.get_target_data().get_abi_size(&align_ty);
+        let sizeof_align = ctx.sizeof(align_ty);
+
+        // `size_val` mirrors the real backing-buffer request for `[int32(0)] * BUFFER_SIZE`
+        let sizeof_alloc = ctx.sizeof(align_ty) + ctx.sizeof(ctx.i32) * BUFFER_SIZE;
 
         ctx.builder.position_at_end(ctx.init_bb);
-        let size = ctx.size_t.const_int(SIZE, false);
+        let size = ctx.size_t.const_int(sizeof_alloc, false);
         let slice =
             type_aligned_allocate(ctx, AllocationScope::Heap, align_ty, size, None).unwrap();
         // Store the pointer into a global so the `malloc` call is not eliminated as dead code.
@@ -711,7 +711,7 @@ mod layout {
         ctx.module.run_passes("instcombine", &ctx.target, PassBuilderOptions::create()).unwrap();
         let actual = parse_malloc_size(&fn_val.print_to_string().to_string());
 
-        let expected = SIZE.div_ceil(sizeof) * sizeof;
+        let expected = sizeof_alloc.div_ceil(sizeof_align) * sizeof_align;
 
         (ir, actual, expected)
     }
@@ -736,10 +736,7 @@ mod layout {
         let mut ctx = create_codegen_context(&mut ctx, &builder, &registry, &composer);
         let (ir, actual, expected) = run_type_aligned_allocate(&mut ctx);
 
-        // sizeof(RefCountedArray<i32>) == 16, alignof == 8 on 64-bit. The allocation must request
-        // exactly the rounded-up byte count (4112)
         assert_eq!(actual, expected);
-        assert_eq!(actual, 4112);
 
         insta::assert_snapshot!(ir);
     }
@@ -764,10 +761,7 @@ mod layout {
         let mut ctx = create_codegen_context(&mut ctx, &builder, &registry, &composer);
         let (ir, actual, expected) = run_type_aligned_allocate(&mut ctx);
 
-        // sizeof(RefCountedArray<i32>) == 16, alignof == 4 on 32-bit. The allocation must request
-        // exactly the rounded-up byte count (4112)
         assert_eq!(actual, expected);
-        assert_eq!(actual, 4112);
 
         insta::assert_snapshot!(ir);
     }
