@@ -366,8 +366,10 @@ mod layout {
         OptimizationLevel,
         builder::Builder,
         debug_info::{AsDIScope, DWARFEmissionKind, DWARFSourceLanguage},
+        passes::PassBuilderOptions,
         targets::{InitializationConfig, Target},
         types::BasicTypeEnum,
+        values::AnyValue,
     };
     use nac3parser::ast::Location;
     use parking_lot::RwLock;
@@ -376,6 +378,8 @@ mod layout {
         codegen::{
             CodeGenContext, CodeGenOptions, DefaultCodeGenerator, ModuleContext,
             TargetMachineOptions, WithCall, WorkerRegistry,
+            allocator::AllocationScope,
+            context_ref, type_aligned_allocate,
             types::{
                 ClassType, NDArrayType, ObjectHeaderType, OptionSomeType, ProxyType,
                 RefCountedArrayType, RefType, TupleType, TypeinfoType,
@@ -620,7 +624,8 @@ mod layout {
 
     #[test]
     fn test_type_layouts_64bit() {
-        crate::codegen::context_ref!(ctx_ref);
+        context_ref!(ctx_ref);
+
         let mut ctx = create_module_context_64(ctx_ref);
         let composer =
             TopLevelComposer::new(Vec::new(), Vec::new(), Arc::new(DefaultBuiltinRegistry), 64).0;
@@ -640,7 +645,8 @@ mod layout {
 
     #[test]
     fn test_type_layouts_32bit() {
-        crate::codegen::context_ref!(ctx_ref);
+        context_ref!(ctx_ref);
+
         let mut ctx = create_module_context_32(ctx_ref);
         let composer =
             TopLevelComposer::new(Vec::new(), Vec::new(), Arc::new(DefaultBuiltinRegistry), 32).0;
@@ -681,10 +687,6 @@ mod layout {
     /// `actual` is read back from the `malloc` call after constant-folding; `expected` is the
     /// correct `ceil(size / sizeof) * sizeof`.
     fn run_type_aligned_allocate(ctx: &mut CodeGenContext<'_, '_>) -> (String, u64, u64) {
-        use inkwell::{passes::PassBuilderOptions, values::AnyValue};
-
-        use crate::codegen::{allocator::AllocationScope, type_aligned_allocate};
-
         // `SIZE` mirrors the real backing-buffer request for `[int32(0)] * 1024`:
         // sizeof(RefCountedArray<i32> header) + sizeof(i32) * 1024 == 16 + 4096 == 4112.
         const SIZE: u64 = 4112;
@@ -716,7 +718,8 @@ mod layout {
 
     #[test]
     fn test_type_aligned_allocate_64bit() {
-        crate::codegen::context_ref!(ctx_ref);
+        context_ref!(ctx_ref);
+
         let mut ctx = create_module_context_64(ctx_ref);
         let composer =
             TopLevelComposer::new(Vec::new(), Vec::new(), Arc::new(DefaultBuiltinRegistry), 64).0;
@@ -743,7 +746,8 @@ mod layout {
 
     #[test]
     fn test_type_aligned_allocate_32bit() {
-        crate::codegen::context_ref!(ctx_ref);
+        context_ref!(ctx_ref);
+
         let mut ctx = create_module_context_32(ctx_ref);
         let composer =
             TopLevelComposer::new(Vec::new(), Vec::new(), Arc::new(DefaultBuiltinRegistry), 32).0;
