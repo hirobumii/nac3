@@ -540,7 +540,6 @@ struct Nac3 {
     top_levels: Vec<TopLevelComponent>,
     string_store: Arc<RwLock<HashMap<String, i32>>>,
     exception_ids: Arc<RwLock<HashMap<usize, usize>>>,
-    deferred_eval_store: DeferredEvaluationStore,
     special_ids: SpecialPythonId,
     /// Modules registered with NAC3.
     modules: Arc<RwLock<Vec<ModuleInfo>>>,
@@ -890,6 +889,8 @@ impl Nac3 {
         ];
         add_exceptions(&mut composer, &mut builtins_def, &mut builtins_ty, &exception_names);
 
+        let deferred_eval_store = DeferredEvaluationStore::new();
+
         // Stores a mapping from module id to attributes
         let mut module_cache: HashMap<u64, _> = HashMap::new();
         let mut register_module_to_cache = |module: &Arc<Py<PyModule>>| -> PyResult<_> {
@@ -924,7 +925,7 @@ impl Nac3 {
                     helper: helper.clone(),
                     string_store: self.string_store.clone(),
                     exception_ids: self.exception_ids.clone(),
-                    deferred_eval_store: self.deferred_eval_store.clone(),
+                    deferred_eval_store: deferred_eval_store.clone(),
                 }))) as Arc<dyn SymbolResolver + Send + Sync>;
                 let name_to_pyid = Rc::new(name_to_pyid);
                 let module_location =
@@ -1128,7 +1129,7 @@ impl Nac3 {
             helper: helper.clone(),
             string_store: self.string_store.clone(),
             exception_ids: self.exception_ids.clone(),
-            deferred_eval_store: self.deferred_eval_store.clone(),
+            deferred_eval_store: deferred_eval_store.clone(),
         });
         let resolver =
             Arc::new(Resolver(inner_resolver.clone())) as Arc<dyn SymbolResolver + Send + Sync>;
@@ -1880,7 +1881,6 @@ impl Nac3 {
             working_directory,
             string_store: Arc::new(string_store.into()),
             exception_ids: Arc::default(),
-            deferred_eval_store: DeferredEvaluationStore::new(),
             special_ids: SpecialPythonId::default(),
             modules: Arc::default(),
             codegen_options,
