@@ -162,7 +162,6 @@ pub fn handle_slice_indices<'ctx, G: CodeGenerator>(
                 "0:ValueError",
                 "slice step cannot be zero",
                 [None, None, None],
-                ctx.current_loc,
             )?;
             let len_id = ctx.builder.build_int_sub(length, one, "lenmin1")?;
             let neg =

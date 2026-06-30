@@ -291,7 +291,9 @@ pub struct CodeGenContext<'ctx, 'a> {
     pub outer_catch_clauses:
         Option<(Vec<Option<BasicValueEnum<'ctx>>>, BasicBlock<'ctx>, PhiValue<'ctx>)>,
 
-    /// The current source location.
+    /// The source location of the current statement or expression.
+    ///
+    /// Used for raising exceptions and as a key for `calls`.
     pub current_loc: Location,
 }
 
@@ -459,13 +461,11 @@ impl WorkerRegistry {
         context_ref!(ctx);
         let options = &self.codegen_options.target;
         let mut context = ModuleContext::new(ctx, generator.get_name(), options);
-        let builder = context.ctx.create_builder();
         let mut unifier_cache = vec![OnceCell::new(); self.top_level_ctx.unifiers.read().len()];
 
         let mut errors = Vec::new();
         while let Some(task) = self.receiver.recv().unwrap() {
-            let result =
-                gen_func(&mut context, &builder, generator, self, task, &mut unifier_cache);
+            let result = gen_func(&mut context, generator, self, task, &mut unifier_cache);
             if let Err(e) = result {
                 errors.push(e);
                 context =
@@ -503,6 +503,7 @@ impl WorkerRegistry {
 pub struct CodeGenTask {
     pub subst: Vec<(Type, ConcreteType)>,
     pub store: ConcreteTypeStore,
+    pub location: Location,
     pub symbol_name: String,
     pub signature: ConcreteType,
     pub export_symbol: bool,
@@ -671,6 +672,8 @@ fn emit_local_refcount_decrements(ctx: &mut CodeGenContext<'_, '_>) -> anyhow::R
 }
 
 /// Implementation for generating LLVM IR for a function.
+///
+/// Ignores the function body and instead runs the given `codegen_function`.
 #[allow(
     clippy::too_many_arguments,
     reason = "inherent complexity before CodeGenContext is available"
@@ -682,7 +685,6 @@ pub fn gen_func_impl<
     F: FnOnce(&mut G, &mut CodeGenContext) -> anyhow::Result<()>,
 >(
     ctx: &'a mut ModuleContext<'ctx>,
-    builder: &'a Builder<'ctx>,
     generator: &mut G,
     registry: &WorkerRegistry,
     task: CodeGenTask,
@@ -804,6 +806,7 @@ pub fn gen_func_impl<
     }
 
     let init_bb = ctx.ctx.append_basic_block(fn_val, "init");
+    let builder = &ctx.ctx.create_builder();
     builder.position_at_end(init_bb);
     let body_bb = ctx.ctx.append_basic_block(fn_val, "body");
     let finalize_bb = ctx.ctx.append_basic_block(fn_val, "finalize");
@@ -868,10 +871,7 @@ pub fn gen_func_impl<
         /* allow_unresolved */ true,
         /* language */ inkwell::debug_info::DWARFSourceLanguage::Python,
         /* filename */
-        &task
-            .body
-            .first()
-            .map_or_else(|| "<nac3_internal>".to_string(), |f| f.location.file.0.to_string()),
+        &task.location.file.0.to_string(),
         /* directory */ "",
         /* producer */ "NAC3",
         /* is_optimized */ is_optimized,
@@ -895,34 +895,24 @@ pub fn gen_func_impl<
         &[],
         inkwell::debug_info::DIFlags::PUBLIC,
     );
-    let (row, col) =
-        task.body.first().map_or_else(|| (0, 0), |b| (b.location.row, b.location.column));
     let func_scope: DISubprogram<'_> = dibuilder.create_function(
         /* scope */ compile_unit.as_debug_info_scope(),
         /* func name */ symbol,
         /* linkage_name */ None,
         /* file */ compile_unit.get_file(),
-        /* line_no */ row as u32,
+        /* line_no */ task.location.row as u32,
         /* DIType */ subroutine_type,
         /* is_local_to_unit */ false,
         /* is_definition */ true,
-        /* scope_line */ row as u32,
+        /* scope_line */ task.location.row as u32,
         /* flags */ inkwell::debug_info::DIFlags::PUBLIC,
         /* is_optimized */ is_optimized,
     );
     fn_val.set_subprogram(func_scope);
 
     let debug_info = (dibuilder, compile_unit, func_scope.as_debug_info_scope());
-    let loc = debug_info.0.create_debug_location(
-        ctx.ctx,
-        row as u32,
-        col as u32,
-        func_scope.as_debug_info_scope(),
-        None,
-    );
-    builder.set_current_debug_location(loc);
 
-    let mut code_gen_context = CodeGenContext {
+    let mut ctx = CodeGenContext {
         inner: ctx,
         resolver: task.resolver,
         top_level: top_level_ctx.as_ref(),
@@ -948,50 +938,53 @@ pub fn gen_func_impl<
         debug_info,
     };
 
-    let result = codegen_function(generator, &mut code_gen_context).map(|()| fn_val);
+    ctx.with_loc(task.location, |ctx| {
+        let result =  codegen_function(generator, ctx).map(|()| fn_val);
+        // If the function body is not terminated, jump to `finalize_bb` to decrement refcounts
+        if !ctx.is_terminated() {
+            ctx.builder.build_unconditional_branch(finalize_bb)?;
+        }
 
-    // If the function body is not terminated, jump to `finalize_bb` to decrement refcounts
-    if !code_gen_context.is_terminated() {
-        code_gen_context.builder.build_unconditional_branch(finalize_bb)?;
-    }
+        // Decrementing refcounts involves inlined calls to IRRT, and LLVM dictates 
+        // that all inlined calls must have a debug location. Keep the following
+        // within the `with_loc` scope.
+        
+        // Decrement refcounts of all locals in `finalize_bb`, and emit the final `ret`
+        ctx.builder.position_at_end(finalize_bb);
+        emit_local_refcount_decrements(ctx)?;
+        if let Some((return_buffer, return_buffer_type)) = ctx.return_buffer.zip(ctx.return_buffer_type)
+        {
+            let loaded = ctx.builder.build_load(return_buffer_type, return_buffer, "$ret")?;
+            ctx.builder.build_return(Some(&loaded as &dyn BasicValue))?;
+        } else {
+            ctx.builder.build_return(None)?;
+        }
+    
+        // Similarly for `cleanup.lp`: Decrement refcounts of all locals, then resume unwinding
+        if let Some(cleanup_lp) = cleanup_lp {
+            ctx.builder.position_at_end(cleanup_lp);
+            let exception_type = ctx.get_llvm_type(ctx.primitives.exception);
+            let ptr_type = ctx.ptr;
+            ctx.builder.build_landing_pad(
+                ctx.ctx.struct_type(&[ptr_type.into(), exception_type], false),
+                personality.unwrap(),
+                &[],
+                true,
+                "fn.cleanup.lp",
+            )?;
+            emit_local_refcount_decrements(ctx)?;
+            // Clear `unwind_target` before emitting the resume call to avoid infinite loop
+            ctx.unwind_target = None;
+            let resume = get_builtins(ctx, "__nac3_resume");
+            ctx.build_call_or_invoke(&resume, &[], "resume")?;
+            ctx.builder.build_unreachable()?;
+        }
+    
+        ctx.builder.unset_current_debug_location();
+        ctx.debug_info.0.finalize();
 
-    // Decrement refcounts of all locals in `finalize_bb`, and emit the final `ret`
-    code_gen_context.builder.position_at_end(finalize_bb);
-    emit_local_refcount_decrements(&mut code_gen_context)?;
-    if let Some((return_buffer, return_buffer_type)) =
-        code_gen_context.return_buffer.zip(code_gen_context.return_buffer_type)
-    {
-        let loaded =
-            code_gen_context.builder.build_load(return_buffer_type, return_buffer, "$ret")?;
-        code_gen_context.builder.build_return(Some(&loaded as &dyn BasicValue))?;
-    } else {
-        code_gen_context.builder.build_return(None)?;
-    }
-
-    // Similarly for `cleanup.lp`: Decrement refcounts of all locals, then resume unwinding
-    if let Some(cleanup_lp) = cleanup_lp {
-        code_gen_context.builder.position_at_end(cleanup_lp);
-        let exception_type = code_gen_context.get_llvm_type(code_gen_context.primitives.exception);
-        let ptr_type = code_gen_context.ptr;
-        code_gen_context.builder.build_landing_pad(
-            code_gen_context.ctx.struct_type(&[ptr_type.into(), exception_type], false),
-            personality.unwrap(),
-            &[],
-            true,
-            "fn.cleanup.lp",
-        )?;
-        emit_local_refcount_decrements(&mut code_gen_context)?;
-        // Clear `unwind_target` before emitting the resume call to avoid infinite loop
-        code_gen_context.unwind_target = None;
-        let resume = get_builtins(&mut code_gen_context, "__nac3_resume");
-        code_gen_context.build_call_or_invoke(&resume, &[], "resume")?;
-        code_gen_context.builder.build_unreachable()?;
-    }
-
-    code_gen_context.builder.unset_current_debug_location();
-    code_gen_context.debug_info.0.finalize();
-
-    result
+        result
+    })
 }
 
 /// Generates LLVM IR for a function.
@@ -1002,14 +995,13 @@ pub fn gen_func_impl<
 /// * `task` - The [`CodeGenTask`] associated with this function generation task.
 pub fn gen_func<'ctx, 'a, G: CodeGenerator>(
     context: &'a mut ModuleContext<'ctx>,
-    builder: &'a Builder<'ctx>,
     generator: &mut G,
     registry: &WorkerRegistry,
     task: CodeGenTask,
     unifier_cache: &mut [OnceCell<Unifier>],
 ) -> anyhow::Result<FunctionValue<'ctx>> {
     let body = task.body.clone();
-    gen_func_impl(context, builder, generator, registry, task, unifier_cache, |generator, ctx| {
+    gen_func_impl(context, generator, registry, task, unifier_cache, |generator, ctx| {
         generator.gen_block(ctx, body.iter())
     })
 }

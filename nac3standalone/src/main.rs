@@ -395,9 +395,9 @@ fn main() {
 
     let top_level = Arc::new(composer.make_top_level_context());
 
-    let instance = {
+    let (instance, location) = {
         let defs = top_level.definitions.read();
-        let TopLevelDef::Function { instance_to_stmt, instance_to_symbol, .. } = &mut *defs
+        let TopLevelDef::Function { instance_to_stmt, instance_to_symbol, loc, .. } = &mut *defs
             [resolver
                 .get_identifier_def("run".into())
                 .unwrap_or_else(|_| panic!("cannot find run() entry point"))
@@ -408,7 +408,7 @@ fn main() {
         };
 
         instance_to_symbol.insert(String::new(), "run".to_string());
-        instance_to_stmt[""].clone()
+        (instance_to_stmt[""].clone(), *loc)
     };
 
     let task = CodeGenTask {
@@ -416,6 +416,7 @@ fn main() {
         symbol_name: "run".to_string(),
         export_symbol: true,
         body: instance.body,
+        location: location.unwrap_or_default(),
         signature,
         resolver,
         store,

@@ -27,13 +27,7 @@ pub fn calculate_len_for_slice_range<'ctx>(
         step.get_type().const_zero(),
         "range_step_ne",
     )?;
-    ctx.make_assert(
-        not_zero,
-        "0:ValueError",
-        "step must not be zero",
-        [None, None, None],
-        ctx.current_loc,
-    )?;
+    ctx.make_assert(not_zero, "0:ValueError", "step must not be zero", [None, None, None])?;
 
     call_extern!(ctx: llvm_i32 "calc_len" = "__nac3_range_slice_len"(start, end, step))
 }

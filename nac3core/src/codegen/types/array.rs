@@ -285,7 +285,6 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> ArrayLikeIndexer<'ctx> for ArraySliceValue
             "0:IndexError",
             "index {0} is out of bounds for size {1}",
             [Some(*idx), Some(size), None],
-            ctx.current_loc,
         )?;
 
         self.ptr_offset_unchecked(ctx, idx, name)

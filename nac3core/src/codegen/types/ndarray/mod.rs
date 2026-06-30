@@ -639,7 +639,6 @@ impl<'ctx> ArrayLikeIndexer<'ctx, ArraySliceValue<'ctx, IntType<'ctx>>> for NDAr
             "0:IndexError",
             "invalid index to scalar variable",
             [None, None, None],
-            ctx.current_loc,
         )?;
 
         let len = call_int_umin(ctx, indices_len, ndims, None)?;
@@ -668,7 +667,6 @@ impl<'ctx> ArrayLikeIndexer<'ctx, ArraySliceValue<'ctx, IntType<'ctx>>> for NDAr
                     "0:IndexError",
                     "index {0} is out of bounds for axis 0 with size {1}",
                     [Some(dim_idx), Some(dim_sz), None],
-                    ctx.current_loc,
                 )?;
 
                 Ok(())

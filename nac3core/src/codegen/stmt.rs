@@ -10,7 +10,7 @@ use inkwell::{
     values::{BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue},
 };
 use itertools::{Itertools as _, izip};
-use nac3parser::ast::{ExcepthandlerKind, Expr, ExprKind, Location, Stmt, StmtKind, StrRef};
+use nac3parser::ast::{ExcepthandlerKind, Expr, ExprKind, Stmt, StmtKind, StrRef};
 
 use crate::{
     codegen::{
@@ -25,10 +25,10 @@ use crate::{
         macros::codegen_unreachable,
         opt,
         types::{
-            ArrayLikeIndexer, ClassType, EnumerateType, ExceptionType,
-            ExceptionValue, ListType, ListValue, NDArrayType, OpaqueRefCountedType, ProxyTypeBase,
-            RangeType, RawListType, RefCountedValue, RustNDIndex, ScalarOrNDArray, StringType,
-            TupleType, TupleValue, TypedRefCountedType, broadcast, field, is_refcounted_type,
+            ArrayLikeIndexer, ClassType, EnumerateType, ExceptionType, ExceptionValue, ListType,
+            ListValue, NDArrayType, OpaqueRefCountedType, ProxyTypeBase, RangeType, RawListType,
+            RefCountedValue, RustNDIndex, ScalarOrNDArray, StringType, TupleType, TupleValue,
+            TypedRefCountedType, broadcast, field, is_refcounted_type,
         },
     },
     symbol_resolver::{SymbolValue, ValueEnum},
@@ -373,7 +373,6 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
                     "ValueError",
                     "incorrect number of values to unpack (expected {1})",
                     [Some(rhs_size), Some(lhs_size), None],
-                    Location::default(),
                 )?;
 
                 let values = read_fixed(ctx, targets.len())?;
@@ -393,7 +392,6 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
                 "ValueError",
                 "too few values to unpack (expected at least {0}, got {1})",
                 [Some(min_size_), Some(rhs_size), None],
-                targets[0].location,
             )?;
 
             let head_values = read_fixed(ctx, head.len())?;
@@ -667,7 +665,6 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
                     "0:IndexError",
                     "index {0} out of bounds 0:{1}",
                     [Some(index), Some(len), None],
-                    key.location,
                 )?;
 
                 // Write value to index on list
@@ -1086,7 +1083,6 @@ pub fn gen_for<G: CodeGenerator>(
                 "ValueError",
                 "range() arg 3 must not be zero",
                 [None, None, None],
-                ctx.current_loc,
             )?;
 
             gen_for_callback(
@@ -2041,8 +2037,8 @@ pub fn exn_constructor<'ctx>(
 pub fn gen_raise<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     exception: Option<&ExceptionValue<'ctx>>,
-    loc: Location,
 ) -> anyhow::Result<()> {
+    let loc = ctx.current_loc;
     if let Some(exception) = exception {
         // exception.store(ctx, field!(location), loc);
         let file = ctx.gen_string(loc.file.0)?;
@@ -2668,118 +2664,112 @@ pub fn gen_stmt<G: CodeGenerator>(
     ctx: &mut CodeGenContext<'_, '_>,
     stmt: &Stmt<Option<Type>>,
 ) -> anyhow::Result<()> {
-    ctx.current_loc = stmt.location;
-
-    let loc = ctx.debug_info.0.create_debug_location(
-        ctx.ctx,
-        ctx.current_loc.row as u32,
-        ctx.current_loc.column as u32,
-        ctx.debug_info.2,
-        None,
-    );
-    ctx.builder.set_current_debug_location(loc);
-
-    match &stmt.node {
-        StmtKind::Pass { .. } => {}
-        StmtKind::Expr { value, .. } => {
-            generator.gen_expr(ctx, value)?;
-        }
-        StmtKind::Return { value, .. } => {
-            gen_return(generator, ctx, value)?;
-        }
-        StmtKind::AnnAssign { target, value, .. } => {
-            if let Some(value) = value {
+    ctx.with_loc(stmt.location, |ctx| {
+        match &stmt.node {
+            StmtKind::Pass { .. } => {}
+            StmtKind::Expr { value, .. } => {
+                generator.gen_expr(ctx, value)?;
+            }
+            StmtKind::Return { value, .. } => {
+                gen_return(generator, ctx, value)?;
+            }
+            StmtKind::AnnAssign { target, value, .. } => {
+                if let Some(value) = value {
+                    let value_enum = generator.gen_expr(ctx, value)?.val.unwrap();
+                    generator.gen_assign(ctx, target, &value_enum, value.custom.unwrap())?;
+                }
+            }
+            StmtKind::Assign { targets, value, .. } => {
                 let value_enum = generator.gen_expr(ctx, value)?.val.unwrap();
+                for target in targets {
+                    generator.gen_assign(
+                        ctx,
+                        target,
+                        &value_enum.clone(),
+                        value.custom.unwrap(),
+                    )?;
+                }
+            }
+            StmtKind::Continue { .. } => {
+                ctx.builder.build_unconditional_branch(ctx.loop_target.unwrap().0)?;
+            }
+            StmtKind::Break { .. } => {
+                ctx.builder.build_unconditional_branch(ctx.loop_target.unwrap().1)?;
+            }
+            StmtKind::If { .. } => generator.gen_if(ctx, stmt)?,
+            StmtKind::While { .. } => generator.gen_while(ctx, stmt)?,
+            StmtKind::For { .. } => generator.gen_for(ctx, stmt)?,
+            StmtKind::With { .. } => generator.gen_with(ctx, stmt)?,
+            StmtKind::AugAssign { target, op, value, .. } => {
+                let result_ty = target.custom.unwrap();
+                let value_enum = gen_binop_expr(
+                    generator,
+                    ctx,
+                    target,
+                    Binop::aug_assign(*op),
+                    value,
+                    result_ty,
+                )?
+                .val
+                .unwrap();
                 generator.gen_assign(ctx, target, &value_enum, value.custom.unwrap())?;
             }
-        }
-        StmtKind::Assign { targets, value, .. } => {
-            let value_enum = generator.gen_expr(ctx, value)?.val.unwrap();
-            for target in targets {
-                generator.gen_assign(ctx, target, &value_enum.clone(), value.custom.unwrap())?;
-            }
-        }
-        StmtKind::Continue { .. } => {
-            ctx.builder.build_unconditional_branch(ctx.loop_target.unwrap().0)?;
-        }
-        StmtKind::Break { .. } => {
-            ctx.builder.build_unconditional_branch(ctx.loop_target.unwrap().1)?;
-        }
-        StmtKind::If { .. } => generator.gen_if(ctx, stmt)?,
-        StmtKind::While { .. } => generator.gen_while(ctx, stmt)?,
-        StmtKind::For { .. } => generator.gen_for(ctx, stmt)?,
-        StmtKind::With { .. } => generator.gen_with(ctx, stmt)?,
-        StmtKind::AugAssign { target, op, value, .. } => {
-            let result_ty = target.custom.unwrap();
-            let value_enum = gen_binop_expr(
-                generator,
-                ctx,
-                target,
-                Binop::aug_assign(*op),
-                value,
-                stmt.location,
-                result_ty,
-            )?
-            .val
-            .unwrap();
-            generator.gen_assign(ctx, target, &value_enum, value.custom.unwrap())?;
-        }
-        StmtKind::Try { .. } => gen_try(generator, ctx, stmt)?,
-        StmtKind::Raise { exc, .. } => {
-            if let Some(exc) = exc {
-                let exn = if let ExprKind::Name { id, .. } = &exc.node {
-                    // Handle "raise Exception" short form
-                    let def_id = ctx
-                        .resolver
-                        .get_identifier_def(*id)
-                        .map_err(|e| anyhow!("{} (at {})", e.first().unwrap(), exc.location))?;
-                    let def = ctx.top_level.definitions.read();
-                    let TopLevelDef::Class { constructor, .. } = *def[def_id.0].read() else {
-                        bail!("Failed to resolve symbol {id} (at {})", exc.location);
+            StmtKind::Try { .. } => gen_try(generator, ctx, stmt)?,
+            StmtKind::Raise { exc, .. } => {
+                if let Some(exc) = exc {
+                    let exn = if let ExprKind::Name { id, .. } = &exc.node {
+                        // Handle "raise Exception" short form
+                        let def_id = ctx
+                            .resolver
+                            .get_identifier_def(*id)
+                            .map_err(|e| anyhow!("{} (at {})", e.first().unwrap(), exc.location))?;
+                        let def = ctx.top_level.definitions.read();
+                        let TopLevelDef::Class { constructor, .. } = *def[def_id.0].read() else {
+                            bail!("Failed to resolve symbol {id} (at {})", exc.location);
+                        };
+
+                        let TypeEnum::TFunc(signature) =
+                            ctx.unifier.get_ty(constructor.unwrap()).as_ref().clone()
+                        else {
+                            bail!("Failed to resolve symbol {id} (at {})", exc.location);
+                        };
+
+                        generator
+                            .gen_call(ctx, None, (&signature, def_id), Vec::default())?
+                            .map(ValueEnum::Dynamic)
+                    } else {
+                        generator.gen_expr(ctx, exc)?.val
                     };
 
-                    let TypeEnum::TFunc(signature) =
-                        ctx.unifier.get_ty(constructor.unwrap()).as_ref().clone()
-                    else {
-                        bail!("Failed to resolve symbol {id} (at {})", exc.location);
+                    let exc = if let Some(v) = exn {
+                        v.to_basic_value_enum(ctx, exc.custom.unwrap())?
+                    } else {
+                        return Ok(());
                     };
-
-                    generator
-                        .gen_call(ctx, None, (&signature, def_id), Vec::default())?
-                        .map(ValueEnum::Dynamic)
+                    let exc = ExceptionType::new(ctx).map_value(exc.into_pointer_value(), None);
+                    gen_raise(ctx, Some(&exc))?;
                 } else {
-                    generator.gen_expr(ctx, exc)?.val
-                };
-
-                let exc = if let Some(v) = exn {
-                    v.to_basic_value_enum(ctx, exc.custom.unwrap())?
-                } else {
-                    return Ok(());
-                };
-                let exc = ExceptionType::new(ctx).map_value(exc.into_pointer_value(), None);
-                gen_raise(ctx, Some(&exc), stmt.location)?;
-            } else {
-                gen_raise(ctx, None, stmt.location)?;
+                    gen_raise(ctx, None)?;
+                }
             }
-        }
-        StmtKind::Assert { test, msg, .. } => {
-            let test = generator.gen_expr(ctx, test)?.to_basic_value_enum(ctx)?;
+            StmtKind::Assert { test, msg, .. } => {
+                let test = generator.gen_expr(ctx, test)?.to_basic_value_enum(ctx)?;
 
-            let err_msg = match msg {
-                Some(msg) => generator.gen_expr(ctx, msg)?.to_basic_value_enum(ctx)?,
-                None => ctx.gen_string("")?.into(),
-            };
-            ctx.make_assert_impl(
-                bool_to_i1(ctx, test.into_int_value())?,
-                "0:AssertionError",
-                err_msg,
-                [None, None, None],
-                stmt.location,
-            )?;
-        }
-        _ => unimplemented!(),
-    }
-    Ok(())
+                let err_msg = match msg {
+                    Some(msg) => generator.gen_expr(ctx, msg)?.to_basic_value_enum(ctx)?,
+                    None => ctx.gen_string("")?.into(),
+                };
+                ctx.make_assert_impl(
+                    bool_to_i1(ctx, test.into_int_value())?,
+                    "0:AssertionError",
+                    err_msg,
+                    [None, None, None],
+                )?;
+            }
+            _ => unimplemented!(),
+        };
+        Ok(())
+    })
 }
 
 /// Generates IR for a block statement contains `stmts`.

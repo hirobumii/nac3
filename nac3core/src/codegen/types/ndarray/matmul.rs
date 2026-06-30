@@ -3,10 +3,17 @@ use nac3parser::ast::Operator;
 
 use crate::{
     codegen::{
-        CodeGenContext, expr::{call_extern, gen_prim_binop_expr}, stmt::gen_for_callback_incrementing, types::{
-            NDArrayValue, RefCountedArrayValue, array::ArrayLikeIndexer, ndarray::{NDArrayOut, assert_ndarray_can_be_written_by_out, indexing::RustNDIndex},
+        CodeGenContext,
+        expr::{call_extern, gen_prim_binop_expr},
+        stmt::gen_for_callback_incrementing,
+        types::{
+            NDArrayValue, RefCountedArrayValue,
+            array::ArrayLikeIndexer,
+            ndarray::{NDArrayOut, assert_ndarray_can_be_written_by_out, indexing::RustNDIndex},
         },
-    }, toplevel::helper::arraylike_flatten_element_type, typecheck::{magic_methods::Binop, typedef::Type},
+    },
+    toplevel::helper::arraylike_flatten_element_type,
+    typecheck::{magic_methods::Binop, typedef::Type},
 };
 
 /// Perform `np.einsum("...ij,...jk->...ik", in_a, in_b)`.

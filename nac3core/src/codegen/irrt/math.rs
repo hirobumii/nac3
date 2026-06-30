@@ -35,7 +35,6 @@ pub fn integer_power<'ctx>(
         "0:ValueError",
         "integer power must be positive or zero",
         [None, None, None],
-        ctx.current_loc,
     )?;
 
     call_extern!(ctx: base_type "call_int_pow" = symbol(base, exp))

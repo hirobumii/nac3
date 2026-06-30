@@ -112,7 +112,6 @@ impl<'ctx> ListType<'ctx> {
                         "0:AssertionError",
                         "Cannot allocate a non-empty list with unknown element type",
                         [None, None, None],
-                        ctx.current_loc,
                     )?;
                 }
                 null

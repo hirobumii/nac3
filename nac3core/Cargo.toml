@@ -21,8 +21,11 @@ nac3parser = { path = "../nac3parser" }
 strum = "0.28"
 strum_macros = "0.28"
 
+# TODO: revert back to the crates.io version once https://github.com/TheDan64/inkwell/pull/683
+# is included in the latest release.
 [dependencies.inkwell]
-version = "0.9"
+git = "https://github.com/TheDan64/inkwell"
+rev = "317feaf109d990271b5194d7b414dee98628bd95"
 default-features = false
 features = ["llvm22-1-prefer-dynamic", "target-x86", "target-arm", "target-riscv", "no-libffi-linking"]
 

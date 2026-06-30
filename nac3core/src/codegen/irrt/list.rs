@@ -92,7 +92,6 @@ pub fn list_slice_assignment<'ctx>(
         "0:ValueError",
         "attempt to assign sequence of size {0} to slice of size {1} with step size {2}",
         [Some(src_slice_len), Some(dest_slice_len), Some(dest_idx.2)],
-        ctx.current_loc,
     )?;
 
     let new_len = call_extern!(ctx: llvm_i32 "slice_assign" = fun_symbol(

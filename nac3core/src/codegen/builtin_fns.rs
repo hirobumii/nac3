@@ -808,7 +808,6 @@ pub fn call_numpy_max_min<'ctx>(
                     "0:ValueError",
                     format!("zero-size array to reduction operation {fn_name}").as_str(),
                     [None, None, None],
-                    ctx.current_loc,
                 )?;
             }
 

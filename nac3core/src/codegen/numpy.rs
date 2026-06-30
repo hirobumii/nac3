@@ -309,7 +309,6 @@ pub fn ndarray_dot<'ctx>(
                 "0:ValueError",
                 "shapes ({0},) and ({1},) not aligned: {0} (dim 0) != {1} (dim 1)",
                 [Some(a_size), Some(b_size), None],
-                ctx.current_loc,
             )?;
 
             let dtype_llvm = ctx.get_llvm_type(common_dtype);

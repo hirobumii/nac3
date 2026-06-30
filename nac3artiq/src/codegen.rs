@@ -1098,7 +1098,6 @@ fn format_rpc_ret<'ctx>(
                     "0:AssertionError",
                     "Unexpected RPC termination for ndarray - Expected data buffer next",
                     [None, None, None],
-                    ctx.current_loc,
                 )?;
             }
 
@@ -1134,13 +1133,7 @@ fn format_rpc_ret<'ctx>(
                     "",
                 )?;
 
-                ctx.make_assert(
-                    cmp,
-                    "0:AssertionError",
-                    "Unexpected allocation size request for ndarray data - Expected up to {0} bytes, got {1} bytes",
-                    [Some(expected_ndarray_nbytes), Some(ndarray_nbytes), None],
-                    ctx.current_loc,
-                )?;
+                ctx.make_assert(cmp, "0:AssertionError", "Unexpected allocation size request for ndarray data - Expected up to {0} bytes, got {1} bytes", [Some(expected_ndarray_nbytes), Some(ndarray_nbytes), None])?;
             }
 
             let ndarray_offset = ndarray.inner_value(ctx)?.load(ctx, field!(offset))?;

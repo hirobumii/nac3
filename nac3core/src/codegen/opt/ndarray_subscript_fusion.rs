@@ -182,7 +182,6 @@ fn gen_chain_element_ptr<'ctx, G: CodeGenerator>(
             "0:IndexError",
             "index {0} is out of bounds for axis {1} with size {2}",
             [Some(index), Some(size_t.const_int(*display_axis, false)), Some(dim)],
-            index_ast.location,
         )?;
 
         let slot = unsafe {

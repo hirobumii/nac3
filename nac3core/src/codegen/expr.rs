@@ -10,6 +10,8 @@ use anyhow::{anyhow, bail};
 use inkwell::{
     IntPredicate,
     basic_block::BasicBlock,
+    builder::Builder,
+    debug_info::DILocation,
     types::BasicTypeEnum,
     values::{BasicValueEnum, IntValue, PointerValue, StructValue},
 };
@@ -286,12 +288,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
             Constant::Ellipsis => {
                 let msg = self.gen_string("NotImplementedError")?;
 
-                self.raise_exn(
-                    "0:NotImplementedError",
-                    msg.into(),
-                    [None, None, None],
-                    self.current_loc,
-                )?;
+                self.raise_exn("0:NotImplementedError", msg.into(), [None, None, None])?;
 
                 None
             }
@@ -358,7 +355,6 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
                     "ValueError",
                     "negative shift count",
                     [None, None, None],
-                    self.current_loc,
                 )?;
 
                 match op {
@@ -420,15 +416,6 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
         call_name: &str,
         unwind_target: Option<BasicBlock<'ctx>>,
     ) -> anyhow::Result<Option<BasicValueEnum<'ctx>>> {
-        let loc = self.debug_info.0.create_debug_location(
-            self.ctx,
-            self.current_loc.row as u32,
-            self.current_loc.column as u32,
-            self.debug_info.2,
-            None,
-        );
-        self.builder.set_current_debug_location(loc);
-
         let allocate = |ctx: &CodeGenContext<'ctx, 'a>, ty| {
             ctx.build_allocate(AllocationScope::Default, ty, Some(call_name))
         };
@@ -501,7 +488,6 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
         name: &str,
         msg: BasicValueEnum<'ctx>,
         params: [Option<IntValue<'ctx>>; 3],
-        loc: Location,
     ) -> anyhow::Result<()> {
         let llvm_i32 = self.i32;
         let llvm_i64 = self.i64;
@@ -524,7 +510,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
         zelf.store(self, field!(param0), params[0])?;
         zelf.store(self, field!(param1), params[1])?;
         zelf.store(self, field!(param2), params[2])?;
-        gen_raise(self, Some(&zelf), loc)?;
+        gen_raise(self, Some(&zelf))?;
 
         Ok(())
     }
@@ -535,10 +521,9 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
         err_name: &str,
         err_msg: &str,
         params: [Option<IntValue<'ctx>>; 3],
-        loc: Location,
     ) -> anyhow::Result<()> {
         let err_msg = self.gen_string(err_msg)?;
-        self.make_assert_impl(cond, err_name, err_msg.into(), params, loc)
+        self.make_assert_impl(cond, err_name, err_msg.into(), params)
     }
 
     pub fn make_assert_impl(
@@ -547,7 +532,6 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
         err_name: &str,
         err_msg: BasicValueEnum<'ctx>,
         params: [Option<IntValue<'ctx>>; 3],
-        loc: Location,
     ) -> anyhow::Result<()> {
         let i1 = self.i1;
         let i1_true = i1.const_all_ones();
@@ -562,9 +546,52 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
         let exn_block = self.ctx.append_basic_block(current_fun, "fail");
         self.builder.build_conditional_branch(cond, then_block, exn_block)?;
         self.builder.position_at_end(exn_block);
-        self.raise_exn(err_name, err_msg, params, loc)?;
+        self.raise_exn(err_name, err_msg, params)?;
         self.builder.position_at_end(then_block);
         Ok(())
+    }
+
+    /// Create a scope with the specified debug location.
+    pub fn with_loc<T>(&mut self, location: Location, f: impl FnOnce(&mut Self) -> T) -> T {
+        fn set_loc<'ctx>(
+            this: &mut CodeGenContext<'ctx, '_>,
+            location: Location,
+        ) -> Option<DILocation<'ctx>> {
+            this.current_loc = location;
+            let loc = this.debug_info.0.create_debug_location(
+                this.ctx,
+                this.current_loc.row as u32,
+                this.current_loc.column as u32,
+                this.debug_info.2,
+                None,
+            );
+            let old = this.builder.get_current_debug_location();
+            this.builder.set_current_debug_location(loc);
+            old
+        }
+        fn unset_loc<'ctx>(this: &mut CodeGenContext<'ctx, '_>, old: Option<DILocation<'ctx>>) {
+            if let Some(old) = old {
+                this.builder.set_current_debug_location(old);
+            } else {
+                this.builder.unset_current_debug_location();
+            }
+        }
+
+        let old = set_loc(self, location);
+        let result = f(self);
+        unset_loc(self, old);
+        result
+    }
+
+    /// Construct a new builder at the current debug location.
+    ///
+    /// The returned builder is not attached to any basic block.
+    pub fn new_builder(&self) -> Builder<'ctx> {
+        let b = self.ctx.create_builder();
+        if let Some(loc) = self.builder.get_current_debug_location() {
+            b.set_current_debug_location(loc)
+        }
+        b
     }
 }
 
@@ -612,7 +639,13 @@ pub fn gen_func_instance(
     let (
         sign,
         TopLevelDef::Function {
-            name, instance_to_symbol, instance_to_stmt, var_id, resolver, ..
+            name,
+            instance_to_symbol,
+            instance_to_stmt,
+            var_id,
+            resolver,
+            loc,
+            ..
         },
         key,
     ) = fun
@@ -669,6 +702,7 @@ pub fn gen_func_instance(
 
     ctx.registry.add_task(CodeGenTask {
         symbol_name: symbol.clone(),
+        location: loc.unwrap_or_default(),
         body: instance.body.clone(),
         export_symbol: false,
         resolver: resolver.as_ref().unwrap().clone(),
@@ -1213,7 +1247,6 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
     left: (&Option<Type>, BasicValueEnum<'ctx>),
     op: Binop,
     right: (&Option<Type>, BasicValueEnum<'ctx>),
-    loc: Location,
 ) -> anyhow::Result<BasicValueEnum<'ctx>> {
     if let Some(result) = gen_prim_binop_expr(ctx, left, op, right)? {
         return Ok(result);
@@ -1281,7 +1314,6 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
                     (&Some(ty1_dtype), left_value),
                     op,
                     (&Some(ty2_dtype), right_value),
-                    ctx.current_loc,
                 )?;
 
                 Ok(result)
@@ -1307,7 +1339,7 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
             }
         };
 
-        let signature = if let Some(call) = ctx.calls.get(&loc.into()) {
+        let signature = if let Some(call) = ctx.calls.get(&ctx.current_loc.into()) {
             ctx.unifier.get_call_signature(*call).unwrap()
         } else {
             let left_enum_ty = ctx.unifier.get_ty_immutable(left_ty.unwrap());
@@ -1345,14 +1377,12 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
 /// * `left` - The left-hand side of the binary operator.
 /// * `op` - The operator applied on the operands.
 /// * `right` - The right-hand side of the binary operator.
-/// * `loc` - The location of the full expression.
 pub fn gen_binop_expr<'ctx, G: CodeGenerator>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
     left: &Expr<Option<Type>>,
     op: Binop,
     right: &Expr<Option<Type>>,
-    loc: Location,
     result_ty: Type,
 ) -> anyhow::Result<RtValue<'ctx>> {
     let left_val = generator.gen_expr(ctx, left)?.to_basic_value_enum(ctx)?;
@@ -1364,7 +1394,6 @@ pub fn gen_binop_expr<'ctx, G: CodeGenerator>(
         (&left.custom, left_val),
         op,
         (&right.custom, right_val),
-        loc,
     )?;
 
     Ok(RtValue::dynamic(result_ty, result))
@@ -1844,13 +1873,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                 })
             } else if [left_ty, right_ty].iter().any(|ty| matches!(&*ctx.unifier.get_ty_immutable(*ty), TypeEnum::TVar { .. })) {
                 if ctx.registry.codegen_options.debug {
-                    ctx.make_assert(
-                        ctx.i1.const_zero(),
-                        "0:AssertionError",
-                        "nac3core::codegen::expr::gen_cmpop_expr_with_values: Unexpected comparison between two typevar values",
-                        [None, None, None],
-                        ctx.current_loc,
-                    )?;
+                    ctx.make_assert(ctx.i1.const_zero(), "0:AssertionError", "nac3core::codegen::expr::gen_cmpop_expr_with_values: Unexpected comparison between two typevar values", [None, None, None])?;
                 }
 
                 Ok(ctx.i1.get_poison())
@@ -2173,6 +2196,7 @@ fn gen_call_expr<'ctx, G: CodeGenerator>(
         let val = generator.gen_expr(ctx, &kw.node.value)?.val.unwrap();
         params.push((Some(*kw.node.arg.as_ref().unwrap()), val));
     }
+
     let call = ctx.calls.get(&expr.location.into());
     let signature = if let Some(call) = call {
         ctx.unifier.get_call_signature(*call).unwrap()
@@ -2249,7 +2273,6 @@ fn gen_call_expr<'ctx, G: CodeGenerator>(
 
             // If the function is static, we can call it directly
             if is_static {
-                ctx.current_loc = expr.location;
                 let ret_val = generator.gen_call(ctx, None, (&signature, fun_id), params)?;
                 return Ok(
                     ret_val.map_or_else(|| RtValue::none(ty), |val| RtValue::dynamic(ty, val))
@@ -2283,12 +2306,7 @@ fn gen_call_expr<'ctx, G: CodeGenerator>(
                                 ctx.ctx.append_basic_block(current_fun, "unwrap_none_exception");
                             ctx.builder.build_unconditional_branch(exn_block)?;
                             ctx.builder.position_at_end(exn_block);
-                            ctx.raise_exn(
-                                "0:UnwrapNoneError",
-                                err_msg.into(),
-                                [None, None, None],
-                                ctx.current_loc,
-                            )?;
+                            ctx.raise_exn("0:UnwrapNoneError", err_msg.into(), [None, None, None])?;
                             ctx.builder.position_at_end(unreachable_block);
                             let ptr = ctx.ptr.const_null();
                             let loaded_val = ctx.builder.build_load(
@@ -2302,13 +2320,7 @@ fn gen_call_expr<'ctx, G: CodeGenerator>(
                     ValueEnum::Dynamic(BasicValueEnum::PointerValue(ptr)) => {
                         let option = OptionType::from_unifier_type(ctx, key).map_value(ptr, None);
                         let not_null = option.is_some(ctx)?;
-                        ctx.make_assert(
-                            not_null,
-                            "0:UnwrapNoneError",
-                            "",
-                            [None, None, None],
-                            expr.location,
-                        )?;
+                        ctx.make_assert(not_null, "0:UnwrapNoneError", "", [None, None, None])?;
                         let loaded = option.get(ctx, None)?;
                         RtValue::dynamic(ty, loaded)
                     }
@@ -2318,9 +2330,6 @@ fn gen_call_expr<'ctx, G: CodeGenerator>(
                 };
                 return Ok(res);
             }
-
-            // Reset current_loc back to the location of the call
-            ctx.current_loc = expr.location;
 
             let ret_val =
                 generator.gen_call(ctx, Some((key, val)), (&signature, fun_id), params)?;
@@ -2401,7 +2410,6 @@ fn gen_subscript_expr<'ctx, G: CodeGenerator>(
                     "0:IndexError",
                     "index {0} out of bounds 0:{1}",
                     [Some(raw_index), Some(len), None],
-                    expr.location,
                 )?;
                 let result = v
                     .inner_value(ctx)?
@@ -2500,77 +2508,70 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     expr: &Expr<Option<Type>>,
 ) -> anyhow::Result<RtValue<'ctx>> {
-    ctx.current_loc = expr.location;
+    ctx.with_loc(expr.location, |ctx| {
+        let ty = expr.custom.expect("expressions always have a well-defined type");
 
-    let loc = ctx.debug_info.0.create_debug_location(
-        ctx.ctx,
-        ctx.current_loc.row as u32,
-        ctx.current_loc.column as u32,
-        ctx.debug_info.2,
-        None,
-    );
-    ctx.builder.set_current_debug_location(loc);
-
-    let ty = expr.custom.expect("expressions always have a well-defined type");
-
-    match &expr.node {
-        ExprKind::Constant { value, .. } => ctx
-            .gen_const(value, ty)?
-            .map_or_else(|| Ok(RtValue::none(ty)), |const_val| Ok(RtValue::dynamic(ty, const_val))),
-        ExprKind::Name { id, .. } if id == &"none".into() => match &*ctx.unifier.get_ty(ty) {
-            TypeEnum::TObj { obj_id, .. }
-                if *obj_id == ctx.primitives.option.obj_id(&ctx.unifier).unwrap() =>
-            {
-                let val = OptionType::from_unifier_type(ctx, ty).construct(ctx, None, None)?.value;
-                Ok(RtValue::dynamic(ty, val.into()))
-            }
-            _ => codegen_unreachable!(ctx, "must be option type"),
-        },
-        ExprKind::Name { id, .. } => {
-            let llvm_ty = ctx.get_llvm_type(ty);
-            match ctx.var_assignment.get(id) {
-                Some(VarValue { ptr, static_value: None, .. }) => {
-                    let val = ctx.builder.build_load(llvm_ty, *ptr, id.to_string().as_str())?;
-                    // TODO(Derppening): Add refcount incr here instead(?)
-                    Ok(RtValue::dynamic(ty, val))
+        match &expr.node {
+            ExprKind::Constant { value, .. } => ctx.gen_const(value, ty)?.map_or_else(
+                || Ok(RtValue::none(ty)),
+                |const_val| Ok(RtValue::dynamic(ty, const_val)),
+            ),
+            ExprKind::Name { id, .. } if id == &"none".into() => match &*ctx.unifier.get_ty(ty) {
+                TypeEnum::TObj { obj_id, .. }
+                    if *obj_id == ctx.primitives.option.obj_id(&ctx.unifier).unwrap() =>
+                {
+                    let val =
+                        OptionType::from_unifier_type(ctx, ty).construct(ctx, None, None)?.value;
+                    Ok(RtValue::dynamic(ty, val.into()))
                 }
-                Some(VarValue { static_value: Some(static_value), .. }) => {
-                    Ok(RtValue::r#static(ty, static_value.clone()))
-                }
-                None => {
-                    let resolver = ctx.resolver.clone();
-                    let val = resolver.get_symbol_value(*id, ctx)?.unwrap();
-                    // get_symbol_value returns a ValueEnum
-                    Ok(RtValue { ty, val: Some(val) })
+                _ => codegen_unreachable!(ctx, "must be option type"),
+            },
+            ExprKind::Name { id, .. } => {
+                let llvm_ty = ctx.get_llvm_type(ty);
+                match ctx.var_assignment.get(id) {
+                    Some(VarValue { ptr, static_value: None, .. }) => {
+                        let val = ctx.builder.build_load(llvm_ty, *ptr, id.to_string().as_str())?;
+                        // TODO(Derppening): Add refcount incr here instead(?)
+                        Ok(RtValue::dynamic(ty, val))
+                    }
+                    Some(VarValue { static_value: Some(static_value), .. }) => {
+                        Ok(RtValue::r#static(ty, static_value.clone()))
+                    }
+                    None => {
+                        let resolver = ctx.resolver.clone();
+                        let val = resolver.get_symbol_value(*id, ctx)?.unwrap();
+                        // get_symbol_value returns a ValueEnum
+                        Ok(RtValue { ty, val: Some(val) })
+                    }
                 }
             }
+            ExprKind::List { elts, .. } => gen_list_expr(generator, ctx, ty, elts),
+            ExprKind::Tuple { elts, .. } => gen_tuple_expr(generator, ctx, ty, elts),
+            ExprKind::Attribute { value, attr, .. } => {
+                gen_attr_expr(generator, ctx, ty, expr, value, *attr)
+            }
+            ExprKind::BoolOp { op, values } => gen_boolop_expr(generator, ctx, ty, *op, values),
+            ExprKind::BinOp { op, left, right } => {
+                gen_binop_expr(generator, ctx, left, Binop::normal(*op), right, ty)
+            }
+            ExprKind::UnaryOp { op, operand } => gen_unaryop_expr(generator, ctx, *op, operand, ty),
+            ExprKind::Compare { left, ops, comparators } => {
+                gen_cmpop_expr(generator, ctx, left, ops, comparators, ty)
+            }
+            ExprKind::IfExp { test, body, orelse } => {
+                gen_ifexp_expr(generator, ctx, ty, test, body, orelse)
+            }
+            ExprKind::Call { func, args, keywords } => {
+                gen_call_expr(generator, ctx, ty, expr, func, args, keywords)
+            }
+            ExprKind::Subscript { value, slice, .. } => {
+                gen_subscript_expr(generator, ctx, ty, expr, value, slice)
+            }
+            ExprKind::ListComp { .. } => (gen_comprehension(generator, ctx, expr)?)
+                .map_or_else(|| Ok(RtValue::none(ty)), |v| Ok(RtValue::dynamic(ty, v))),
+            _ => unimplemented!(),
         }
-        ExprKind::List { elts, .. } => gen_list_expr(generator, ctx, ty, elts),
-        ExprKind::Tuple { elts, .. } => gen_tuple_expr(generator, ctx, ty, elts),
-        ExprKind::Attribute { value, attr, .. } => {
-            gen_attr_expr(generator, ctx, ty, expr, value, *attr)
-        }
-        ExprKind::BoolOp { op, values } => gen_boolop_expr(generator, ctx, ty, *op, values),
-        ExprKind::BinOp { op, left, right } => {
-            gen_binop_expr(generator, ctx, left, Binop::normal(*op), right, expr.location, ty)
-        }
-        ExprKind::UnaryOp { op, operand } => gen_unaryop_expr(generator, ctx, *op, operand, ty),
-        ExprKind::Compare { left, ops, comparators } => {
-            gen_cmpop_expr(generator, ctx, left, ops, comparators, ty)
-        }
-        ExprKind::IfExp { test, body, orelse } => {
-            gen_ifexp_expr(generator, ctx, ty, test, body, orelse)
-        }
-        ExprKind::Call { func, args, keywords } => {
-            gen_call_expr(generator, ctx, ty, expr, func, args, keywords)
-        }
-        ExprKind::Subscript { value, slice, .. } => {
-            gen_subscript_expr(generator, ctx, ty, expr, value, slice)
-        }
-        ExprKind::ListComp { .. } => (gen_comprehension(generator, ctx, expr)?)
-            .map_or_else(|| Ok(RtValue::none(ty)), |v| Ok(RtValue::dynamic(ty, v))),
-        _ => unimplemented!(),
-    }
+    })
 }
 
 trait __ReturnType<'ctx> {

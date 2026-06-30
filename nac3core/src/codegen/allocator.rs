@@ -48,26 +48,15 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
         late: bool,
         build_alloc_instr_fn: impl FnOnce(&Builder<'ctx>) -> anyhow::Result<T>,
     ) -> anyhow::Result<T> {
-        // Restore debug location
-        let di_loc = self.debug_info.0.create_debug_location(
-            self.ctx,
-            self.current_loc.row as u32,
-            self.current_loc.column as u32,
-            self.debug_info.2,
-            None,
-        );
-
         let new_builder;
         let builder = if late {
             self.builder
         } else {
-            new_builder = self.ctx.create_builder();
+            new_builder = self.new_builder();
             // position before the last branching instruction...
             new_builder.position_before(&self.init_bb.get_last_instruction().unwrap());
             &new_builder
         };
-
-        builder.set_current_debug_location(di_loc);
         build_alloc_instr_fn(builder)
     }
 

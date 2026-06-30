@@ -680,7 +680,6 @@ impl<'a> BuiltinBuilder<'a> {
                                 "0:ValueError",
                                 "range() step must not be zero",
                                 [None, None, None],
-                                ctx.current_loc,
                             )?;
                             step
                         }

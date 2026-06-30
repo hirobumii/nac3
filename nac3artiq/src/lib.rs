@@ -1216,16 +1216,16 @@ impl Nac3 {
             }
         }
 
-        let instance = {
+        let (instance, location) = {
             let defs = top_level.definitions.read();
-            let TopLevelDef::Function { instance_to_stmt, instance_to_symbol, .. } =
+            let TopLevelDef::Function { instance_to_stmt, instance_to_symbol, loc, .. } =
                 &mut *defs[def_id.0].write()
             else {
                 unreachable!()
             };
 
             instance_to_symbol.insert(String::new(), "__modinit__".into());
-            instance_to_stmt[""].clone()
+            (instance_to_stmt[""].clone(), *loc)
         };
 
         let task = CodeGenTask {
@@ -1233,6 +1233,7 @@ impl Nac3 {
             symbol_name: "__modinit__".to_string(),
             export_symbol: true,
             body: Arc::new(Vec::default()),
+            location: location.unwrap_or_default(),
             signature,
             resolver,
             store,
@@ -1280,12 +1281,10 @@ impl Nac3 {
 
             context_ref!(context);
             let mut context = ModuleContext::new(context, "main", &self.codegen_options.target);
-            let builder = context.ctx.create_builder();
             let mut unifier_cache = vec![OnceCell::new(); top_level.unifiers.read().len()];
 
             gen_func_impl(
                 &mut context,
-                &builder,
                 &mut generator,
                 &registry,
                 task,
