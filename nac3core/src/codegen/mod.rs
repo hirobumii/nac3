@@ -856,8 +856,7 @@ pub fn gen_func_impl<
 
     let exception_val = {
         let exn_type = ExceptionType::new(ctx).inner.llvm_ty;
-        let ptr = builder.build_alloca(exn_type, "exn")?;
-        builder.build_pointer_cast(ptr, ctx.ptr, "exn")?
+        builder.build_alloca(exn_type, "exn")?
     };
 
     builder.build_unconditional_branch(body_bb)?;

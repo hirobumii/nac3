@@ -2114,8 +2114,7 @@ pub fn gen_raise<'ctx>(
         exception.store(ctx, field!(func), fun_name)?;
 
         let raise = get_builtins(ctx, "__nac3_raise");
-        let exception = ctx.builder.build_pointer_cast(exception.value, ctx.ptr, "")?;
-        ctx.build_call_or_invoke(&raise, &[exception.into()], "raise")?;
+        ctx.build_call_or_invoke(&raise, &[exception.value.into()], "raise")?;
     } else {
         let resume = get_builtins(ctx, "__nac3_resume");
         ctx.build_call_or_invoke(&resume, &[], "resume")?;

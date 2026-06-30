@@ -167,7 +167,6 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
                 AllocationScope::Default => unreachable!(),
             })
         })?;
-        let ptr = self.builder.build_pointer_cast(ptr, self.ptr, name.unwrap_or_default())?;
         Ok(ArraySliceValue::new(ty, ptr, size, name))
     }
 
@@ -233,7 +232,6 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
                 AllocationScope::Default | AllocationScope::StackStartOfFunc => unreachable!(),
             })
         })?;
-        let ptr = self.builder.build_pointer_cast(ptr, self.ptr, name.unwrap_or_default())?;
         Ok(ArraySliceValue::new(ty, ptr, size, name))
     }
 }

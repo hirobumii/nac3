@@ -806,13 +806,8 @@ pub fn gen_call<'ctx, G: CodeGenerator>(
             anyhow::Ok(if ctx.unifier.unioned(ctx.primitives.bool, t) {
                 // Convert boolean parameter values into i1
                 (bool_to_i1(ctx, v.into_int_value())?.into(), false)
-            } else if let BasicValueEnum::PointerValue(p) = v {
-                (
-                    ctx.builder.build_pointer_cast(p, ctx.ptr, "ptr_cast")?.into(),
-                    is_refcounted_type(&mut ctx.unifier, t),
-                )
             } else {
-                (v, false)
+                (v, is_refcounted_type(&mut ctx.unifier, t))
             })
         })
         .collect::<Result<Vec<_>, _>>()?;

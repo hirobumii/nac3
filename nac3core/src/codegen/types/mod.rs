@@ -170,7 +170,6 @@ pub trait ProxyTypeBase<'ctx> {
     {
         let alloca = self.alloca_ty(ctx);
         let ptr = ctx.build_allocate(AllocationScope::StackStartOfFunc, alloca, name)?;
-        let ptr = ctx.builder.build_pointer_cast(ptr, ctx.ptr, "ptr_cast")?;
         Ok(Value { ty: *self, value: ptr, name })
     }
 
@@ -193,7 +192,6 @@ pub trait ProxyTypeBase<'ctx> {
             alloca,
             name.map(|n| format!("{n}.alloc")).as_deref(),
         )?;
-        let ptr = ctx.builder.build_pointer_cast(ptr, ctx.ptr, name.unwrap_or_default())?;
         Ok(Value { ty: *self, value: ptr, name })
     }
 
