@@ -87,11 +87,7 @@ pub fn parse_numpy_int_sequence<'ctx>(
 
             let len = input_seq.ty.num_elements();
 
-            let result = RefCountedArrayType::new(ctx, llvm_usize, Some(len)).alloca(
-                ctx,
-                ctx.size_t.const_int(u64::from(len), false),
-                None,
-            )?;
+            let result = RefCountedArrayValue::new(ctx, llvm_usize, len, None)?;
 
             for i in 0..input_seq.ty.num_elements() {
                 // Get the i-th element off of the tuple and load it into `result`.
@@ -116,11 +112,7 @@ pub fn parse_numpy_int_sequence<'ctx>(
 
             let input_int = input_seq.into_int_value();
 
-            let result = RefCountedArrayType::new(ctx, llvm_usize, Some(1)).alloca(
-                ctx,
-                ctx.size_t.const_int(1, false),
-                None,
-            )?;
+            let result = RefCountedArrayValue::new(ctx, llvm_usize, 1, None)?;
             let int = ctx.builder.build_int_s_extend_or_bit_cast(input_int, llvm_usize, "")?;
 
             // Storing into result[0]

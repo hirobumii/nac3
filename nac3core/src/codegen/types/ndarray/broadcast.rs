@@ -114,8 +114,7 @@ pub fn broadcast<'ctx>(
     let shape_entry_ty = ShapeEntryType::new(ctx);
     let shape_entries = ctx.size_t.const_int(ndarrays.len() as _, false);
     let arr =
-        RefCountedArrayType::new(ctx, shape_entry_ty.inner.llvm_ty, Some(ndarrays.len() as _))
-            .alloca(ctx, ctx.size_t.const_int(ndarrays.len() as _, false), None)?;
+        RefCountedArrayValue::new(ctx, shape_entry_ty.inner.llvm_ty, ndarrays.len() as _, None)?;
 
     // Store shapes into memory.
     for (i, ndarray) in ndarrays.iter().enumerate() {

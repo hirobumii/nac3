@@ -236,28 +236,6 @@ impl<'ctx> OpaqueRefCountedType<'ctx> {
 impl<'ctx> ProxyTypeBase<'ctx> for OpaqueRefCountedType<'ctx> {
     type Value = PointerValue<'ctx>;
 
-    fn alloca(
-        &self,
-        _ctx: &mut CodeGenContext<'ctx, '_>,
-        _name: Option<&'ctx str>,
-    ) -> anyhow::Result<Value<'ctx, Self>>
-    where
-        Self: RefType<'ctx> + Copy,
-    {
-        unreachable!("OpaqueRefCountedType cannot be allocated directly");
-    }
-
-    fn allocate(
-        &self,
-        _ctx: &mut CodeGenContext<'ctx, '_>,
-        _name: Option<&'ctx str>,
-    ) -> anyhow::Result<Value<'ctx, Self>>
-    where
-        Self: RefType<'ctx> + Copy,
-    {
-        unreachable!("OpaqueRefCountedType cannot be allocated directly");
-    }
-
     fn map_value(&self, value: Self::Value, name: Option<&'ctx str>) -> Value<'ctx, Self>
     where
         Self: Sized + Copy,
@@ -579,19 +557,6 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedArrayType<'ctx, T> {
 impl<'ctx, T: ProxyType<'ctx> + Copy> ProxyTypeBase<'ctx> for RefCountedArrayType<'ctx, T> {
     type Value = PointerValue<'ctx>;
 
-    fn alloca(
-        &self,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        name: Option<&'ctx str>,
-    ) -> anyhow::Result<Value<'ctx, Self>>
-    where
-        Self: RefType<'ctx> + Copy,
-    {
-        let n = self.static_size.expect("Cannot allocate RefCountedArrayType with unknown size");
-
-        self.alloca(ctx, ctx.size_t.const_int(u64::from(n), false), name)
-    }
-
     fn allocate(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
@@ -658,6 +623,17 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedType<'ctx> for RefCountedArrayTy
 pub type RefCountedArrayValue<'ctx, T> = Value<'ctx, RefCountedArrayType<'ctx, T>>;
 
 impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedArrayValue<'ctx, T> {
+    /// Allocates a new statically-sized array.
+    pub fn new(
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        elem_ty: T,
+        size: u32,
+        name: Option<&'ctx str>,
+    ) -> anyhow::Result<Self> {
+        let ty = RefCountedArrayType::new(ctx, elem_ty, Some(size));
+        ty.alloca(ctx, ctx.size_t.const_int(u64::from(size), false), name)
+    }
+
     /// Returns the data portion of this array as an [`ArraySliceValue`].
     ///
     /// The caller must provide the length of the array as `len` if the size of this array type is

@@ -155,24 +155,6 @@ pub use typeinfo::{TypeinfoType, TypeinfoValue};
 pub trait ProxyTypeBase<'ctx> {
     type Value;
 
-    /// Allocates a new instance of this type on the stack.
-    ///
-    /// Note that this allocates space for the type itself and does not initialize any of
-    /// its fields.
-    #[deprecated = "Use ProxyTypeExt::allocate instead."]
-    fn alloca(
-        &self,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        name: Option<&'ctx str>,
-    ) -> anyhow::Result<Value<'ctx, Self>>
-    where
-        Self: RefType<'ctx> + Copy,
-    {
-        let alloca = self.alloca_ty(ctx);
-        let ptr = ctx.build_allocate(AllocationScope::StackStartOfFunc, alloca, name)?;
-        Ok(Value { ty: *self, value: ptr, name })
-    }
-
     /// Allocates a new instance of this type in the
     /// [default allocation scope][`AllocationScope::Default`].
     ///

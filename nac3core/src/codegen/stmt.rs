@@ -25,7 +25,7 @@ use crate::{
         macros::codegen_unreachable,
         opt,
         types::{
-            ArrayLikeIndexer, ArraySliceValue, ClassType, EnumerateType, ExceptionType,
+            ArrayLikeIndexer, ClassType, EnumerateType, ExceptionType,
             ExceptionValue, ListType, ListValue, NDArrayType, OpaqueRefCountedType, ProxyTypeBase,
             RangeType, RawListType, RefCountedValue, RustNDIndex, ScalarOrNDArray, StringType,
             TupleType, TupleValue, TypedRefCountedType, broadcast, field, is_refcounted_type,
@@ -54,63 +54,6 @@ pub(crate) fn get_personality<'ctx>(
             .get_function(sym)
             .unwrap_or_else(|| ctx.module.add_function(sym, ctx.i32.fn_type(&[], true), None)),
     )
-}
-
-/// Allocates an LLVM stack variable for temporary storage. The variable is stored
-/// at the beginning of the function.
-///
-/// You must ensure that the memory allocated here is supposed to be reused across
-/// loops and branches. If you are possibly within a scope where the number of allocations
-/// performed may depend on control flow (e.g. allocating objects within a comprehension),
-/// use [`gen_dyn_var`] instead.
-#[deprecated = "Use `CodeGenContext::build_allocate` instead"]
-pub fn gen_var<'ctx, T: BasicType<'ctx> + Copy>(
-    ctx: &CodeGenContext<'ctx, '_>,
-    ty: T,
-    name: Option<&str>,
-) -> anyhow::Result<PointerValue<'ctx>> {
-    ctx.build_allocate(AllocationScope::StackStartOfFunc, ty, name)
-}
-
-/// Allocates an LLVM stack variable for temporary storage. The alloca is inserted
-/// at the current insertion point.
-#[deprecated = "Use `CodeGenContext::build_allocate` instead"]
-pub fn gen_dyn_var<'ctx, T: BasicType<'ctx> + Copy>(
-    ctx: &CodeGenContext<'ctx, '_>,
-    ty: T,
-    name: Option<&str>,
-) -> anyhow::Result<PointerValue<'ctx>> {
-    ctx.build_allocate(AllocationScope::StackCurrentLoc, ty, name)
-}
-
-/// Allocates an LLVM stack array for temporary storage. The variable is stored
-/// at the beginning of the function.
-///
-/// This function takes a fixed (compile-time) size for the array, because if the
-/// size is dynamic and not known at the beginning of the function, it should be
-/// allocated at the current insertion point instead.
-#[deprecated = "Use `CodeGenContext::build_array_allocate` instead"]
-pub fn gen_array_var<'ctx, 'a, T: BasicType<'ctx> + Copy>(
-    ctx: &CodeGenContext<'ctx, 'a>,
-    ty: T,
-    size: u64,
-    name: Option<&'ctx str>,
-) -> anyhow::Result<ArraySliceValue<'ctx>> {
-    ctx.build_array_allocate(AllocationScope::StackStartOfFunc, ty, size, name)
-}
-
-/// Allocates an LLVM stack array for temporary storage.
-///
-/// This happens at the current insertion point instead of the function's entry block,
-/// which allows for dynamically sized arrays.
-#[deprecated = "Use `CodeGenContext::build_dyn_array_allocate` instead"]
-pub fn gen_dyn_array_var<'ctx, 'a, T: BasicType<'ctx> + Copy>(
-    ctx: &CodeGenContext<'ctx, 'a>,
-    ty: T,
-    size: IntValue<'ctx>,
-    name: Option<&'ctx str>,
-) -> anyhow::Result<ArraySliceValue<'ctx>> {
-    ctx.build_dyn_array_allocate(AllocationScope::StackCurrentLoc, ty, size, name)
 }
 
 /// See [`CodeGenerator::gen_store_target`].

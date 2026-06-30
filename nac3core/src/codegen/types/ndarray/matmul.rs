@@ -3,17 +3,10 @@ use nac3parser::ast::Operator;
 
 use crate::{
     codegen::{
-        CodeGenContext,
-        expr::{call_extern, gen_prim_binop_expr},
-        stmt::gen_for_callback_incrementing,
-        types::{
-            NDArrayValue, RefCountedArrayType,
-            array::ArrayLikeIndexer,
-            ndarray::{NDArrayOut, assert_ndarray_can_be_written_by_out, indexing::RustNDIndex},
+        CodeGenContext, expr::{call_extern, gen_prim_binop_expr}, stmt::gen_for_callback_incrementing, types::{
+            NDArrayValue, RefCountedArrayValue, array::ArrayLikeIndexer, ndarray::{NDArrayOut, assert_ndarray_can_be_written_by_out, indexing::RustNDIndex},
         },
-    },
-    toplevel::helper::arraylike_flatten_element_type,
-    typecheck::{magic_methods::Binop, typedef::Type},
+    }, toplevel::helper::arraylike_flatten_element_type, typecheck::{magic_methods::Binop, typedef::Type},
 };
 
 /// Perform `np.einsum("...ij,...jk->...ik", in_a, in_b)`.
@@ -43,8 +36,7 @@ fn matmul_at_least_2d<'ctx>(
         let in_lhs_shape = in_a.inner_value(ctx)?.shape(ctx)?;
         let in_rhs_shape = in_b.inner_value(ctx)?.shape(ctx)?;
         let [lhs_shape, rhs_shape, dst_shape] = core::array::from_fn(|_| {
-            RefCountedArrayType::new(ctx, ctx.size_t, Some(ndims_int as u32))
-                .alloca(ctx, ndims, None)
+            RefCountedArrayValue::new(ctx, ctx.size_t, ndims_int as u32, None)
         });
         let [lhs_shape, rhs_shape, dst_shape] = [lhs_shape?, rhs_shape?, dst_shape?];
 
