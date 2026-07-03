@@ -133,7 +133,7 @@ impl InnerResolver {
                         .read()
                         .iter()
                         .sorted_by_key(|(k, _)| *k)
-                        .map(|(k, v)| format!("\t\t{k} -> {v}"))
+                        .map(|(k, v)| format!("\t\t{k} -> {v:?}"))
                         .join(",\n")
                         .as_str()
                 )

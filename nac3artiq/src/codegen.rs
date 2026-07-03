@@ -1322,14 +1322,8 @@ pub fn attributes_writeback<'ctx>(
         }
 
         for val in (*inner_resolver.global_value_ids.read()).values() {
-            let val = val.bind(py);
-            let ty = inner_resolver.get_obj_type(
-                py,
-                val,
-                &mut ctx.unifier,
-                &ctx.top_level.definitions.read(),
-                &ctx.primitives,
-            )?;
+            let ty = val.ty;
+            let val = val.obj.bind(py);
             match &*ctx.unifier.get_ty(ty) {
                 TypeEnum::TObj { obj_id, params, .. } if *obj_id == PrimDef::List.id() => {
                     let elem_ty = iter_type_vars(params).next().unwrap().ty;
