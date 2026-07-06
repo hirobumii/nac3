@@ -680,11 +680,10 @@ fn emit_local_refcount_decrements(ctx: &mut CodeGenContext<'_, '_>) -> anyhow::R
 )]
 pub fn gen_func_impl<
     'ctx,
-    'a,
     G: CodeGenerator,
     F: FnOnce(&mut G, &mut CodeGenContext) -> anyhow::Result<()>,
 >(
-    ctx: &'a mut ModuleContext<'ctx>,
+    ctx: &mut ModuleContext<'ctx>,
     generator: &mut G,
     registry: &WorkerRegistry,
     task: CodeGenTask,
@@ -939,27 +938,28 @@ pub fn gen_func_impl<
     };
 
     ctx.with_loc(task.location, |ctx| {
-        let result =  codegen_function(generator, ctx).map(|()| fn_val);
+        let result = codegen_function(generator, ctx).map(|()| fn_val);
         // If the function body is not terminated, jump to `finalize_bb` to decrement refcounts
         if !ctx.is_terminated() {
             ctx.builder.build_unconditional_branch(finalize_bb)?;
         }
 
-        // Decrementing refcounts involves inlined calls to IRRT, and LLVM dictates 
+        // Decrementing refcounts involves inlined calls to IRRT, and LLVM dictates
         // that all inlined calls must have a debug location. Keep the following
         // within the `with_loc` scope.
-        
+
         // Decrement refcounts of all locals in `finalize_bb`, and emit the final `ret`
         ctx.builder.position_at_end(finalize_bb);
         emit_local_refcount_decrements(ctx)?;
-        if let Some((return_buffer, return_buffer_type)) = ctx.return_buffer.zip(ctx.return_buffer_type)
+        if let Some((return_buffer, return_buffer_type)) =
+            ctx.return_buffer.zip(ctx.return_buffer_type)
         {
             let loaded = ctx.builder.build_load(return_buffer_type, return_buffer, "$ret")?;
             ctx.builder.build_return(Some(&loaded as &dyn BasicValue))?;
         } else {
             ctx.builder.build_return(None)?;
         }
-    
+
         // Similarly for `cleanup.lp`: Decrement refcounts of all locals, then resume unwinding
         if let Some(cleanup_lp) = cleanup_lp {
             ctx.builder.position_at_end(cleanup_lp);
@@ -979,7 +979,7 @@ pub fn gen_func_impl<
             ctx.build_call_or_invoke(&resume, &[], "resume")?;
             ctx.builder.build_unreachable()?;
         }
-    
+
         ctx.builder.unset_current_debug_location();
         ctx.debug_info.0.finalize();
 
@@ -993,8 +993,8 @@ pub fn gen_func_impl<
 /// * `generator` - The [`CodeGenerator`] for generating various program constructs.
 /// * `registry` - The [`WorkerRegistry`] responsible for monitoring this function generation task.
 /// * `task` - The [`CodeGenTask`] associated with this function generation task.
-pub fn gen_func<'ctx, 'a, G: CodeGenerator>(
-    context: &'a mut ModuleContext<'ctx>,
+pub fn gen_func<'ctx, G: CodeGenerator>(
+    context: &mut ModuleContext<'ctx>,
     generator: &mut G,
     registry: &WorkerRegistry,
     task: CodeGenTask,

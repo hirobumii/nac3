@@ -569,7 +569,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
             this.builder.set_current_debug_location(loc);
             old
         }
-        fn unset_loc<'ctx>(this: &mut CodeGenContext<'ctx, '_>, old: Option<DILocation<'ctx>>) {
+        fn unset_loc<'ctx>(this: &CodeGenContext<'ctx, '_>, old: Option<DILocation<'ctx>>) {
             if let Some(old) = old {
                 this.builder.set_current_debug_location(old);
             } else {
@@ -586,10 +586,11 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
     /// Construct a new builder at the current debug location.
     ///
     /// The returned builder is not attached to any basic block.
+    #[must_use]
     pub fn new_builder(&self) -> Builder<'ctx> {
         let b = self.ctx.create_builder();
         if let Some(loc) = self.builder.get_current_debug_location() {
-            b.set_current_debug_location(loc)
+            b.set_current_debug_location(loc);
         }
         b
     }

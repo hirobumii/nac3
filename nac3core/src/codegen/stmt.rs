@@ -2767,7 +2767,7 @@ pub fn gen_stmt<G: CodeGenerator>(
                 )?;
             }
             _ => unimplemented!(),
-        };
+        }
         Ok(())
     })
 }
