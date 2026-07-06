@@ -161,6 +161,40 @@ impl<'ctx> ObjectHeaderValue<'ctx> {
         )
     }
 
+    /// Increments the reference count of this object by `count`.
+    ///
+    /// Equivalent to calling [`ObjectHeaderValue::increment_refcount`] `count` times, but emitted
+    /// as a single operation so the increment does not depend on a runtime loop.
+    pub fn increment_refcount_by(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        count: IntValue<'ctx>,
+    ) -> anyhow::Result<()> {
+        let value = self.value;
+
+        call_extern!(ctx: void _ = "__nac3_refcount_incr_by"(value, count))?;
+        Ok(())
+    }
+
+    /// Similar to [`ObjectHeaderValue::increment_refcount_by`], additionally checking if the value
+    /// is `null` before incrementing.
+    pub fn safe_increment_refcount_by(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        count: IntValue<'ctx>,
+    ) -> anyhow::Result<()> {
+        gen_if_callback(
+            &mut (),
+            ctx,
+            |(), ctx| Ok(ctx.builder.build_is_not_null(self.value, "")?),
+            |(), ctx| {
+                self.increment_refcount_by(ctx, count)?;
+                Ok(())
+            },
+            |(), _| Ok(()),
+        )
+    }
+
     /// Decrements the reference count of this object by one.
     ///
     /// When the reference count reaches zero, the object will be automatically deallocated.

@@ -1261,22 +1261,26 @@ pub fn gen_prim_binop_expr<'ctx>(
                     |(), _| Ok(()),
                 )?;
 
-                // Increment refcount for each copied element in the new list
+                // For refcounted elements, since the new list shallow copies the source elements,
+                // it is easier and more efficient to increment the refcount of each source element
+                // by `int_val` once, rather than incrementing each of the `size * int_val` copied
+                // slots by one.
                 if is_refcounted_type(&mut ctx.unifier, list_ty.object.item_ty) {
-                    let new_list_data_inner = new_list_data.inner_value(ctx, Some(total_len))?;
+                    let src_list_data_inner =
+                        list_val.inner_value(ctx)?.data(ctx)?.inner_value(ctx, Some(size))?;
                     gen_for_callback_incrementing(
                         &mut (),
                         ctx,
                         None,
                         llvm_usize.const_zero(),
-                        (total_len, false),
+                        (size, false),
                         |(), ctx, _, i| {
                             let elem: PointerValue<'ctx> =
-                                new_list_data_inner.get_unchecked(ctx, &i, None)?;
+                                src_list_data_inner.get_unchecked(ctx, &i, None)?;
                             OpaqueRefCountedType::new(ctx)
                                 .map_value(elem, None)
                                 .header(ctx)
-                                .safe_increment_refcount(ctx)?;
+                                .safe_increment_refcount_by(ctx, int_val)?;
                             Ok(())
                         },
                         llvm_usize.const_int(1, false),

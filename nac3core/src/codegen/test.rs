@@ -356,6 +356,99 @@ fn test_simple_call() {
     registry.wait_tasks_complete(handles);
 }
 
+/// Regression test for list-repetition refcounting (issue #814).
+///
+/// Ensure that the generated IR for a list repetition expression `[L] * n` contains a single
+/// `@__nac3_refcount_incr_by(elem, n)` call over a loop bounded by the *source* length `len(L)`,
+/// rather than a single `@__nac3_refcount_incr(elem)` call a loop over all copied slots.
+#[test]
+#[named]
+fn test_list_mul_refcount() {
+    let source = indoc! { "
+        l = [[0]] * 15
+        return 0
+        "};
+    let statements = parse_program(source, FileName::default()).unwrap();
+    let builtin_registry = Arc::new(DefaultBuiltinRegistry);
+
+    let composer = TopLevelComposer::new(Vec::new(), Vec::new(), builtin_registry.clone(), 64).0;
+    let mut unifier = composer.unifier.clone();
+    let primitives = composer.primitives_ty;
+    let top_level = Arc::new(composer.make_top_level_context());
+    unifier.top_level = Some(top_level.clone());
+
+    let resolver =
+        Arc::new(Resolver { id_to_type: HashMap::new(), id_to_def: RwLock::new(HashMap::new()) })
+            as Arc<dyn SymbolResolver + Send + Sync>;
+
+    let threads = vec![DefaultCodeGenerator::new("test".into()).into()];
+    let signature = FunSignature { args: vec![], ret: primitives.int32, vars: VarMap::new() };
+
+    let mut store = ConcreteTypeStore::new();
+    let mut cache = HashMap::new();
+    let signature = store.from_signature(&mut unifier, &primitives, &signature, &mut cache);
+    let signature = store.add_cty(signature);
+
+    let mut function_data = FunctionData {
+        resolver: resolver.clone(),
+        bound_variables: Vec::new(),
+        return_type: Some(primitives.int32),
+    };
+    let mut virtual_checks = Vec::new();
+    let mut calls = HashMap::new();
+    let mut identifiers: HashSet<_, _> = HashSet::new();
+    let mut inferencer = Inferencer {
+        top_level: &top_level,
+        function_data: &mut function_data,
+        unifier: &mut unifier,
+        variable_mapping: HashMap::default(),
+        primitives: &primitives,
+        virtual_checks: &mut virtual_checks,
+        calls: &mut calls,
+        defined_identifiers: identifiers.clone(),
+        in_handler: false,
+    };
+
+    let statements = statements
+        .into_iter()
+        .map(|v| inferencer.fold_stmt(v))
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+
+    inferencer.check_block(&statements, &mut identifiers).unwrap();
+    let top_level = Arc::new(TopLevelContext {
+        definitions: Arc::new(RwLock::new(std::mem::take(&mut *top_level.definitions.write()))),
+        unifiers: Arc::new(RwLock::new(vec![(unifier.get_shared_unifier(), primitives)])),
+        personality_symbol: None,
+        builtin_registry,
+    });
+
+    let task = CodeGenTask {
+        subst: Vec::default(),
+        symbol_name: "testing".into(),
+        export_symbol: true,
+        location: statements.first().unwrap().location,
+        body: Arc::new(statements),
+        unifier_index: 0,
+        calls: Arc::new(calls),
+        resolver,
+        store,
+        signature,
+        id: 0,
+    };
+    let f = Arc::new(WithCall::new(Box::new(|module| {
+        insta::assert_snapshot!(
+            function_name!(),
+            module.print_to_string().to_str().map(str::trim).unwrap()
+        );
+    })));
+
+    let (registry, handles) =
+        WorkerRegistry::create_workers(threads, top_level, &codegen_options(), &f);
+    registry.add_task(task);
+    registry.wait_tasks_complete(handles);
+}
+
 // ---------------------------------------------------------------------------
 // Type layout tests — assert LLVM struct layouts for refcounted types
 // ---------------------------------------------------------------------------

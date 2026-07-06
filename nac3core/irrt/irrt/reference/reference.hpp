@@ -93,13 +93,20 @@ constexpr const uint32_t REFCOUNT_ARRAY_INLINE_MAGIC = 0xffff'fffe;
 }
 
 /**
+ * @brief Increments the reference count of the given object by `count` if it is refcounted.
+ */
+[[gnu::always_inline]] void refcount_incr_by(void* const object, const size_t count) {
+    if (is_object_refcounted(object)) {
+        auto* const header = get_object_header(object);
+        header->refcount += static_cast<uint32_t>(count);
+    }
+}
+
+/**
  * @brief Increments the reference count of the given object if it is refcounted.
  */
 [[gnu::always_inline]] void refcount_incr(void* const object) {
-    if (is_object_refcounted(object)) {
-        auto* const header = get_object_header(object);
-        ++header->refcount;
-    }
+    refcount_incr_by(object, 1);
 }
 
 /**
@@ -180,6 +187,13 @@ using namespace __nac3_impl::reference;
  */
 [[gnu::always_inline]] void __nac3_refcount_incr(void* object) {
     refcount_incr(object);
+}
+
+/**
+ * @brief See `codegen::types::ObjectHeaderValue::increment_refcount_by`.
+ */
+[[gnu::always_inline]] void __nac3_refcount_incr_by(void* object, size_t count) {
+    refcount_incr_by(object, count);
 }
 
 /**
