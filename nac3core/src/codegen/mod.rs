@@ -1199,6 +1199,17 @@ impl<'ctx> ModuleContext<'ctx> {
         self.target.get_target_data().get_abi_size(&ty)
     }
 
+    /// Returns the maximum value of `size_t` as a constant, equivalent to `usize::MAX` on the
+    /// target platform.
+    #[must_use]
+    pub fn size_t_max(&self) -> u64 {
+        match self.size_t.get_bit_width() {
+            32 => u64::from(u32::MAX),
+            64 => u64::MAX,
+            w => unreachable!("Unexpected size_t bit width: {w}"),
+        }
+    }
+
     /// Returns an `i8*` to the beginning of the module's global data.
     pub fn global_begin_ptr(&self) -> PointerValue<'ctx> {
         self.module.get_global(MODULE_GLOBAL_BEGIN_NAME).map(GlobalValue::as_pointer_value).unwrap()

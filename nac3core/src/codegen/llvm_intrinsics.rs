@@ -275,3 +275,23 @@ pub fn call_int_ctpop<'ctx>(
 ) -> anyhow::Result<IntValue<'ctx>> {
     call_intrinsic!(ctx, name, "ctpop"[src.get_type()](src) -> int)
 }
+
+#[doc = llvm_doc!("umul.with.overflow")]
+///
+/// Computes the unsigned product of `lhs` and `rhs`, returning `(product, overflow)` where
+/// `overflow` is a 1-bit value that is set if the multiplication wrapped around.
+pub fn call_umul_with_overflow<'ctx>(
+    ctx: &CodeGenContext<'ctx, '_>,
+    lhs: IntValue<'ctx>,
+    rhs: IntValue<'ctx>,
+    name: Option<&str>,
+) -> anyhow::Result<(IntValue<'ctx>, IntValue<'ctx>)> {
+    debug_assert_eq!(lhs.get_type(), rhs.get_type());
+
+    let result = call_intrinsic!(ctx, name, "umul.with.overflow"[lhs.get_type()](lhs, rhs))?
+        .unwrap()
+        .into_struct_value();
+    let product = ctx.builder.build_extract_value(result, 0, "")?.into_int_value();
+    let overflow = ctx.builder.build_extract_value(result, 1, "")?.into_int_value();
+    Ok((product, overflow))
+}

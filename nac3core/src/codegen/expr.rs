@@ -35,6 +35,7 @@ use crate::{
         llvm_fns::FunctionDecl,
         llvm_intrinsics::{
             call_expect, call_float_floor, call_float_pow, call_float_powi, call_int_smax,
+            call_umul_with_overflow,
         },
         macros::codegen_unreachable,
         opt,
@@ -1189,16 +1190,58 @@ pub fn gen_prim_binop_expr<'ctx>(
                     };
                 let list_ty = ListType::from_unifier_type(ctx, list_ty);
                 let list_val = list_ty.map_value(list_val.into_pointer_value(), None);
-                let int_val =
-                    ctx.builder.build_int_s_extend(int_val.into_int_value(), llvm_usize, "")?;
+
+                // Coerce the repeat count to `size_t`
+                let count = int_val.into_int_value();
+                let count_ty = count.get_type();
                 // [...] * (i where i < 0) => []
-                let int_val = call_int_smax(ctx, int_val, llvm_usize.const_zero(), None)?;
+                let count = call_int_smax(ctx, count, count_ty.const_zero(), None)?;
+                let int_val = match count_ty.get_bit_width().cmp(&llvm_usize.get_bit_width()) {
+                    Ordering::Less | Ordering::Equal => {
+                        ctx.builder.build_int_z_extend(count, llvm_usize, "")?
+                    }
+                    Ordering::Greater => {
+                        // `count > usize::MAX` => fits iff no high bits are lost on truncation
+                        let truncated = ctx.builder.build_int_truncate(count, llvm_usize, "")?;
+                        let roundtrip = ctx.builder.build_int_z_extend(truncated, count_ty, "")?;
+                        let fits = ctx.builder.build_int_compare(
+                            IntPredicate::EQ,
+                            roundtrip,
+                            count,
+                            "",
+                        )?;
+                        ctx.make_assert(
+                            fits,
+                            "0:OverflowError",
+                            &format!(
+                                "List repetition count {{0}} exceeds maximum of {}",
+                                ctx.size_t_max(),
+                            ),
+                            [Some(count), None, None],
+                        )?;
+                        truncated
+                    }
+                };
 
                 let size = list_val.inner_value(ctx)?.load(ctx, field!(len))?;
                 let (old_list_ptr, _) =
                     list_val.inner_value(ctx)?.data(ctx)?.inner_value(ctx, Some(size))?.value;
-                let new_list =
-                    list_ty.construct(ctx, ctx.builder.build_int_mul(size, int_val, "")?, None)?;
+
+                // Guard the new list against `size_t` overflow of its size
+                let (total_len, count_overflow) =
+                    call_umul_with_overflow(ctx, size, int_val, None)?;
+                let no_overflow = ctx.builder.build_not(count_overflow, "")?;
+                ctx.make_assert(
+                    no_overflow,
+                    "0:OverflowError",
+                    &format!(
+                        "New list of {{0}} × {{1}} elements exceeds maximum size of {}",
+                        ctx.size_t_max(),
+                    ),
+                    [Some(size), Some(int_val), None],
+                )?;
+
+                let new_list = list_ty.construct(ctx, total_len, None)?;
                 let new_list_data = new_list.inner_value(ctx)?.data(ctx)?;
 
                 gen_for_callback_incrementing(
@@ -1208,7 +1251,6 @@ pub fn gen_prim_binop_expr<'ctx>(
                     llvm_usize.const_zero(),
                     (int_val, false),
                     |(), ctx, _, i| {
-                        let total_len = ctx.builder.build_int_mul(size, int_val, "")?;
                         let offset = ctx.builder.build_int_mul(i, size, "")?;
                         let ptr = new_list_data
                             .inner_value(ctx, Some(total_len))?
@@ -1226,7 +1268,6 @@ pub fn gen_prim_binop_expr<'ctx>(
 
                 // Increment refcount for each copied element in the new list
                 if is_refcounted_type(&mut ctx.unifier, list_ty.object.item_ty) {
-                    let total_len = ctx.builder.build_int_mul(size, int_val, "")?;
                     let new_list_data_inner = new_list_data.inner_value(ctx, Some(total_len))?;
                     gen_for_callback_incrementing(
                         &mut (),
