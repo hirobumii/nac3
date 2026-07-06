@@ -304,7 +304,7 @@ impl<'ctx, T: RefType<'ctx> + Copy> TypedRefCountedType<'ctx, T> {
         name: Option<&'ctx str>,
     ) -> anyhow::Result<Value<'ctx, Self>> {
         let alloca = self.alloca_ty(ctx);
-        let ptr = ctx.build_allocate(scope, alloca, name)?;
+        let ptr = ctx.alloc_at(scope, alloca, name)?;
         let value = self.map_value(ptr, name);
 
         #[cfg(feature = "malloc")]
@@ -455,7 +455,7 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedArrayType<'ctx, T> {
             );
 
             let alloca = self.alloca_ty(ctx);
-            ctx.build_allocate(scope, alloca, name)?
+            ctx.alloc_at(scope, alloca, name)?
         } else {
             let align_ty = self.inner;
 

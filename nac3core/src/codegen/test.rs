@@ -366,7 +366,6 @@ mod layout {
     use indexmap::IndexMap;
     use inkwell::{
         OptimizationLevel,
-        builder::Builder,
         debug_info::{AsDIScope, DWARFEmissionKind, DWARFSourceLanguage},
         passes::PassBuilderOptions,
         targets::{InitializationConfig, Target},
@@ -476,9 +475,10 @@ mod layout {
         ModuleContext::new(ctx_ref, "test_layout_32", &options)
     }
 
+    // TODO(ivan): CodeGenContext holds too many invariants to be meaningfully constructed for unit tests
+    //             Consider refactoring a subset of fields and functions out for unit testing purposes
     fn create_codegen_context<'ctx, 'a>(
         ctx: &'a mut ModuleContext<'ctx>,
-        builder: &'a Builder<'ctx>,
         registry: &'a WorkerRegistry,
         composer: &TopLevelComposer,
     ) -> CodeGenContext<'ctx, 'a> {
@@ -505,7 +505,12 @@ mod layout {
             id_to_def: RwLock::new(HashMap::new()),
         }) as Arc<dyn SymbolResolver + Send + Sync>;
         let (_, fn_val) = ctx.declare_internal("dummy", None, &[], false);
+
         let init_bb = ctx.ctx.append_basic_block(fn_val, "init");
+        let init_builder = ctx.ctx.create_builder(); /* dummy */
+        let builder = ctx.ctx.create_builder();
+        builder.position_at_end(init_bb);
+
         let exception_val = ctx.ptr.const_null();
 
         CodeGenContext {
@@ -523,7 +528,7 @@ mod layout {
             calls: Arc::new(HashMap::new()),
             registry,
             const_strings: HashMap::new(),
-            init_bb,
+            init_builder,
             exception_val,
             loop_target: None,
             unwind_target: None,
@@ -640,8 +645,7 @@ mod layout {
         )
         .0;
 
-        let builder = ctx.ctx.create_builder();
-        let mut ctx = create_codegen_context(&mut ctx, &builder, &registry, &composer);
+        let mut ctx = create_codegen_context(&mut ctx, &registry, &composer);
         insta::assert_snapshot!(generate_layouts(&mut ctx));
     }
 
@@ -661,8 +665,7 @@ mod layout {
         )
         .0;
 
-        let builder = ctx.ctx.create_builder();
-        let mut ctx = create_codegen_context(&mut ctx, &builder, &registry, &composer);
+        let mut ctx = create_codegen_context(&mut ctx, &registry, &composer);
         insta::assert_snapshot!(generate_layouts(&mut ctx));
     }
 
@@ -697,7 +700,6 @@ mod layout {
         // `size_val` mirrors the real backing-buffer request for `[int32(0)] * BUFFER_SIZE`
         let sizeof_alloc = ctx.sizeof(align_ty) + ctx.sizeof(ctx.i32) * BUFFER_SIZE;
 
-        ctx.builder.position_at_end(ctx.init_bb);
         let size = ctx.size_t.const_int(sizeof_alloc, false);
         let slice =
             type_aligned_allocate(ctx, AllocationScope::Heap, align_ty, size, None).unwrap();
@@ -706,7 +708,7 @@ mod layout {
         ctx.builder.build_store(keep.as_pointer_value(), slice.value.0).unwrap();
         ctx.builder.build_return(None).unwrap();
 
-        let fn_val = ctx.init_bb.get_parent().unwrap();
+        let fn_val = ctx.builder.get_insert_block().unwrap().get_parent().unwrap();
         let ir = fn_val.print_to_string().to_string();
 
         // Constant-fold the (target-data-dependent) allocation size so it can be read back.
@@ -734,8 +736,7 @@ mod layout {
         )
         .0;
 
-        let builder = ctx.ctx.create_builder();
-        let mut ctx = create_codegen_context(&mut ctx, &builder, &registry, &composer);
+        let mut ctx = create_codegen_context(&mut ctx, &registry, &composer);
         let (ir, actual, expected) = run_type_aligned_allocate(&mut ctx);
 
         assert_eq!(actual, expected);
@@ -759,8 +760,7 @@ mod layout {
         )
         .0;
 
-        let builder = ctx.ctx.create_builder();
-        let mut ctx = create_codegen_context(&mut ctx, &builder, &registry, &composer);
+        let mut ctx = create_codegen_context(&mut ctx, &registry, &composer);
         let (ir, actual, expected) = run_type_aligned_allocate(&mut ctx);
 
         assert_eq!(actual, expected);

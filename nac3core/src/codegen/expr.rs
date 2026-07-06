@@ -10,7 +10,6 @@ use anyhow::{anyhow, bail};
 use inkwell::{
     IntPredicate,
     basic_block::BasicBlock,
-    builder::Builder,
     debug_info::DILocation,
     types::BasicTypeEnum,
     values::{BasicValueEnum, IntValue, PointerValue, StructValue},
@@ -437,9 +436,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
         call_name: &str,
         unwind_target: Option<BasicBlock<'ctx>>,
     ) -> anyhow::Result<Option<BasicValueEnum<'ctx>>> {
-        let allocate = |ctx: &CodeGenContext<'ctx, 'a>, ty| {
-            ctx.build_allocate(AllocationScope::Default, ty, Some(call_name))
-        };
+        let allocate = |ctx: &CodeGenContext<'ctx, 'a>, ty| ctx.alloc(ty, Some(call_name));
 
         unwind_target.map_or_else(
             || {
@@ -604,18 +601,6 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
         let result = f(self);
         unset_loc(self, old);
         result
-    }
-
-    /// Construct a new builder at the current debug location.
-    ///
-    /// The returned builder is not attached to any basic block.
-    #[must_use]
-    pub fn new_builder(&self) -> Builder<'ctx> {
-        let b = self.ctx.create_builder();
-        if let Some(loc) = self.builder.get_current_debug_location() {
-            b.set_current_debug_location(loc);
-        }
-        b
     }
 }
 
@@ -943,7 +928,7 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
     let zero_size_t = size_t.const_zero();
     let zero_32 = int32.const_zero();
 
-    let index = ctx.build_allocate(AllocationScope::Default, size_t, Some("index.addr"))?;
+    let index = ctx.alloc(size_t, Some("index.addr"))?;
     ctx.builder.build_store(index, zero_size_t)?;
 
     let elem_ty = elt.custom.unwrap();
@@ -1012,8 +997,7 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
             let length = iter_val.inner_value(ctx)?.load(ctx, field!(len))?;
             list = ListType::create(ctx, elem_ty).construct(ctx, length, Some("listcomp"))?;
 
-            let counter =
-                ctx.build_allocate(AllocationScope::Default, size_t, Some("counter.addr"))?;
+            let counter = ctx.alloc(size_t, Some("counter.addr"))?;
             // counter = -1
             ctx.builder.build_store(counter, size_t.const_all_ones())?;
             ctx.builder.build_unconditional_branch(test_bb)?;
@@ -1492,7 +1476,7 @@ pub fn gen_unaryop_expr_with_values<'ctx>(
                 "not",
             )?;
 
-            bool_to_int_type(ctx.builder, not, val.get_type())?.into()
+            bool_to_int_type(&ctx.builder, not, val.get_type())?.into()
         } else {
             let llvm_i32 = ctx.i32;
 
@@ -1778,7 +1762,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                         ctx,
                         |_, _ctx| Ok(eq_len),
                         |generator, ctx| {
-                            let acc_addr = ctx.build_allocate(AllocationScope::Default, ctx.i8, None)?;
+                            let acc_addr = ctx.alloc(ctx.i8, None)?;
                             ctx.builder.build_store(acc_addr, ctx.i8.const_all_ones())?;
 
                             gen_for_callback_incrementing(
@@ -1812,7 +1796,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                                         |(), _ctx| Ok(bool_res),
                                         |(), ctx| {
                                             ctx.builder.build_store(acc_addr, false_)?;
-                                            hooks.build_break_branch(ctx.builder)?;
+                                            hooks.build_break_branch(&ctx.builder)?;
 
                                             Ok(())
                                         },
@@ -1864,7 +1848,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                 let llvm_i8 = ctx.i8;
 
                 // Assume `true` by default
-                let cmp_addr = ctx.build_allocate(AllocationScope::Default, llvm_i8, None)?;
+                let cmp_addr = ctx.alloc(llvm_i8, None)?;
                 ctx.builder.build_store(cmp_addr, llvm_i8.const_all_ones())?;
 
                 let current_bb = ctx.builder.get_insert_block().unwrap();
@@ -2212,7 +2196,7 @@ fn gen_ifexp_expr<'ctx, G: CodeGenerator>(
         None
     } else {
         let llvm_ty = ctx.get_llvm_type(body_ty);
-        Some(ctx.build_allocate(AllocationScope::Default, llvm_ty, Some("if_exp_result"))?)
+        Some(ctx.alloc(llvm_ty, Some("if_exp_result"))?)
     };
     let current = ctx.builder.get_insert_block().and_then(BasicBlock::get_parent).unwrap();
     let then_bb = ctx.ctx.append_basic_block(current, "then");
@@ -2244,7 +2228,8 @@ fn gen_ifexp_expr<'ctx, G: CodeGenerator>(
 
     ctx.builder.position_at_end(cont_bb);
     Ok(if let Some(v) = result {
-        let val = ctx.builder.build_load(ctx.get_llvm_type(body_ty), v, "if_exp_val_load")?;
+        let body_ty = ctx.get_llvm_type(body_ty);
+        let val = ctx.builder.build_load(body_ty, v, "if_exp_val_load")?;
         RtValue::dynamic(ty, val)
     } else {
         RtValue::none(ty)
@@ -2382,11 +2367,9 @@ fn gen_call_expr<'ctx, G: CodeGenerator>(
                             ctx.raise_exn("0:UnwrapNoneError", err_msg.into(), [None, None, None])?;
                             ctx.builder.position_at_end(unreachable_block);
                             let ptr = ctx.ptr.const_null();
-                            let loaded_val = ctx.builder.build_load(
-                                ctx.get_llvm_type(ty),
-                                ptr,
-                                "unwrap_none_unreachable_load",
-                            )?;
+                            let ty_ = ctx.get_llvm_type(ty);
+                            let loaded_val =
+                                ctx.builder.build_load(ty_, ptr, "unwrap_none_unreachable_load")?;
                             RtValue::dynamic(ty, loaded_val)
                         }
                     }

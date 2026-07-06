@@ -40,9 +40,7 @@ use inkwell::{
 };
 use itertools::Itertools as _;
 
-use crate::codegen::{
-    AllocationScope, CodeGenContext, ModuleContext, types::structure::StructField,
-};
+use crate::codegen::{CodeGenContext, ModuleContext, types::structure::StructField};
 
 /// Internal helper macro to implement [`ProxyType`] (and [`RefType`]) for various types.
 ///
@@ -169,11 +167,7 @@ pub trait ProxyTypeBase<'ctx> {
         Self: RefType<'ctx> + Copy,
     {
         let alloca = self.alloca_ty(ctx);
-        let ptr = ctx.build_allocate(
-            AllocationScope::Default,
-            alloca,
-            name.map(|n| format!("{n}.alloc")).as_deref(),
-        )?;
+        let ptr = ctx.alloc(alloca, name.map(|n| format!("{n}.alloc")).as_deref())?;
         Ok(Value { ty: *self, value: ptr, name })
     }
 

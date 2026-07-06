@@ -504,7 +504,7 @@ fn marshal_to_wire<'ctx>(
                     let descriptor_size = ctx.sizeof(ctx.ptr) + ctx.sizeof(ctx.size_t) * ndims;
                     let descriptor_size = ctx.size_t.const_int(descriptor_size, false);
                     let total_bytes = ctx.builder.build_int_mul(length, descriptor_size, "")?;
-                    let wire_array = ctx.build_dyn_array_allocate(
+                    let wire_array = ctx.alloc_dyn_array(
                         AllocationScope::StackCurrentLoc,
                         ctx.i8,
                         total_bytes,
@@ -532,7 +532,7 @@ fn marshal_to_wire<'ctx>(
                 } else {
                     // element type of list is a composite type - build a runtime array of wire pointers
                     // and marshal each element recursively
-                    let wire_array = ctx.build_dyn_array_allocate(
+                    let wire_array = ctx.alloc_dyn_array(
                         AllocationScope::StackCurrentLoc,
                         ctx.ptr,
                         length,
@@ -561,7 +561,7 @@ fn marshal_to_wire<'ctx>(
                 };
 
             let wire_ty = ctx.ctx.struct_type(&[ctx.ptr.into(), ctx.size_t.into()], false);
-            let buf = ctx.build_allocate(AllocationScope::StackCurrentLoc, wire_ty, Some(name))?;
+            let buf = ctx.alloc_at(AllocationScope::StackCurrentLoc, wire_ty, Some(name))?;
             let elements_field = ctx.builder.build_struct_gep(wire_ty, buf, 0, "")?;
             ctx.builder.build_store(elements_field, elements_array.value.0)?;
             let length_field = ctx.builder.build_struct_gep(wire_ty, buf, 1, "")?;
@@ -576,7 +576,7 @@ fn marshal_to_wire<'ctx>(
             let nac3_tuple =
                 TupleType::from_unifier_type(ctx, ty).map_value(value.into_struct_value(), None);
             let wire_ty = wire_struct_type_of(ctx, field_tys.as_slice());
-            let buf = ctx.build_allocate(AllocationScope::StackCurrentLoc, wire_ty, Some(name))?;
+            let buf = ctx.alloc_at(AllocationScope::StackCurrentLoc, wire_ty, Some(name))?;
             for (i, field_ty) in field_tys.iter().enumerate() {
                 let field_val = nac3_tuple.extract(ctx, i as u32)?;
                 let field_slot = ctx.builder.build_struct_gep(wire_ty, buf, i as u32, "")?;
@@ -605,12 +605,8 @@ fn marshal_to_wire<'ctx>(
         WireDescriptorKind::NDArray { dtype, ndims } => {
             // Marshal the ndarray as an inline `[*data, shape[ndims]]` descriptor.
             let descriptor_size = ctx.sizeof(ctx.ptr) + ctx.sizeof(ctx.size_t) * ndims;
-            let buf = ctx.build_array_allocate(
-                AllocationScope::StackCurrentLoc,
-                ctx.i8,
-                descriptor_size,
-                None,
-            )?;
+            let buf =
+                ctx.alloc_array(AllocationScope::StackCurrentLoc, ctx.i8, descriptor_size, None)?;
             write_ndarray_wire_descriptor(ctx, dtype, ndims, value, buf.value.0)?;
             buf.value.0
         }
@@ -618,7 +614,7 @@ fn marshal_to_wire<'ctx>(
         WireDescriptorKind::Default => {
             // marshal bit-compatible scalars as-is
             let buf =
-                ctx.build_allocate(AllocationScope::StackCurrentLoc, value.get_type(), Some(name))?;
+                ctx.alloc_at(AllocationScope::StackCurrentLoc, value.get_type(), Some(name))?;
             ctx.builder.build_store(buf, value)?;
             buf
         }
@@ -907,12 +903,8 @@ fn format_rpc_arg<'ctx>(
             // Top-level ndarray args use AllocationScope::Default so they survive across potential
             // stack-restore points in the RPC send loop
             let sizeof_buf = ctx.sizeof(ctx.ptr) + ctx.sizeof(ctx.size_t) * ndims;
-            let buf = ctx.build_array_allocate(
-                AllocationScope::Default,
-                llvm_i8,
-                sizeof_buf,
-                Some("rpc.arg"),
-            )?;
+            let buf =
+                ctx.alloc_array(AllocationScope::Default, llvm_i8, sizeof_buf, Some("rpc.arg"))?;
             write_ndarray_wire_descriptor(ctx, dtype, ndims, arg, buf.value.0)?;
             buf.value.0
         }
@@ -922,11 +914,8 @@ fn format_rpc_arg<'ctx>(
             // libproto_artiq: list = { ptr, size_t } - same order without ObjectHeader
             // arg slot: { ptr, size_t }* - firmware consumes as a pointer and derefs
             let list_ptr = marshal_to_wire(ctx, arg_ty, arg, &format!("rpc.arg{arg_idx}"))?;
-            let slot = ctx.build_allocate(
-                AllocationScope::StackCurrentLoc,
-                ctx.ptr,
-                Some("rpc.arg.list.slot"),
-            )?;
+            let slot =
+                ctx.alloc_at(AllocationScope::StackCurrentLoc, ctx.ptr, Some("rpc.arg.list.slot"))?;
             ctx.builder.build_store(slot, list_ptr)?;
             slot
         }
@@ -958,9 +947,9 @@ where
 
     let loop_stackptr = call_stacksave(ctx, None)?;
     let ptr_slot =
-        ctx.build_allocate(AllocationScope::StackCurrentLoc, llvm_pi8, Some("rpc.ptr.slot"))?;
+        ctx.alloc_at(AllocationScope::StackCurrentLoc, llvm_pi8, Some("rpc.ptr.slot"))?;
     let size_slot =
-        ctx.build_allocate(AllocationScope::StackCurrentLoc, llvm_i32, Some("rpc.size.slot"))?;
+        ctx.alloc_at(AllocationScope::StackCurrentLoc, llvm_i32, Some("rpc.size.slot"))?;
     ctx.builder.build_store(ptr_slot, initial_ptr)?;
 
     gen_while_callback(
@@ -1150,12 +1139,7 @@ fn format_rpc_ret<'ctx>(
                 let alloc_size = round_up(ctx, alloc_size, itemsize)?;
                 let size = ctx.builder.build_int_unsigned_div(alloc_size, itemsize, "")?;
                 Ok(ctx
-                    .build_dyn_array_allocate(
-                        AllocationScope::Default,
-                        dtype_llvm,
-                        size,
-                        Some("rpc.alloc"),
-                    )?
+                    .alloc_dyn_array(AllocationScope::Default, dtype_llvm, size, Some("rpc.alloc"))?
                     .value
                     .0)
             })?;
@@ -1167,15 +1151,12 @@ fn format_rpc_ret<'ctx>(
             // The slot must be sized to the wire layout, which diverges when `ret_ty` contains an
             // inline `ndarray` field.
             let wire_ret_ty = wire_type_of(ctx, ret_ty);
-            let slot = ctx.build_allocate(
-                AllocationScope::StackStartOfFunc,
-                wire_ret_ty,
-                Some("rpc.ret.slot"),
-            )?;
+            let slot =
+                ctx.alloc_at(AllocationScope::StackStartOfFunc, wire_ret_ty, Some("rpc.ret.slot"))?;
 
             gen_rpc_recv_loop(ctx, &rpc_recv, slot, |ctx, alloc_size| {
                 Ok(ctx
-                    .build_dyn_array_allocate(
+                    .alloc_dyn_array(
                         AllocationScope::Default,
                         llvm_pi8,
                         alloc_size,
@@ -1258,12 +1239,8 @@ fn rpc_codegen_callback_fn<'ctx>(
     let arg_length = args.len() as u64 + u64::from(obj.is_some());
 
     let stackptr = call_stacksave(ctx, Some("rpc.stack"))?;
-    let args_ptr = ctx.build_array_allocate(
-        AllocationScope::StackCurrentLoc,
-        ctx.ptr,
-        arg_length,
-        Some("argptr"),
-    )?;
+    let args_ptr =
+        ctx.alloc_array(AllocationScope::StackCurrentLoc, ctx.ptr, arg_length, Some("argptr"))?;
 
     // -- rpc args handling
     let mut keys = fun.0.args.clone();
@@ -1552,11 +1529,8 @@ fn polymorphic_print<'ctx>(
         match &*ctx.unifier.get_ty_immutable(ty) {
             TypeEnum::TTuple { ty: tys, is_vararg_ctx: false } => {
                 let pvalue = {
-                    let pvalue = ctx.build_allocate(
-                        AllocationScope::StackStartOfFunc,
-                        value.get_type(),
-                        None,
-                    )?;
+                    let pvalue =
+                        ctx.alloc_at(AllocationScope::StackStartOfFunc, value.get_type(), None)?;
                     ctx.builder.build_store(pvalue, value)?;
                     pvalue
                 };

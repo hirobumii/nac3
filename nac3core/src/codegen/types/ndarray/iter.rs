@@ -202,7 +202,7 @@ impl<'ctx> NDArrayValue<'ctx> {
     {
         let init = init.as_basic_value_enum();
         let acc_ty = init.get_type();
-        let acc_ptr = ctx.build_allocate(AllocationScope::Default, acc_ty, None)?;
+        let acc_ptr = ctx.alloc(acc_ty, None)?;
         ctx.builder.build_store(acc_ptr, init)?;
 
         gen_for_callback(

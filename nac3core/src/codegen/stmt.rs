@@ -72,7 +72,7 @@ pub fn gen_store_target<'ctx, G: CodeGenerator>(
                 // Variable allocas are always stack-allocated at the function start.
                 // For refcounted types, ptr_ty is a pointer (holding a reference to the
                 // heap object); for value types like tuples, ptr_ty is the struct itself.
-                let ptr = ctx.build_allocate(AllocationScope::StackStartOfFunc, ptr_ty, name)?;
+                let ptr = ctx.alloc_at(AllocationScope::StackStartOfFunc, ptr_ty, name)?;
                 ctx.var_assignment.insert(*id, VarValue::new(ptr, pattern.custom.unwrap()));
                 ptr
             }
@@ -117,7 +117,7 @@ pub fn gen_store_target<'ctx, G: CodeGenerator>(
                 .collect::<Result<Vec<_>, _>>()?;
             let struct_ty =
                 ctx.ctx.struct_type(&elts.iter().map(|p| p.get_type().into()).collect_vec(), false);
-            let struct_ptr = ctx.build_allocate(AllocationScope::Default, struct_ty, name)?;
+            let struct_ptr = ctx.alloc(struct_ty, name)?;
             for (i, elt) in elts.iter().enumerate() {
                 ctx.builder.build_store(
                     unsafe {
@@ -981,8 +981,7 @@ where
         None,
         |_, ctx| {
             let element_struct = ctx.ctx.struct_type(&[int32.into(), default_element_ty], false);
-            let iv_pair =
-                ctx.build_allocate(AllocationScope::Default, element_struct, Some("for.v.addr"))?;
+            let iv_pair = ctx.alloc(element_struct, Some("for.v.addr"))?;
             let i = ctx.builder.build_struct_gep(element_struct, iv_pair, 0, "i")?;
             ctx.builder.build_store(i, start)?;
             if element_ty.is_some() {
@@ -1108,8 +1107,7 @@ pub fn gen_for<G: CodeGenerator>(
                 None,
                 |generator, ctx| {
                     // Internal variable for loop; Cannot be assigned
-                    let i =
-                        ctx.build_allocate(AllocationScope::Default, int32, Some("for.i.addr"))?;
+                    let i = ctx.alloc(int32, Some("for.i.addr"))?;
                     // Variable declared in "target" expression of the loop; Can be reassigned *or* shadowed
                     let Some(target_i) =
                         generator.gen_store_target(ctx, target, Some("for.target.addr"))?
@@ -1275,11 +1273,7 @@ pub fn gen_for<G: CodeGenerator>(
                 ctx,
                 None,
                 |_, ctx| {
-                    let index_addr = ctx.build_allocate(
-                        AllocationScope::Default,
-                        size_t,
-                        Some("for.index.addr"),
-                    )?;
+                    let index_addr = ctx.alloc(size_t, Some("for.index.addr"))?;
                     ctx.builder.build_store(index_addr, size_t.const_zero())?;
 
                     Ok(index_addr)
@@ -1338,11 +1332,7 @@ pub fn gen_for<G: CodeGenerator>(
                 ctx,
                 None,
                 |_, ctx| {
-                    let index_addr = ctx.build_allocate(
-                        AllocationScope::Default,
-                        size_t,
-                        Some("for.index.addr"),
-                    )?;
+                    let index_addr = ctx.alloc(size_t, Some("for.index.addr"))?;
                     ctx.builder.build_store(index_addr, size_t.const_zero())?;
 
                     Ok(index_addr)
@@ -1487,7 +1477,7 @@ where
         ctx,
         label,
         |_, ctx| {
-            let i_addr = ctx.build_allocate(AllocationScope::Default, init_val_t, None)?;
+            let i_addr = ctx.alloc(init_val_t, None)?;
             ctx.builder.build_store(i_addr, init_val)?;
 
             Ok(i_addr)
@@ -1579,7 +1569,7 @@ where
         ctx,
         label,
         |generator, ctx| {
-            let i_addr = ctx.build_allocate(AllocationScope::Default, init_val_t, None)?;
+            let i_addr = ctx.alloc(init_val_t, None)?;
 
             let start = start_fn(generator, ctx)?;
             ctx.builder.build_store(i_addr, start)?;
@@ -2108,8 +2098,7 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
     let mut final_data = None;
     let has_cleanup = !finalbody.is_empty();
     if has_cleanup {
-        let final_state =
-            ctx.build_allocate(AllocationScope::Default, ptr_type, Some("try.final_state.addr"))?;
+        let final_state = ctx.alloc(ptr_type, Some("try.final_state.addr"))?;
         final_data = Some((final_state, Vec::new(), Vec::new()));
         if let Some((continue_target, break_target)) = ctx.loop_target {
             let break_proxy = ctx.ctx.append_basic_block(current_fun, "try.break");
@@ -2265,8 +2254,7 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
         ctx.builder.position_at_end(handler_bb);
         if let Some(name) = name {
             let exn_ty = ctx.get_llvm_type(type_.as_ref().unwrap().custom.unwrap());
-            let exn_store =
-                ctx.build_allocate(AllocationScope::Default, exn_ty, Some("try.exn_store.addr"))?;
+            let exn_store = ctx.alloc(exn_ty, Some("try.exn_store.addr"))?;
             ctx.var_assignment
                 .insert(*name, VarValue::new(exn_store, type_.as_ref().unwrap().custom.unwrap()));
             ctx.builder.build_store(exn_store, exn.as_basic_value())?;
@@ -2505,8 +2493,7 @@ pub fn gen_with<'ctx, 'a, G: CodeGenerator>(
     ctx.builder.position_at_end(current_block);
 
     let mut old_loop_target = None;
-    let final_state =
-        ctx.build_allocate(AllocationScope::Default, ptr_type, Some("with.final_state.addr"))?;
+    let final_state = ctx.alloc(ptr_type, Some("with.final_state.addr"))?;
     let mut final_data = Some((final_state, Vec::new(), Vec::new()));
     if let Some((continue_target, break_target)) = ctx.loop_target {
         let break_proxy = ctx.ctx.append_basic_block(current_fun, "with.break");

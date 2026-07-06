@@ -6,7 +6,7 @@ use nac3parser::ast::StrRef;
 
 use crate::{
     codegen::{
-        AllocationScope, CodeGenContext, bool_to_i1,
+        CodeGenContext, bool_to_i1,
         macros::codegen_unreachable,
         stmt::gen_for_callback,
         types::{NDArrayType, NDArrayValue, NDIterValue, ProxyTypeBase, parse_numpy_int_sequence},
@@ -320,8 +320,7 @@ pub fn ndarray_dot<'ctx>(
 
             let dtype_llvm = ctx.get_llvm_type(common_dtype);
 
-            let result =
-                ctx.build_allocate(AllocationScope::Default, dtype_llvm, Some("np_dot_result"))?;
+            let result = ctx.alloc(dtype_llvm, Some("np_dot_result"))?;
             ctx.builder.build_store(result, dtype_llvm.const_zero())?;
 
             // Do dot product.

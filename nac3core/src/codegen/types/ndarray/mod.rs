@@ -505,7 +505,7 @@ impl<'ctx> TypedRefCountedValue<'ctx, RawNDArrayType<'ctx>> {
 
         let indices_ty = ctx.size_t.array_type(u32::try_from(indices.len()).unwrap());
         let indices_ptr =
-            ctx.build_allocate(AllocationScope::StackStartOfFunc, indices_ty, Some("indices"))?;
+            ctx.alloc_at(AllocationScope::StackStartOfFunc, indices_ty, Some("indices"))?;
         for (i, index) in indices.iter().enumerate() {
             let elem_ptr = unsafe {
                 ctx.builder.build_in_bounds_gep(

@@ -162,7 +162,7 @@ fn gen_chain_element_ptr<'ctx, G: CodeGenerator>(
     let size_t = ctx.size_t;
     let indices_ty = size_t.array_type(u32::try_from(indices.len()).unwrap());
     let indices_ptr =
-        ctx.build_allocate(AllocationScope::StackStartOfFunc, indices_ty, Some("indices"))?;
+        ctx.alloc_at(AllocationScope::StackStartOfFunc, indices_ty, Some("indices"))?;
     let shape = base.inner_value(ctx)?.shape(ctx)?.inner_value(ctx, None)?;
 
     for (real_axis, (index_ast, display_axis)) in indices.iter().enumerate() {

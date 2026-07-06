@@ -243,7 +243,7 @@ pub struct CodeGenContext<'ctx, 'a> {
     pub inner: &'a mut ModuleContext<'ctx>,
 
     /// The [`Builder`] instance for creating LLVM IR statements.
-    pub builder: &'a Builder<'ctx>,
+    pub builder: Builder<'ctx>,
     /// The [`DebugInfoBuilder`], [compilation unit information][DICompileUnit], and
     /// [scope information][DIScope] of this context.
     pub debug_info: (DebugInfoBuilder<'ctx>, DICompileUnit<'ctx>, DIScope<'ctx>),
@@ -267,8 +267,8 @@ pub struct CodeGenContext<'ctx, 'a> {
     /// Cache for constant strings.
     pub const_strings: HashMap<String, BasicValueEnum<'ctx>>,
 
-    /// [`BasicBlock`] containing all `alloca` statements for the current function.
-    pub init_bb: BasicBlock<'ctx>,
+    /// Builder for building start-of-function allocas.
+    pub init_builder: Builder<'ctx>,
     pub exception_val: PointerValue<'ctx>,
 
     /// The header and exit basic blocks of a loop in this context. See
@@ -805,64 +805,28 @@ pub fn gen_func_impl<
     }
 
     let init_bb = ctx.ctx.append_basic_block(fn_val, "init");
-    let builder = &ctx.ctx.create_builder();
+    let builder = ctx.ctx.create_builder();
     builder.position_at_end(init_bb);
+
     let body_bb = ctx.ctx.append_basic_block(fn_val, "body");
+    let br = builder.build_unconditional_branch(body_bb)?;
+    builder.position_at_end(body_bb);
+
+    let init_builder = ctx.ctx.create_builder();
+    init_builder.position_before(&br);
+
+    let exception_val = {
+        let exn_type = ExceptionType::new(ctx).inner.llvm_ty;
+        init_builder.build_alloca(exn_type, "exn")?
+    };
+
     let finalize_bb = ctx.ctx.append_basic_block(fn_val, "finalize");
     // Only construct the function-level cleanup landingpad if a personality function is available,
     // otherwise the landingpad is unreachable
     let cleanup_lp = personality.map(|_| ctx.ctx.append_basic_block(fn_val, "fn.cleanup.lp"));
 
-    // Store non-vararg argument values into local variables
-    let mut var_assignment = HashMap::new();
-
-    for (n, arg) in params.iter().enumerate().filter(|(_, arg)| !arg.is_vararg) {
-        let param = fn_val.get_nth_param(n as u32).unwrap();
-        let local_type = get_llvm_type(ctx, &mut unifier, &mut type_cache, arg.ty);
-        let alloca =
-            builder.build_alloca(local_type, &format!("{}.addr", &arg.name.to_string()))?;
-
-        // Remap boolean parameters into i8
-        let param = if local_type.is_int_type() && param.is_int_value() {
-            let expected_ty = local_type.into_int_type();
-            let param_val = param.into_int_value();
-
-            if expected_ty.get_bit_width() == 8 && param_val.get_type().get_bit_width() == 1 {
-                bool_to_int_type(builder, param_val, ctx.i8)?
-            } else {
-                param_val
-            }
-            .into()
-        } else {
-            param
-        };
-
-        builder.build_store(alloca, param)?;
-        var_assignment.insert(arg.name, VarValue::new(alloca, arg.ty));
-    }
-
-    // TODO: Save vararg parameters as list
-
     let return_buffer =
-        ret_type.map(|v| anyhow::Ok(builder.build_alloca(v, "$ret")?)).transpose()?;
-
-    let static_values = {
-        let store = registry.static_value_store.lock();
-        store.store[task.id].clone()
-    };
-    for (k, v) in static_values {
-        let VarValue { static_value: static_val, .. } =
-            var_assignment.get_mut(&params[k].name).unwrap();
-        *static_val = Some(v);
-    }
-
-    let exception_val = {
-        let exn_type = ExceptionType::new(ctx).inner.llvm_ty;
-        builder.build_alloca(exn_type, "exn")?
-    };
-
-    builder.build_unconditional_branch(body_bb)?;
-    builder.position_at_end(body_bb);
+        ret_type.map(|v| anyhow::Ok(init_builder.build_alloca(v, "$ret")?)).transpose()?;
 
     let is_optimized = registry.codegen_options.opt_level != "0";
 
@@ -922,13 +886,13 @@ pub fn gen_func_impl<
         return_buffer_type: ret_type,
         unwind_target: cleanup_lp,
         outer_catch_clauses: None,
-        const_strings: HashMap::default(),
+        const_strings: HashMap::new(),
         registry,
-        var_assignment,
+        var_assignment: HashMap::new(),
         type_cache,
         alloca_type_cache: HashMap::new(),
         primitives,
-        init_bb,
+        init_builder,
         exception_val,
         builder,
         unifier,
@@ -938,6 +902,47 @@ pub fn gen_func_impl<
     };
 
     ctx.with_loc(task.location, |ctx| {
+        // Store non-vararg argument values into local variables
+        for (n, arg) in params.iter().enumerate().filter(|(_, arg)| !arg.is_vararg) {
+            let param = fn_val.get_nth_param(n as u32).unwrap();
+            let local_type = ctx.get_llvm_type(arg.ty);
+            let alloca = ctx.alloc_at(
+                AllocationScope::StackStartOfFunc,
+                local_type,
+                Some(&format!("{}.addr", arg.name)),
+            )?;
+
+            // Remap boolean parameters into i8
+            let param = if local_type.is_int_type() && param.is_int_value() {
+                let expected_ty = local_type.into_int_type();
+                let param_val = param.into_int_value();
+
+                if expected_ty.get_bit_width() == 8 && param_val.get_type().get_bit_width() == 1 {
+                    bool_to_int_type(&ctx.init_builder, param_val, ctx.i8)?
+                } else {
+                    param_val
+                }
+                .into()
+            } else {
+                param
+            };
+
+            ctx.init_builder.build_store(alloca, param)?;
+            ctx.var_assignment.insert(arg.name, VarValue::new(alloca, arg.ty));
+        }
+
+        // TODO: Save vararg parameters as list
+
+        let static_values = {
+            let store = registry.static_value_store.lock();
+            store.store[task.id].clone()
+        };
+        for (k, v) in static_values {
+            let VarValue { static_value: static_val, .. } =
+                ctx.var_assignment.get_mut(&params[k].name).unwrap();
+            *static_val = Some(v);
+        }
+
         let result = codegen_function(generator, ctx).map(|()| fn_val);
         // If the function body is not terminated, jump to `finalize_bb` to decrement refcounts
         if !ctx.is_terminated() {
@@ -961,7 +966,7 @@ pub fn gen_func_impl<
         }
 
         // Similarly for `cleanup.lp`: Decrement refcounts of all locals, then resume unwinding
-        if let Some(cleanup_lp) = cleanup_lp {
+        if let Some(cleanup_lp) = ctx.unwind_target {
             ctx.builder.position_at_end(cleanup_lp);
             let exception_type = ctx.get_llvm_type(ctx.primitives.exception);
             let ptr_type = ctx.ptr;
@@ -979,8 +984,6 @@ pub fn gen_func_impl<
             ctx.build_call_or_invoke(&resume, &[], "resume")?;
             ctx.builder.build_unreachable()?;
         }
-
-        ctx.builder.unset_current_debug_location();
         ctx.debug_info.0.finalize();
 
         result
@@ -1010,14 +1013,14 @@ pub fn bool_to_i1<'ctx>(
     ctx: &CodeGenContext<'ctx, '_>,
     bool_value: IntValue<'ctx>,
 ) -> anyhow::Result<IntValue<'ctx>> {
-    bool_to_int_type(ctx.builder, bool_value, ctx.i1)
+    bool_to_int_type(&ctx.builder, bool_value, ctx.i1)
 }
 
 pub fn bool_to_i8<'ctx>(
     ctx: &CodeGenContext<'ctx, '_>,
     bool_value: IntValue<'ctx>,
 ) -> anyhow::Result<IntValue<'ctx>> {
-    bool_to_int_type(ctx.builder, bool_value, ctx.i8)
+    bool_to_int_type(&ctx.builder, bool_value, ctx.i8)
 }
 
 /// Converts the value of a boolean-like value `value` into an arbitrary [`IntType`].
@@ -1121,7 +1124,7 @@ pub fn type_aligned_allocate<'ctx>(
         "",
     )?;
 
-    ctx.build_dyn_array_allocate(scope, align_ty, aligned_slices, name)
+    ctx.alloc_dyn_array(scope, align_ty, aligned_slices, name)
 }
 
 /// Name of the global variable marking the beginning of the module's global data.

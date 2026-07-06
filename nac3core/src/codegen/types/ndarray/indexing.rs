@@ -61,12 +61,8 @@ impl<'ctx> NDIndexType<'ctx> {
     ) -> anyhow::Result<ArraySliceValue<'ctx>> {
         // Allocate the LLVM ndindices.
         let ty = self.alloca_ty(ctx);
-        let ndindices = ctx.build_array_allocate(
-            AllocationScope::Default,
-            ty,
-            in_ndindices.len() as u64,
-            None,
-        )?;
+        let ndindices =
+            ctx.alloc_array(AllocationScope::Default, ty, in_ndindices.len() as u64, None)?;
 
         // Initialize all of them.
         for (i, in_ndindex) in in_ndindices.iter().enumerate() {
@@ -251,7 +247,7 @@ impl<'ctx> RustNDIndex<'ctx> {
         // Set `dst_ndindex_ptr->data`
         match *self {
             RustNDIndex::SingleElement(in_index) => {
-                let index_ptr = ctx.build_allocate(AllocationScope::Default, ctx.i32, None)?;
+                let index_ptr = ctx.alloc(ctx.i32, None)?;
                 ctx.builder.build_store(index_ptr, in_index)?;
                 dst_ndindex.store(ctx, field!(data), index_ptr)?;
             }

@@ -1879,7 +1879,7 @@ impl<'a> BuiltinBuilder<'a> {
                     },
                     |(), ctx| {
                         if let Some(hooks) = hooks {
-                            hooks.build_break_branch(ctx.builder)?;
+                            hooks.build_break_branch(&ctx.builder)?;
                         }
                         Ok(())
                     },
