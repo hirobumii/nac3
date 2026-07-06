@@ -309,7 +309,7 @@ pub fn impl_bitwise_shift(unifier: &mut Unifier, store: &PrimitiveStore, ty: Typ
         unifier,
         store,
         ty,
-        &[store.int32, store.uint32],
+        &[store.int32, store.uint32, store.int64, store.uint64],
         Some(ty),
         &[Operator::LShift, Operator::RShift],
     );

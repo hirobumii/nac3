@@ -1,11 +1,7 @@
 use std::{collections::HashSet, iter::once};
 
 use anyhow::anyhow;
-use nac3parser::ast::{
-    self, Constant, Expr, ExprKind,
-    Operator::{LShift, RShift},
-    Stmt, StmtKind, StrRef,
-};
+use nac3parser::ast::{self, Constant, Expr, ExprKind, Stmt, StmtKind, StrRef};
 
 use crate::{
     toplevel::{composer::erase_expr_type, helper::PrimDef},
@@ -144,22 +140,11 @@ impl Inferencer<'_> {
                 self.check_expr(value, defined_identifiers)?;
                 self.should_have_value(value)?;
             }
-            ExprKind::BinOp { left, op, right } => {
+            ExprKind::BinOp { left, right, .. } => {
                 self.check_expr(left, defined_identifiers)?;
                 self.check_expr(right, defined_identifiers)?;
                 self.should_have_value(left)?;
                 self.should_have_value(right)?;
-
-                // Check whether a bitwise shift has a negative RHS constant value
-                if (*op == LShift || *op == RShift)
-                    && let ExprKind::Constant { value, .. } = &right.node
-                {
-                    let Constant::Int(rhs_val) = value else { unreachable!() };
-
-                    if *rhs_val < 0 {
-                        return Err(vec![anyhow!("shift count is negative at {}", right.location)]);
-                    }
-                }
             }
             ExprKind::UnaryOp { operand, .. } => {
                 self.check_expr(operand, defined_identifiers)?;

@@ -1,5 +1,5 @@
 use std::{
-    cmp::min,
+    cmp::{Ordering, min},
     collections::{HashMap, hash_map::Entry},
     convert::TryInto,
     iter::{once, zip},
@@ -328,42 +328,62 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
             (Operator::BitXor, _) => self.builder.build_xor(lhs, rhs, "xor")?.into(),
             (Operator::BitAnd, _) => self.builder.build_and(lhs, rhs, "and")?.into(),
 
-            // Sign-ness of bitshift operators are always determined by the left operand
             (Operator::LShift | Operator::RShift, signed) => {
-                // RHS operand is always 32 bits
-                assert_eq!(rhs.get_type().get_bit_width(), 32);
+                // Shifts follow NumPy's fixed-width semantics - The count is interpreted as
+                // unsigned and saturates the shift.
+                //
+                // A shift count that `>= bit_width` or is negative shifts every bit out, e.g.
+                // `int32(1) << int32(32) == 0` and `int32(-1) >> int32(32) == -1`.
+                //
+                // Note that NAC3's implementation diverges with NumPy's handling with
+                // different-typed operands: NumPy promotes the result to the wider type, while NAC3
+                // takes the LHS width as the result width.
 
                 let common_type = lhs.get_type();
-                let rhs = if common_type.get_bit_width() > 32 {
-                    if signed {
-                        self.builder.build_int_s_extend(rhs, common_type, "")?
-                    } else {
-                        self.builder.build_int_z_extend(rhs, common_type, "")?
-                    }
-                } else {
-                    rhs
-                };
+                let width = common_type.get_bit_width();
 
-                let rhs_gez = self.builder.build_int_compare(
-                    IntPredicate::SGE,
+                // Saturate out-of-range shifts (i.e. shift val >= int width of unsigned RHS type)
+                let out_of_range = self.builder.build_int_compare(
+                    IntPredicate::UGE,
                     rhs,
-                    common_type.const_zero(),
+                    rhs.get_type().const_int(u64::from(width), false),
                     "",
                 )?;
-                self.make_assert(
-                    rhs_gez,
-                    "ValueError",
-                    "negative shift count",
-                    [None, None, None],
+
+                // Interpret the shift count as an unsigned, LHS-width value
+                let rhs = match rhs.get_type().get_bit_width().cmp(&width) {
+                    Ordering::Less => self.builder.build_int_z_extend(rhs, common_type, "")?,
+                    Ordering::Greater => self.builder.build_int_truncate(rhs, common_type, "")?,
+                    Ordering::Equal => rhs,
+                };
+                let rhs = self.builder.build_and(
+                    rhs,
+                    common_type.const_int(u64::from(width - 1), false),
+                    "",
                 )?;
 
-                match op {
-                    Operator::LShift => self.builder.build_left_shift(lhs, rhs, "lshift")?.into(),
+                let shifted = match op {
+                    Operator::LShift => self.builder.build_left_shift(lhs, rhs, "lshift")?,
                     Operator::RShift => {
-                        self.builder.build_right_shift(lhs, rhs, signed, "rshift")?.into()
+                        self.builder.build_right_shift(lhs, rhs, signed, "rshift")?
                     }
                     _ => codegen_unreachable!(self),
-                }
+                };
+
+                // Saturation value: left and logical-right shifts flush to `0`, arithmetic right
+                // shifts fills with the sign bit.
+                let saturated = if matches!(op, Operator::RShift) && signed {
+                    self.builder.build_right_shift(
+                        lhs,
+                        common_type.const_int(u64::from(width - 1), false),
+                        true,
+                        "",
+                    )?
+                } else {
+                    common_type.const_zero()
+                };
+
+                self.builder.build_select(out_of_range, saturated, shifted, "shift")?
             }
 
             (Operator::FloorDiv, true) => {
