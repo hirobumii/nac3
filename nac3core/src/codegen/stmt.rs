@@ -370,7 +370,7 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
                         lhs_size,
                         "list_size_check",
                     )?,
-                    "ValueError",
+                    "0:ValueError",
                     "incorrect number of values to unpack (expected {1})",
                     [Some(rhs_size), Some(lhs_size), None],
                 )?;
@@ -389,7 +389,7 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
                     rhs_size,
                     "list_size_check",
                 )?,
-                "ValueError",
+                "0:ValueError",
                 "too few values to unpack (expected at least {0}, got {1})",
                 [Some(min_size_), Some(rhs_size), None],
             )?;
@@ -1080,7 +1080,7 @@ pub fn gen_for<G: CodeGenerator>(
                 ctx.builder.build_int_compare(IntPredicate::NE, step, int32.const_zero(), "")?;
             ctx.make_assert(
                 rangenez,
-                "ValueError",
+                "0:ValueError",
                 "range() arg 3 must not be zero",
                 [None, None, None],
             )?;
