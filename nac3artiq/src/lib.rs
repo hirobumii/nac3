@@ -10,7 +10,7 @@
 use std::{
     cell::OnceCell,
     collections::{HashMap, HashSet},
-    env, fs,
+    env, fmt, fs,
     io::Write,
     iter::once,
     path::Path,
@@ -44,10 +44,7 @@ use nac3core::{
     toplevel::{
         DefinitionId, GenCall, TopLevelDef,
         builtins::get_exn_constructor,
-        composer::{
-            BuiltinFuncCreator, BuiltinFuncSpec, BuiltinMatchError, BuiltinRegistry,
-            TopLevelComposer,
-        },
+        composer::{BuiltinFuncCreator, BuiltinFuncSpec, BuiltinRegistry, TopLevelComposer},
         helper::{PrimDef, get_decorator_flags},
     },
     typecheck::{
@@ -146,6 +143,32 @@ impl From<u64> for PyId {
         Self::Type(id)
     }
 }
+
+/// Errors that can occur during builtin identifier matching
+#[derive(Debug, Clone)]
+enum BuiltinMatchError {
+    ModuleNotFound { file: FileName },
+    PythonError(String),
+    ResolutionError(String),
+}
+
+impl fmt::Display for BuiltinMatchError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ModuleNotFound { file } => {
+                write!(f, "No module found for file {file:?}")
+            }
+            Self::PythonError(err) => {
+                write!(f, "Python error: {err}")
+            }
+            Self::ResolutionError(err) => {
+                write!(f, "Resolution error: {err}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for BuiltinMatchError {}
 
 /// ARTIQ mode builtin registry using Python object ID matching.
 ///

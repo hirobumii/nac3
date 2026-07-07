@@ -1114,11 +1114,7 @@ impl TopLevelComposer {
                 // things like `class A(Generic[T, V, ImportedModule.T])` is not supported
                 // i.e. only simple names are allowed in the subscript
                 // should update the TopLevelDef::Class.typevars and the TypeEnum::TObj.params
-                ast::ExprKind::Subscript { slice, .. }
-                    if builtin_registry
-                        .has_generic_ann(b)
-                        .map_err(|err| vec![anyhow!("{err}")])? =>
-                {
+                ast::ExprKind::Subscript { slice, .. } if builtin_registry.has_generic_ann(b) => {
                     if is_generic {
                         return Err(vec![anyhow!(
                             "only single Generic[...] is allowed (at {})",

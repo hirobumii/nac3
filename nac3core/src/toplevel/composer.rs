@@ -1,6 +1,5 @@
 use std::{
     collections::{HashMap, HashSet},
-    fmt,
     rc::Rc,
     sync::Arc,
 };
@@ -8,7 +7,7 @@ use std::{
 use anyhow::anyhow;
 use indexmap::IndexMap;
 use itertools::Itertools as _;
-use nac3parser::ast::{self, Expr, ExprKind, FileName, Located, StrRef, fold::Fold};
+use nac3parser::ast::{self, Expr, ExprKind, Located, StrRef, fold::Fold};
 use parking_lot::RwLock;
 
 use crate::{
@@ -200,8 +199,8 @@ pub trait BuiltinRegistry: Send + Sync {
     /// generic types in its members, usually `Generic[T]`.
     ///
     /// The type annotation is resolved in the decorator's global module context.
-    fn has_generic_ann(&self, type_ann: &Located<ExprKind>) -> Result<bool, BuiltinMatchError> {
-        Ok(self.match_builtin(type_ann) == Some(PrimDef::Generic))
+    fn has_generic_ann(&self, type_ann: &Located<ExprKind>) -> bool {
+        self.match_builtin(type_ann) == Some(PrimDef::Generic)
     }
 
     /// Checks whether the type annotation expression `type_ann` indicates that the variable is
@@ -210,16 +209,16 @@ pub trait BuiltinRegistry: Send + Sync {
     /// The type annotation is resolved in the decorator's global module context.
     ///
     /// Returns `Ok(None)` if this functionality is not supported.
-    fn has_kernel_ann(&self, type_ann: &Located<ExprKind>) -> Result<bool, BuiltinMatchError> {
-        Ok(self.match_builtin(type_ann) == Some(PrimDef::Kernel))
+    fn has_kernel_ann(&self, type_ann: &Located<ExprKind>) -> bool {
+        self.match_builtin(type_ann) == Some(PrimDef::Kernel)
     }
 
     /// Checks whether the type annotation expression `type_ann` indicates that the variable is
     /// immutable, usually `KernelInvariant[T]`.
     ///
     /// The type annotation is resolved in the decorator's global module context.
-    fn has_invariant_ann(&self, type_ann: &Located<ExprKind>) -> Result<bool, BuiltinMatchError> {
-        Ok(self.match_builtin(type_ann) == Some(PrimDef::KernelInvariant))
+    fn has_invariant_ann(&self, type_ann: &Located<ExprKind>) -> bool {
+        self.match_builtin(type_ann) == Some(PrimDef::KernelInvariant)
     }
 
     /// Checks whether the `decorator` indicates that the function should be an `extern` function,
@@ -230,12 +229,8 @@ pub trait BuiltinRegistry: Send + Sync {
     /// executed on the host interpreter.
     ///
     /// The decorator is resolved in the decorator's global module context.
-    fn is_extern_decorator(
-        &self,
-        decorator: &Located<ExprKind>,
-    ) -> Result<bool, BuiltinMatchError> {
-        Ok(self.match_builtin(decorator) == Some(PrimDef::ExternFn)
-            || self.match_builtin(decorator) == Some(PrimDef::Rpc))
+    fn is_extern_decorator(&self, decorator: &Located<ExprKind>) -> bool {
+        matches!(self.match_builtin(decorator), Some(PrimDef::ExternFn | PrimDef::Rpc))
     }
 
     /// Checks whether the `decorator` indicates that the function is a static method, usually the
@@ -243,11 +238,8 @@ pub trait BuiltinRegistry: Send + Sync {
     /// argument, and can be called without instantiating the class.
     ///
     /// The decorator is resolved in the decorator's global module context.
-    fn is_static_method_decorator(
-        &self,
-        decorator: &Located<ExprKind>,
-    ) -> Result<bool, BuiltinMatchError> {
-        Ok(self.match_builtin(decorator) == Some(PrimDef::StaticMethod))
+    fn is_static_method_decorator(&self, decorator: &Located<ExprKind>) -> bool {
+        self.match_builtin(decorator) == Some(PrimDef::StaticMethod)
     }
 
     /// Returns true if kernel decorators are supported (ARTIQ mode).
@@ -256,32 +248,6 @@ pub trait BuiltinRegistry: Send + Sync {
         false
     }
 }
-
-/// Errors that can occur during builtin identifier matching
-#[derive(Debug, Clone)]
-pub enum BuiltinMatchError {
-    ModuleNotFound { file: FileName },
-    PythonError(String),
-    ResolutionError(String),
-}
-
-impl fmt::Display for BuiltinMatchError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::ModuleNotFound { file } => {
-                write!(f, "No module found for file {file:?}")
-            }
-            Self::PythonError(err) => {
-                write!(f, "Python error: {err}")
-            }
-            Self::ResolutionError(err) => {
-                write!(f, "Resolution error: {err}")
-            }
-        }
-    }
-}
-
-impl std::error::Error for BuiltinMatchError {}
 
 /// Converts a typed expression `Located<ExprKind<U>, U>` to an untyped expression `Located<ExprKind>`.
 ///
@@ -637,9 +603,10 @@ impl TopLevelComposer {
                         // dummy method define here
                         let dummy_method_type = self.unifier.get_dummy_var().ty;
                         let mut attributes = vec![];
-                        if decorator_list.iter().any(|d| {
-                            self.builtin_registry.is_static_method_decorator(d).unwrap_or(false)
-                        }) {
+                        if decorator_list
+                            .iter()
+                            .any(|d| self.builtin_registry.is_static_method_decorator(d))
+                        {
                             attributes.push(super::FunAttribute::StaticMethod);
                         }
                         class_method_name_def_ids.push((
@@ -1343,7 +1310,7 @@ impl TopLevelComposer {
                     let mut method_var_map = VarMap::new();
 
                     let is_static = decorator_list.iter().any(|def| {
-                        builtin_registry.is_static_method_decorator(def).unwrap_or(false)
+                        builtin_registry.is_static_method_decorator(def)
                     });
 
                     let arg_types: Vec<FuncArg> = {
@@ -1521,12 +1488,12 @@ impl TopLevelComposer {
                                     // handle Kernel[T], KernelInvariant[T]
                                     let (annotation, mutable) = match &annotation.node {
                                         ExprKind::Subscript { slice, .. }
-                                            if builtin_registry.has_invariant_ann(annotation).map_err(|err| vec![anyhow!("{err}")])? =>
+                                            if builtin_registry.has_invariant_ann(annotation) =>
                                         {
                                             (slice, false)
                                         }
                                         ExprKind::Subscript { slice, .. }
-                                            if builtin_registry.has_kernel_ann(annotation).map_err(|err| vec![anyhow!("{err}")])? =>
+                                            if builtin_registry.has_kernel_ann(annotation) =>
                                         {
                                             (slice, true)
                                         }
@@ -2190,13 +2157,7 @@ impl TopLevelComposer {
                 };
 
                 // Do not further analyse extern functions as the body may contain non-compilable statements
-                if decorator_list
-                    .iter()
-                    .try_fold(false, |acc, dec| {
-                        self.builtin_registry.is_extern_decorator(dec).map(|x| x || acc)
-                    })
-                    .map_err(|err| vec![anyhow!("{err}")])?
-                {
+                if decorator_list.iter().any(|dec| self.builtin_registry.is_extern_decorator(dec)) {
                     let TopLevelDef::Function { instance_to_symbol, .. } = &mut *def.write() else {
                         unreachable!()
                     };
