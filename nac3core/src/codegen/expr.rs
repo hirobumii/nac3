@@ -512,6 +512,8 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
     ) -> anyhow::Result<()> {
         let llvm_i32 = self.i32;
         let llvm_i64 = self.i64;
+        let llvm_i64_zero = llvm_i64.const_zero();
+
         let llvm_exn = ExceptionType::new(self);
 
         let zelf = llvm_exn.map_value(self.exception_val, Some("exn"));
@@ -519,22 +521,18 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
         let id = self.resolver.get_string_id(name);
         zelf.store(self, field!(name), llvm_i32.const_int(id as u64, false))?;
         zelf.store(self, field!(message), msg.into_struct_value())?;
-        let params = params
-            .into_iter()
-            .map(|p| {
-                p.map_or_else(
-                    || anyhow::Ok(llvm_i64.const_zero()),
-                    |v| {
-                        anyhow::Ok(
-                            self.builder.build_int_s_extend_or_bit_cast(v, self.i64, "sext")?,
-                        )
-                    },
-                )
-            })
-            .collect::<anyhow::Result<Vec<_>>>()?;
-        zelf.store(self, field!(param0), params[0])?;
-        zelf.store(self, field!(param1), params[1])?;
-        zelf.store(self, field!(param2), params[2])?;
+
+        for p in &params {
+            p.inspect(|v| {
+                let llvm_ty = v.get_type();
+                assert_eq!(llvm_ty, self.i64, "Expected i64 for exception argument, got {llvm_ty}");
+            });
+        }
+
+        zelf.store(self, field!(param0), params[0].unwrap_or(llvm_i64_zero))?;
+        zelf.store(self, field!(param1), params[1].unwrap_or(llvm_i64_zero))?;
+        zelf.store(self, field!(param2), params[2].unwrap_or(llvm_i64_zero))?;
+
         gen_raise(self, Some(&zelf))?;
 
         Ok(())
