@@ -524,7 +524,11 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
             .map(|p| {
                 p.map_or_else(
                     || anyhow::Ok(llvm_i64.const_zero()),
-                    |v| anyhow::Ok(self.builder.build_int_s_extend(v, self.i64, "sext")?),
+                    |v| {
+                        anyhow::Ok(
+                            self.builder.build_int_s_extend_or_bit_cast(v, self.i64, "sext")?,
+                        )
+                    },
                 )
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
@@ -1230,16 +1234,23 @@ pub fn gen_prim_binop_expr<'ctx>(
                 // Guard the new list against `size_t` overflow of its size
                 let (total_len, count_overflow) =
                     call_umul_with_overflow(ctx, size, int_val, None)?;
-                let no_overflow = ctx.builder.build_not(count_overflow, "")?;
-                ctx.make_assert(
-                    no_overflow,
-                    "0:OverflowError",
-                    &format!(
-                        "New list of {{0}} × {{1}} elements exceeds maximum size of {}",
-                        ctx.size_t_max(),
-                    ),
-                    [Some(size), Some(int_val), None],
-                )?;
+
+                {
+                    let no_overflow = ctx.builder.build_not(count_overflow, "")?;
+                    let size_zext =
+                        ctx.builder.build_int_z_extend_or_bit_cast(size, ctx.i64, "")?;
+                    let int_val_zext =
+                        ctx.builder.build_int_z_extend_or_bit_cast(int_val, ctx.i64, "")?;
+                    ctx.make_assert(
+                        no_overflow,
+                        "0:OverflowError",
+                        &format!(
+                            "New list of {{0}} × {{1}} elements exceeds maximum size of {}",
+                            ctx.size_t_max(),
+                        ),
+                        [Some(size_zext), Some(int_val_zext), None],
+                    )?;
+                }
 
                 let new_list = list_ty.construct(ctx, total_len, None)?;
                 let new_list_data = new_list.inner_value(ctx)?.data(ctx)?;

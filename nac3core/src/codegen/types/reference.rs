@@ -477,20 +477,26 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedArrayType<'ctx, T> {
             let (elems_size, mul_overflow) =
                 llvm_intrinsics::call_umul_with_overflow(ctx, sizeof_elem, size, None)?;
             let alloc_size = ctx.builder.build_int_add(sizeof_zero_elem, elems_size, "")?;
-            // Adding the fixed header size can also wrap around.
-            let add_overflow =
-                ctx.builder.build_int_compare(IntPredicate::ULT, alloc_size, elems_size, "")?;
-            let overflow = ctx.builder.build_or(mul_overflow, add_overflow, "")?;
-            let no_overflow = ctx.builder.build_not(overflow, "")?;
-            ctx.make_assert(
-                no_overflow,
-                "0:OverflowError",
-                &format!(
-                    "Allocation of {{0}} × {{1}} bytes exceeds maximum value of {} bytes",
-                    ctx.size_t_max(),
-                ),
-                [Some(size), Some(sizeof_elem), None],
-            )?;
+
+            {
+                // Adding the fixed header size can also wrap around.
+                let add_overflow =
+                    ctx.builder.build_int_compare(IntPredicate::ULT, alloc_size, elems_size, "")?;
+                let overflow = ctx.builder.build_or(mul_overflow, add_overflow, "")?;
+                let no_overflow = ctx.builder.build_not(overflow, "")?;
+                let size_zext = ctx.builder.build_int_z_extend_or_bit_cast(size, ctx.i64, "")?;
+                let sizeof_elem_zext =
+                    ctx.builder.build_int_z_extend_or_bit_cast(sizeof_elem, ctx.i64, "")?;
+                ctx.make_assert(
+                    no_overflow,
+                    "0:OverflowError",
+                    &format!(
+                        "Allocation of {{0}} × {{1}} bytes exceeds maximum value of {} bytes",
+                        ctx.size_t_max(),
+                    ),
+                    [Some(size_zext), Some(sizeof_elem_zext), None],
+                )?;
+            }
 
             let ptr = type_aligned_allocate(ctx, scope, align_ty, alloc_size, name)?;
             ptr.value.0
