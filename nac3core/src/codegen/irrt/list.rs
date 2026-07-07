@@ -87,12 +87,20 @@ pub fn list_slice_assignment<'ctx>(
     )?;
     let cond_1 = ctx.builder.build_and(dest_step_eq_one, src_slt_dest, "slice_cond_1")?;
     let cond = ctx.builder.build_or(src_eq_dest, cond_1, "slice_cond")?;
-    ctx.make_assert(
-        cond,
-        "0:ValueError",
-        "attempt to assign sequence of size {0} to slice of size {1} with step size {2}",
-        [Some(src_slice_len), Some(dest_slice_len), Some(dest_idx.2)],
-    )?;
+
+    {
+        let src_slice_len_zext =
+            ctx.builder.build_int_z_extend_or_bit_cast(src_slice_len, ctx.i64, "")?;
+        let dest_slice_len_zext =
+            ctx.builder.build_int_z_extend_or_bit_cast(dest_slice_len, ctx.i64, "")?;
+        let dest_step_sext = ctx.builder.build_int_s_extend_or_bit_cast(dest_idx.2, ctx.i64, "")?;
+        ctx.make_assert(
+            cond,
+            "0:ValueError",
+            "attempt to assign sequence of size {0} to slice of size {1} with step size {2}",
+            [Some(src_slice_len_zext), Some(dest_slice_len_zext), Some(dest_step_sext)],
+        )?;
+    }
 
     let new_len = call_extern!(ctx: llvm_i32 "slice_assign" = fun_symbol(
         dest_idx.0,   // dest start idx

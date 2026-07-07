@@ -301,15 +301,22 @@ pub fn ndarray_dot<'ctx>(
             let common_dtype = arraylike_flatten_element_type(&mut ctx.unifier, x1_ty);
 
             // Check shapes.
-            let a_size = a.size(ctx)?;
-            let b_size = b.size(ctx)?;
-            let same_shape = ctx.builder.build_int_compare(IntPredicate::EQ, a_size, b_size, "")?;
-            ctx.make_assert(
-                same_shape,
-                "0:ValueError",
-                "shapes ({0},) and ({1},) not aligned: {0} (dim 0) != {1} (dim 1)",
-                [Some(a_size), Some(b_size), None],
-            )?;
+            {
+                let a_size = a.size(ctx)?;
+                let b_size = b.size(ctx)?;
+                let same_shape =
+                    ctx.builder.build_int_compare(IntPredicate::EQ, a_size, b_size, "")?;
+                let a_size_zext =
+                    ctx.builder.build_int_z_extend_or_bit_cast(a_size, ctx.i64, "")?;
+                let b_size_zext =
+                    ctx.builder.build_int_z_extend_or_bit_cast(b_size, ctx.i64, "")?;
+                ctx.make_assert(
+                    same_shape,
+                    "0:ValueError",
+                    "shapes ({0},) and ({1},) not aligned: {0} (dim 0) != {1} (dim 1)",
+                    [Some(a_size_zext), Some(b_size_zext), None],
+                )?;
+            }
 
             let dtype_llvm = ctx.get_llvm_type(common_dtype);
 

@@ -362,18 +362,24 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
             let Some((head, mid, tail)) = starred_target_index else {
                 // No starred target, simple assignment
 
-                let lhs_size = ctx.size_t.const_int(targets.len() as u64, false);
-                ctx.make_assert(
-                    ctx.builder.build_int_compare(
-                        IntPredicate::EQ,
-                        rhs_size,
-                        lhs_size,
-                        "list_size_check",
-                    )?,
-                    "0:ValueError",
-                    "incorrect number of values to unpack (expected {1})",
-                    [Some(rhs_size), Some(lhs_size), None],
-                )?;
+                {
+                    let lhs_size = ctx.size_t.const_int(targets.len() as u64, false);
+                    let rhs_size_zext =
+                        ctx.builder.build_int_z_extend_or_bit_cast(rhs_size, ctx.i64, "")?;
+                    let lhs_size_zext =
+                        ctx.builder.build_int_z_extend_or_bit_cast(lhs_size, ctx.i64, "")?;
+                    ctx.make_assert(
+                        ctx.builder.build_int_compare(
+                            IntPredicate::EQ,
+                            rhs_size,
+                            lhs_size,
+                            "list_size_check",
+                        )?,
+                        "0:ValueError",
+                        "incorrect number of values to unpack (expected {1})",
+                        [Some(rhs_size_zext), Some(lhs_size_zext), None],
+                    )?;
+                }
 
                 let values = read_fixed(ctx, targets.len())?;
                 return do_assign(generator, ctx, targets, &values);
@@ -382,17 +388,23 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
             // All non-starred targets must be assigned exactly one value.
             let min_size = targets.len() - 1;
             let min_size_ = ctx.size_t.const_int(min_size as u64, false);
-            ctx.make_assert(
-                ctx.builder.build_int_compare(
-                    IntPredicate::ULE,
-                    min_size_,
-                    rhs_size,
-                    "list_size_check",
-                )?,
-                "0:ValueError",
-                "too few values to unpack (expected at least {0}, got {1})",
-                [Some(min_size_), Some(rhs_size), None],
-            )?;
+            {
+                let min_size_zext =
+                    ctx.builder.build_int_z_extend_or_bit_cast(min_size_, ctx.i64, "")?;
+                let rhs_size_zext =
+                    ctx.builder.build_int_z_extend_or_bit_cast(rhs_size, ctx.i64, "")?;
+                ctx.make_assert(
+                    ctx.builder.build_int_compare(
+                        IntPredicate::ULE,
+                        min_size_,
+                        rhs_size,
+                        "list_size_check",
+                    )?,
+                    "0:ValueError",
+                    "too few values to unpack (expected at least {0}, got {1})",
+                    [Some(min_size_zext), Some(rhs_size_zext), None],
+                )?;
+            }
 
             let head_values = read_fixed(ctx, head.len())?;
             do_assign(generator, ctx, head, &head_values)?;
@@ -658,14 +670,19 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
 
                 // unsigned less than is enough, because negative index after adjustment is
                 // bigger than the length (for unsigned cmp)
-                let bound_check =
-                    ctx.builder.build_int_compare(IntPredicate::ULT, index, len, "inbound")?;
-                ctx.make_assert(
-                    bound_check,
-                    "0:IndexError",
-                    "index {0} out of bounds 0:{1}",
-                    [Some(index), Some(len), None],
-                )?;
+                {
+                    let bound_check =
+                        ctx.builder.build_int_compare(IntPredicate::ULT, index, len, "inbound")?;
+                    let index_sext =
+                        ctx.builder.build_int_s_extend_or_bit_cast(index, ctx.i64, "")?;
+                    let len_zext = ctx.builder.build_int_z_extend_or_bit_cast(len, ctx.i64, "")?;
+                    ctx.make_assert(
+                        bound_check,
+                        "0:IndexError",
+                        "index {0} out of bounds 0:{1}",
+                        [Some(index_sext), Some(len_zext), None],
+                    )?;
+                }
 
                 // Write value to index on list
                 let value = value.to_basic_value_enum(ctx, value_ty)?;

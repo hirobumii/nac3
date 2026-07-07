@@ -176,13 +176,18 @@ fn gen_chain_element_ptr<'ctx, G: CodeGenerator>(
             ctx.builder.build_int_compare(IntPredicate::SLT, index, size_t.const_zero(), "")?;
         let added = ctx.builder.build_int_add(index, dim, "")?;
         let resolved = ctx.builder.build_select(is_negative, added, index, "")?.into_int_value();
-        let in_bounds = ctx.builder.build_int_compare(IntPredicate::ULT, resolved, dim, "")?;
-        ctx.make_assert(
-            in_bounds,
-            "0:IndexError",
-            "index {0} is out of bounds for axis {1} with size {2}",
-            [Some(index), Some(size_t.const_int(*display_axis, false)), Some(dim)],
-        )?;
+
+        {
+            let in_bounds = ctx.builder.build_int_compare(IntPredicate::ULT, resolved, dim, "")?;
+            let index_sext = ctx.builder.build_int_s_extend_or_bit_cast(index, ctx.i64, "")?;
+            let dim_zext = ctx.builder.build_int_z_extend_or_bit_cast(dim, ctx.i64, "")?;
+            ctx.make_assert(
+                in_bounds,
+                "0:IndexError",
+                "index {0} is out of bounds for axis {1} with size {2}",
+                [Some(index_sext), Some(ctx.i64.const_int(*display_axis, false)), Some(dim_zext)],
+            )?;
+        }
 
         let slot = unsafe {
             ctx.builder.build_in_bounds_gep(

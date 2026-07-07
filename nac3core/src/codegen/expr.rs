@@ -1214,6 +1214,8 @@ pub fn gen_prim_binop_expr<'ctx>(
                             count,
                             "",
                         )?;
+                        let count_zext =
+                            ctx.builder.build_int_z_extend_or_bit_cast(count, ctx.i64, "")?;
                         ctx.make_assert(
                             fits,
                             "0:OverflowError",
@@ -1221,7 +1223,7 @@ pub fn gen_prim_binop_expr<'ctx>(
                                 "List repetition count {{0}} exceeds maximum of {}",
                                 ctx.size_t_max(),
                             ),
-                            [Some(count), None, None],
+                            [Some(count_zext), None, None],
                         )?;
                         truncated
                     }
@@ -2474,16 +2476,25 @@ fn gen_subscript_expr<'ctx, G: CodeGenerator>(
                     .builder
                     .build_select(is_negative, adjusted, raw_index, "index")?
                     .into_int_value();
+
                 // unsigned less than is enough, because negative index after adjustment is
                 // bigger than the length (for unsigned cmp)
-                let bound_check =
-                    ctx.builder.build_int_compare(IntPredicate::ULT, index, len, "inbound")?;
-                ctx.make_assert(
-                    bound_check,
-                    "0:IndexError",
-                    "index {0} out of bounds 0:{1}",
-                    [Some(raw_index), Some(len), None],
-                )?;
+                {
+                    let bound_check =
+                        ctx.builder.build_int_compare(IntPredicate::ULT, index, len, "inbound")?;
+                    let raw_index_sext =
+                        ctx.builder.build_int_s_extend_or_bit_cast(raw_index, ctx.i64, "sext")?;
+
+                    let len_zext =
+                        ctx.builder.build_int_z_extend_or_bit_cast(len, ctx.i64, "zext")?;
+                    ctx.make_assert(
+                        bound_check,
+                        "0:IndexError",
+                        "index {0} out of bounds 0:{1}",
+                        [Some(raw_index_sext), Some(len_zext), None],
+                    )?;
+                }
+
                 let result = v
                     .inner_value(ctx)?
                     .data(ctx)?

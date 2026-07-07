@@ -278,14 +278,18 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> ArrayLikeIndexer<'ctx> for ArraySliceValue
     ) -> anyhow::Result<PointerValue<'ctx>> {
         debug_assert_eq!(idx.get_type(), ctx.size_t);
 
-        let size = self.value.1;
-        let in_range = ctx.builder.build_int_compare(IntPredicate::ULT, *idx, size, "")?;
-        ctx.make_assert(
-            in_range,
-            "0:IndexError",
-            "index {0} is out of bounds for size {1}",
-            [Some(*idx), Some(size), None],
-        )?;
+        {
+            let size = self.value.1;
+            let in_range = ctx.builder.build_int_compare(IntPredicate::ULT, *idx, size, "")?;
+            let idx_sext = ctx.builder.build_int_s_extend_or_bit_cast(*idx, ctx.i64, "")?;
+            let size_zext = ctx.builder.build_int_z_extend_or_bit_cast(size, ctx.i64, "")?;
+            ctx.make_assert(
+                in_range,
+                "0:IndexError",
+                "index {0} is out of bounds for size {1}",
+                [Some(idx_sext), Some(size_zext), None],
+            )?;
+        }
 
         self.ptr_offset_unchecked(ctx, idx, name)
     }

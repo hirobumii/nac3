@@ -662,11 +662,15 @@ impl<'ctx> ArrayLikeIndexer<'ctx, ArraySliceValue<'ctx, IntType<'ctx>>> for NDAr
                 let dim_lt =
                     ctx.builder.build_int_compare(IntPredicate::SLT, dim_idx, dim_sz, "")?;
 
+                let dim_idx_zext =
+                    ctx.builder.build_int_z_extend_or_bit_cast(dim_idx, ctx.i64, "")?;
+                let dim_sz_zext =
+                    ctx.builder.build_int_z_extend_or_bit_cast(dim_sz, ctx.i64, "")?;
                 ctx.make_assert(
                     dim_lt,
                     "0:IndexError",
                     "index {0} is out of bounds for axis 0 with size {1}",
-                    [Some(dim_idx), Some(dim_sz), None],
+                    [Some(dim_idx_zext), Some(dim_sz_zext), None],
                 )?;
 
                 Ok(())
