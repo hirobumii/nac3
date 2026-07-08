@@ -79,7 +79,8 @@ impl SymbolResolver for Resolver {
     }
 
     fn get_string_id(&self, _: &str) -> i32 {
-        unimplemented!()
+        // Stub
+        0
     }
 
     fn get_exception_id(&self, _tyid: usize) -> usize {
