@@ -64,6 +64,8 @@ pub struct ObjectHeaderStructFields<'ctx> {
     pub refcount: StructField<'ctx, IntValue<'ctx>>,
 
     /// The offset of the `typeinfo` global structure from `__nac3_global_begin`.
+    ///
+    /// The lowest 3 bits are reserved and unused.
     #[value_type(i32)]
     pub typeinfo_offset: StructField<'ctx, IntValue<'ctx>>,
 }

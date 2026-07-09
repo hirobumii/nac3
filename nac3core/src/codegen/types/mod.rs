@@ -267,6 +267,9 @@ pub trait WithTypeinfo<'ctx> {
                     refcounted_fields.as_pointer_value().into(),
                 ]));
                 value.set_constant(true);
+                // Force 8-byte alignment so that `typeinfo_offset` is always a multiple of 8,
+                // allowing the low 3 bits free for metadata
+                value.set_alignment(8);
                 value
             });
         TypeinfoType::new(ctx).map_value(global.as_pointer_value(), None)

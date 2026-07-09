@@ -25,6 +25,8 @@ struct ObjectHeader {
 
     /**
      * @brief The offset to the `typeinfo` structure for this object, relative to `__nac3_global_begin`.
+     *
+     * The lowest 3 bits are reserved and unused.
      */
     int32_t typeinfo_offset;
 };

@@ -1194,6 +1194,9 @@ impl<'ctx> ModuleContext<'ctx> {
         global_begin.set_linkage(Linkage::WeakAny);
         global_begin.set_constant(true);
         global_begin.set_initializer(&i8.get_poison());
+        // Force 8-byte alignment so that `typeinfo_offset` is always a multiple of 8, allowing the
+        // low 3 bits free for metadata
+        global_begin.set_alignment(8);
 
         Self { ctx, module, target, fn_store, size_t, i1, i8, i32, i64, f64, ptr }
     }

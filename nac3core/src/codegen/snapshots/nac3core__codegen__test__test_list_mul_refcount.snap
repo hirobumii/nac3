@@ -11,18 +11,18 @@ target triple = "x86_64-unknown-linux-gnu"
 %__nac3_typeinfo = type { ptr, ptr }
 %exception = type { i32, %str, i32, i32, %str, %str, i64, i64, i64 }
 
-@__nac3_global_begin = weak local_unnamed_addr constant i8 poison
+@__nac3_global_begin = weak local_unnamed_addr constant i8 poison, align 8
 @"typename array for __nac3_list" = weak constant [11 x i8] c"__nac3_list"
 @"typename for __nac3_list" = weak constant %str { ptr @"typename array for __nac3_list", i64 11 }
 @"refcounted_fields array for __nac3_list" = weak constant [2 x i32] [i32 1, i32 0]
-@"typeinfo for __nac3_list" = weak constant %__nac3_typeinfo { ptr @"typename for __nac3_list", ptr @"refcounted_fields array for __nac3_list" }
+@"typeinfo for __nac3_list" = weak constant %__nac3_typeinfo { ptr @"typename for __nac3_list", ptr @"refcounted_fields array for __nac3_list" }, align 8
 @const = private unnamed_addr constant [83 x i8] c"Allocation of {0} \C3\97 {1} bytes exceeds maximum value of 18446744073709551615 bytes\00", align 1
 @const.1 = private unnamed_addr constant [8 x i8] c"unknown\00", align 1
 @const.2 = private unnamed_addr constant [8 x i8] c"testing\00", align 1
 @"typename array for __nac3_array" = weak constant [12 x i8] c"__nac3_array"
 @"typename for __nac3_array" = weak constant %str { ptr @"typename array for __nac3_array", i64 12 }
 @"refcounted_fields array for __nac3_array" = weak constant [1 x i32] [i32 -1]
-@"typeinfo for __nac3_array" = weak constant %__nac3_typeinfo { ptr @"typename for __nac3_array", ptr @"refcounted_fields array for __nac3_array" }
+@"typeinfo for __nac3_array" = weak constant %__nac3_typeinfo { ptr @"typename for __nac3_array", ptr @"refcounted_fields array for __nac3_array" }, align 8
 @const.3 = private unnamed_addr constant [77 x i8] c"New list of {0} \C3\97 {1} elements exceeds maximum size of 18446744073709551615\00", align 1
 
 define noundef i32 @testing() local_unnamed_addr !dbg !4 {
