@@ -374,7 +374,7 @@ impl TestEnvironment {
         let tvar = unifier.get_dummy_var();
 
         let foo_ty = unifier.add_ty(TypeEnum::TObj {
-            obj_id: DefinitionId(defs + 1),
+            obj_id: DefinitionId(defs),
             fields: [("a".into(), (tvar.ty, AttrKind::Field { mutable: true }))].into(),
             params: into_var_map([tvar]),
         });
@@ -382,7 +382,7 @@ impl TestEnvironment {
             RwLock::new(TopLevelDef::Class {
                 name: "Foo".into(),
                 simple_name: "Foo".to_string(),
-                object_id: DefinitionId(defs + 1),
+                object_id: DefinitionId(defs),
                 type_vars: vec![tvar.ty],
                 fields: [("a".into(), tvar.ty, true)].into(),
                 attributes: Vec::default(),
@@ -410,7 +410,7 @@ impl TestEnvironment {
             vars: IndexMap::default(),
         }));
         let bar = unifier.add_ty(TypeEnum::TObj {
-            obj_id: DefinitionId(defs + 2),
+            obj_id: DefinitionId(defs + 1),
             fields: [
                 ("a".into(), (int32, AttrKind::Field { mutable: true })),
                 ("b".into(), (fun, AttrKind::Method)),
@@ -422,7 +422,7 @@ impl TestEnvironment {
             RwLock::new(TopLevelDef::Class {
                 name: "Bar".into(),
                 simple_name: "Bar".to_string(),
-                object_id: DefinitionId(defs + 2),
+                object_id: DefinitionId(defs + 1),
                 type_vars: Vec::default(),
                 fields: [("a".into(), int32, true), ("b".into(), fun, true)].into(),
                 attributes: Vec::default(),
@@ -444,7 +444,7 @@ impl TestEnvironment {
         );
 
         let bar2 = unifier.add_ty(TypeEnum::TObj {
-            obj_id: DefinitionId(defs + 3),
+            obj_id: DefinitionId(defs + 2),
             fields: [
                 ("a".into(), (bool, AttrKind::Field { mutable: true })),
                 ("b".into(), (fun, AttrKind::Method)),
@@ -456,7 +456,7 @@ impl TestEnvironment {
             RwLock::new(TopLevelDef::Class {
                 name: "Bar2".into(),
                 simple_name: "Bar2".to_string(),
-                object_id: DefinitionId(defs + 3),
+                object_id: DefinitionId(defs + 2),
                 type_vars: Vec::default(),
                 fields: [("a".into(), bool, true), ("b".into(), fun, false)].into(),
                 attributes: Vec::default(),
@@ -492,9 +492,9 @@ impl TestEnvironment {
             (PrimDef::Option.id().0, "option".into()),
             (PrimDef::List.id().0, "list".into()),
             (PrimDef::NDArray.id().0, "ndarray".into()),
-            (defs + 1, "Foo".into()),
-            (defs + 2, "Bar".into()),
-            (defs + 3, "Bar2".into()),
+            (defs + 0, "Foo".into()),
+            (defs + 1, "Bar".into()),
+            (defs + 2, "Bar2".into()),
         ]
         .into();
 
@@ -508,9 +508,9 @@ impl TestEnvironment {
         let resolver = Arc::new(Resolver {
             id_to_type: identifier_mapping.clone(),
             id_to_def: [
-                ("Foo".into(), DefinitionId(defs + 1)),
-                ("Bar".into(), DefinitionId(defs + 2)),
-                ("Bar2".into(), DefinitionId(defs + 3)),
+                ("Foo".into(), DefinitionId(defs + 0)),
+                ("Bar".into(), DefinitionId(defs + 1)),
+                ("Bar2".into(), DefinitionId(defs + 2)),
             ]
             .into(),
         }) as Arc<dyn SymbolResolver + Send + Sync>;
