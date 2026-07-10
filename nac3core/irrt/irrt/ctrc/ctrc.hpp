@@ -3,7 +3,9 @@
 #include "irrt/stdlib/cstddef.h"
 #include "irrt/stdlib/cstdint.h"
 
+#include "irrt/ctrc/mode.hpp"
 #include "irrt/ctrc/page.hpp"
+#include "irrt/debug.hpp"
 #include "irrt/reference/reference.hpp"
 
 // Constant-time reference counting (CTRC) slab allocator: the slab logic (allocation, deferred
@@ -176,5 +178,51 @@ bool __nac3_ctrc_reserve(size_t num_pages) {
  */
 void __nac3_ctrc_defer_drop(void* object) {
     defer_drop(static_cast<Cell*>(object));
+}
+
+/**
+ * @brief Enters CTRC mode by growing the CTRC pool to `num_pages` total pages, and setting the current allocation mode
+ * to the CTRC slab allocator.
+ *
+ * Note that the CTRC pool size only allocates if the requested number of pages exceeds the currently-allocated page
+ * count. If the allocation cannot be satisfied, this function will fail silently - The original pool size is retained,
+ * and any allocations that exceeds the pool size will raise a `MemoryError` at the point of allocation.
+ */
+void __nac3_ctrc_enter(size_t num_pages) {
+    reserve(num_pages);
+    ++ctrc_mode_depth;
+}
+
+/**
+ * @brief Exits CTRC mode, restoring the allocation mode of the enclosing extent.
+ */
+void __nac3_ctrc_exit() {
+    debug_assert(ctrc_mode_depth > 0);
+    --ctrc_mode_depth;
+}
+
+/**
+ * @brief Allocates `size` bytes with `align` bytes of alignment for refcounted heap objects, selecting the allocator
+ * based on the current allocation mode.
+ *
+ * In CTRC mode, `nullptr` is returned if the request cannot be satisfied due to either oversized object, unsatisfiable
+ * alignment, or memory exhaustion of the CTRC slab.
+ *
+ * The `align` argument is ignored for objects allocated by `malloc`.
+ *
+ * `[[gnu::malloc]]` marks the returned pointer `noalias`, indicating that this function returns memory that does not
+ * alias any other accessible object. Note that this does not imply `nounwind` or the lack of side effects - This
+ * function may raise and will mutate global slab state.
+ */
+[[gnu::malloc]] void* __nac3_alloc(size_t size, size_t align) {
+    if (in_ctrc_mode()) {
+        if (align > CTRC_CELL_SIZE) {
+            return nullptr;
+        }
+
+        return alloc(size);
+    }
+
+    return __builtin_malloc(size);
 }
 }  // extern "C"

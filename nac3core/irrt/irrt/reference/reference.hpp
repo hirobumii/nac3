@@ -3,6 +3,7 @@
 #include "irrt/stdlib/cstddef.h"
 #include "irrt/stdlib/cstdint.h"
 
+#include "irrt/ctrc/mode.hpp"
 #include "irrt/reference/header.hpp"
 #include "irrt/reference/typeinfo.hpp"
 
@@ -109,9 +110,14 @@ constexpr const uint32_t REFCOUNT_ARRAY_INLINE_MAGIC = 0xffff'fffe;
 [[gnu::always_inline]] void object_header_init(void* const object, bool is_refcounted, const void* const typeinfo) {
     if (auto* const header = get_object_header(object)) {
         header->refcount = is_refcounted ? 1 : 0;
-        const auto typeinfo_offset =
-            static_cast<int32_t>(static_cast<const unsigned char*>(typeinfo) - &__nac3_global_begin);
-        header->typeinfo_offset = typeinfo_offset & TYPEINFO_OFFSET_MASK;
+        int32_t typeinfo_offset =
+            static_cast<int32_t>(static_cast<const unsigned char*>(typeinfo) - &__nac3_global_begin)
+            & TYPEINFO_OFFSET_MASK;
+        if (is_refcounted && ctrc::in_ctrc_mode()) {
+            // set the CTRC bit if this object is refcounted and allocated when CTRC mode is active
+            typeinfo_offset |= TYPEINFO_OFFSET_CTRC_BIT;
+        }
+        header->typeinfo_offset = typeinfo_offset;
     }
 }
 

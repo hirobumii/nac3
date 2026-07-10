@@ -41,6 +41,45 @@ impl AllocationScope {
 }
 
 impl<'ctx> CodeGenContext<'ctx, '_> {
+    /// Builds a call to `__nac3_alloc`, which allocates `size` bytes of memory with `align` bytes
+    /// of alignment for an object.
+    ///
+    /// This function internally invokes the system allocator or the CTRC slab allocator depending
+    /// on whether the current program allocator is in CTRC mode. If allocation fails for whatever
+    /// reason (oversized object or unsatisfiable alignment in CTRC mode, or memory exhaustion),
+    /// this function returns `null`, and the caller is expected to raise a `0:MemoryError` to
+    /// signal the allocation failure.
+    ///
+    /// In CTRC mode, the maximum allocatable size is governed by a constant defined in IRRT - See
+    /// `CTRC_CELL_SIZE`.
+    ///
+    /// The `align` argument is ignored when *not* in CTRC mode; `malloc`'ed objects are always
+    /// aligned based on their allocation size.
+    #[cfg(feature = "ctrc")]
+    fn build_generalized_alloc(
+        &self,
+        b: &Builder<'ctx>,
+        size: IntValue<'ctx>,
+        align: u32,
+        name: &str,
+    ) -> anyhow::Result<PointerValue<'ctx>> {
+        const FUNC_NAME: &str = "__nac3_alloc";
+
+        let f = self.module.get_function(FUNC_NAME).unwrap_or_else(|| {
+            self.module.add_function(
+                FUNC_NAME,
+                self.ptr.fn_type(&[self.size_t.into(), self.size_t.into()], false),
+                None,
+            )
+        });
+        let align = self.size_t.const_int(u64::from(align), false);
+        Ok(b.build_call(f, &[size.into(), align.into()], name)?
+            .try_as_basic_value()
+            .basic()
+            .unwrap()
+            .into_pointer_value())
+    }
+
     /// Builds an instruction which allocates memory for a value of type `ty`.
     ///
     /// The allocation is performed at [`AllocationScope::Default`]. See
@@ -95,8 +134,13 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
         let b = self.alloc_builder(scope);
         let ty = ty.as_basic_type_enum();
         let ptr = match scope {
-            #[cfg(feature = "malloc")]
+            #[cfg(all(feature = "malloc", not(feature = "ctrc")))]
             AllocationScope::Heap => b.build_malloc(ty, name.unwrap_or_default())?,
+            #[cfg(feature = "ctrc")]
+            AllocationScope::Heap => {
+                let size = self.size_t.const_int(self.sizeof(ty), false);
+                self.build_generalized_alloc(b, size, self.alignof(ty), name.unwrap_or_default())?
+            }
             AllocationScope::StackStartOfFunc | AllocationScope::StackCurrentLoc => {
                 b.build_alloca(ty, name.unwrap_or_default())?
             }
@@ -140,12 +184,23 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
         let b = self.alloc_builder(scope);
         let ty = ty.as_basic_type_enum();
         let ptr = match scope {
-            #[cfg(feature = "malloc")]
+            #[cfg(all(feature = "malloc", not(feature = "ctrc")))]
             AllocationScope::Heap => b.build_array_malloc(
                 ty,
                 size,
                 &name.map(|n| format!("{n}.malloc")).unwrap_or_default(),
             )?,
+            #[cfg(feature = "ctrc")]
+            AllocationScope::Heap => {
+                let nbytes =
+                    b.build_int_mul(size, self.size_t.const_int(self.sizeof(ty), false), "")?;
+                self.build_generalized_alloc(
+                    b,
+                    nbytes,
+                    self.alignof(ty),
+                    &name.map(|n| format!("{n}.alloc")).unwrap_or_default(),
+                )?
+            }
             AllocationScope::StackStartOfFunc | AllocationScope::StackCurrentLoc => b
                 .build_array_alloca(
                     ty,
@@ -196,12 +251,24 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
         let b = self.alloc_builder(scope);
         let ty = ty.as_basic_type_enum();
         let ptr = match scope {
-            #[cfg(feature = "malloc")]
+            #[cfg(all(feature = "malloc", not(feature = "ctrc")))]
             AllocationScope::Heap => b.build_array_malloc(
                 ty,
                 size,
                 &name.map(|n| format!("{n}.malloc")).unwrap_or_default(),
             )?,
+            #[cfg(feature = "ctrc")]
+            AllocationScope::Heap => {
+                let size = b.build_int_truncate_or_bit_cast(size, self.size_t, "")?;
+                let nbytes =
+                    b.build_int_mul(size, self.size_t.const_int(self.sizeof(ty), false), "")?;
+                self.build_generalized_alloc(
+                    b,
+                    nbytes,
+                    self.alignof(ty),
+                    &name.map(|n| format!("{n}.alloc")).unwrap_or_default(),
+                )?
+            }
             AllocationScope::StackCurrentLoc => b.build_array_alloca(
                 ty,
                 size,

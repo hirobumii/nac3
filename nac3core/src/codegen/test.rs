@@ -362,6 +362,9 @@ fn test_simple_call() {
 /// Ensure that the generated IR for a list repetition expression `[L] * n` contains a single
 /// `@__nac3_refcount_incr_by(elem, n)` call over a loop bounded by the *source* length `len(L)`,
 /// rather than a single `@__nac3_refcount_incr(elem)` call a loop over all copied slots.
+// The snapshot pins the emitted allocation calls, which depend on which allocator entry point is
+// compiled in, so it is only asserted for the default (CTRC) configuration.
+#[cfg(feature = "ctrc")]
 #[test]
 #[named]
 fn test_list_mul_refcount() {
@@ -763,19 +766,32 @@ mod layout {
         insta::assert_snapshot!(generate_layouts(&mut ctx));
     }
 
-    /// Extracts the integer argument of the (single) `@malloc(...)` call in `ir`.
+    /// Extracts the size argument of the (single) allocation call in `ir`.
+    ///
+    /// The allocator entry point depends on the `ctrc` feature: `@__nac3_alloc(size, align)` for
+    /// the CTRC slab, or `@malloc(size)` otherwise. Only the leading `size` argument is read, so
+    /// both forms are handled by the same extraction.
     ///
     /// Panics if the call is missing, or if its size argument has not been folded to an integer
     /// literal.
-    fn parse_malloc_size(ir: &str) -> u64 {
-        let after =
-            ir.split_once("@malloc(").expect("expected a `@malloc` call in the generated IR").1;
-        let arg = after.split_once(')').expect("malformed `@malloc` call").0; // e.g. "i32 4112"
-        arg.rsplit(' ')
-            .next()
-            .unwrap()
-            .parse()
-            .expect("expected the `malloc` size to be a folded integer literal")
+    fn parse_alloc_size(ir: &str) -> u64 {
+        #[cfg(feature = "ctrc")]
+        const ALLOC_FN: &str = "@__nac3_alloc";
+        #[cfg(not(feature = "ctrc"))]
+        const ALLOC_FN: &str = "@malloc";
+
+        let args = ir
+            .split_once(&format!("{ALLOC_FN}("))
+            .unwrap_or_else(|| panic!("expected a `{ALLOC_FN}` call in the generated IR"))
+            .1
+            .split_once(')')
+            .unwrap_or_else(|| panic!("malformed `{ALLOC_FN}` call"))
+            .0;
+        let size_arg = args.split(',').next().unwrap();
+        let size_val = size_arg.split_whitespace().last().unwrap();
+        size_val.parse().unwrap_or_else(|_| {
+            panic!("expected the `{ALLOC_FN}` size to be a folded integer literal")
+        })
     }
 
     /// Emits a single [`type_aligned_allocate`] for a `RefCountedArray<i32>` backing buffer - whose
@@ -807,7 +823,7 @@ mod layout {
 
         // Constant-fold the (target-data-dependent) allocation size so it can be read back.
         ctx.module.run_passes("instcombine", &ctx.target, PassBuilderOptions::create()).unwrap();
-        let actual = parse_malloc_size(&fn_val.print_to_string().to_string());
+        let actual = parse_alloc_size(&fn_val.print_to_string().to_string());
 
         let expected = sizeof_alloc.div_ceil(sizeof_align) * sizeof_align;
 
@@ -835,7 +851,12 @@ mod layout {
 
         assert_eq!(actual, expected);
 
+        // The emitted IR depends on which allocator entry point is compiled in, so it is only
+        // pinned for the default (CTRC) configuration; the size assertion above covers both.
+        #[cfg(feature = "ctrc")]
         insta::assert_snapshot!(ir);
+        #[cfg(not(feature = "ctrc"))]
+        drop(ir);
     }
 
     #[test]
@@ -859,6 +880,11 @@ mod layout {
 
         assert_eq!(actual, expected);
 
+        // The emitted IR depends on which allocator entry point is compiled in, so it is only
+        // pinned for the default (CTRC) configuration; the size assertion above covers both.
+        #[cfg(feature = "ctrc")]
         insta::assert_snapshot!(ir);
+        #[cfg(not(feature = "ctrc"))]
+        drop(ir);
     }
 }

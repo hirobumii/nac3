@@ -5,7 +5,8 @@ authors = ["M-Labs"]
 edition = "2024"
 
 [features]
-default = ["malloc"]
+default = ["ctrc"]
+ctrc = ["nac3core/ctrc"]
 escape-analysis = ["nac3core/escape-analysis"]
 malloc = ["nac3core/malloc"]
 
@@ -13,4 +14,4 @@ malloc = ["nac3core/malloc"]
 anyhow = "1.0"
 clap = { version = "4.6", features = ["derive"] }
 parking_lot = "0.12"
-nac3core = { path = "../nac3core" }
+nac3core = { path = "../nac3core", default-features = false, features = ["derive"] }

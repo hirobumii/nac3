@@ -1205,6 +1205,11 @@ impl<'ctx> ModuleContext<'ctx> {
         self.target.get_target_data().get_abi_size(&ty)
     }
 
+    /// Returns the ABI alignment of `ty` in bytes for the target platform.
+    pub fn alignof(&self, ty: impl Copy + BasicType<'ctx>) -> u32 {
+        self.target.get_target_data().get_abi_alignment(&ty)
+    }
+
     /// Returns the maximum value of `size_t` as a constant, equivalent to `usize::MAX` on the
     /// target platform.
     #[must_use]
