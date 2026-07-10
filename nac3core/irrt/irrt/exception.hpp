@@ -18,6 +18,7 @@ ExceptionId EXN_INDEX_ERROR;
 ExceptionId EXN_VALUE_ERROR;
 ExceptionId EXN_ASSERTION_ERROR;
 ExceptionId EXN_TYPE_ERROR;
+ExceptionId EXN_MEMORY_ERROR;
 }
 
 /**

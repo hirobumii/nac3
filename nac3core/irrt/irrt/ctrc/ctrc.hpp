@@ -6,6 +6,7 @@
 #include "irrt/ctrc/mode.hpp"
 #include "irrt/ctrc/page.hpp"
 #include "irrt/debug.hpp"
+#include "irrt/exception.hpp"
 #include "irrt/reference/reference.hpp"
 
 // Constant-time reference counting (CTRC) slab allocator: the slab logic (allocation, deferred
@@ -215,14 +216,18 @@ void __nac3_ctrc_exit() {
  * function may raise and will mutate global slab state.
  */
 [[gnu::malloc]] void* __nac3_alloc(size_t size, size_t align) {
+    void* ptr;
     if (in_ctrc_mode()) {
-        if (align > CTRC_CELL_SIZE) {
-            return nullptr;
-        }
-
-        return alloc(size);
+        ptr = (align > CTRC_CELL_SIZE) ? nullptr : alloc(size);
+    } else {
+        ptr = __builtin_malloc(size);
     }
 
-    return __builtin_malloc(size);
+    if (ptr == nullptr) {
+        raise_exception(EXN_MEMORY_ERROR, "Failed to allocate {0} bytes", static_cast<int64_t>(size), NO_PARAM,
+                        NO_PARAM);
+    }
+
+    return ptr;
 }
 }  // extern "C"

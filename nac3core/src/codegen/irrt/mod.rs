@@ -56,6 +56,7 @@ pub fn load_irrt<'ctx>(
         ("EXN_VALUE_ERROR", "0:ValueError"),
         ("EXN_ASSERTION_ERROR", "0:AssertionError"),
         ("EXN_TYPE_ERROR", "0:TypeError"),
+        ("EXN_MEMORY_ERROR", "0:MemoryError"),
     ];
     for (irrt_name, symbol_name) in errors {
         let exn_id = symbol_resolver.get_string_id(symbol_name);
