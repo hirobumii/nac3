@@ -21,5 +21,7 @@ manual](https://m-labs.hk/artiq/manual/).
   conventions, Rust bindings, and the `call_extern!` pattern.
 - [Reference Counting](refcounting.md) - Codegen-emitted reference counting:
   object layout, IRRT runtime functions, and the `@extern` ABI.
+- [Constant-Time Reference Counting](ctrc.md) - The `with ctrc:` slab allocator:
+  O(1) allocation and deferred drop, page/cell layout, and the latency invariant.
 - [RPC](rpc.md) - Kernel↔host remote procedure calls: type tags, wire layout,
   argument marshalling, and return demarshalling.

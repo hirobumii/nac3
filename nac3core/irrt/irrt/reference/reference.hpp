@@ -112,38 +112,43 @@ constexpr const uint32_t REFCOUNT_ARRAY_INLINE_MAGIC = 0xffff'fffe;
 /**
  * @brief Decrements the reference count of the given object if it is refcounted.
  */
-void refcount_decr(void* const object) {
-    static constexpr auto walk_children = [](void* const object) {
-        const auto* const typeinfo = get_object_typeinfo(object);
-        const uint32_t num_refcounted_fields = typeinfo->refcounted_field_offsets[0];
+void refcount_decr(void* object);
 
-        if (num_refcounted_fields == REFCOUNT_ARRAY_MAGIC) {
-            // Array of pointer elements - dereference each element and pass to `refcount_decr`
-            auto* const obj_start = static_cast<unsigned char*>(get_object_start(object));
-            const size_t size = *reinterpret_cast<size_t*>(obj_start);
-            for (size_t i = 0; i < size; ++i) {
-                void* const field = obj_start + (i + 1) * sizeof(size_t);
-                refcount_decr(*reinterpret_cast<void**>(field));
-            }
-        } else if (num_refcounted_fields == REFCOUNT_ARRAY_INLINE_MAGIC) {
-            // Array of inline elements with ObjectHeaders - directly pass each element to `refcount_decr`
-            auto* const obj_start = static_cast<unsigned char*>(get_object_start(object));
-            const size_t size = *reinterpret_cast<size_t*>(obj_start);
-            const uint32_t stride = typeinfo->refcounted_field_offsets[1];
-            for (size_t i = 0; i < size; ++i) {
-                void* const elem = obj_start + sizeof(size_t) + i * stride;
-                refcount_decr(elem);
-            }
-        } else {
-            // Struct with fixed refcounted fields - dereference each refcounted field and pass to `refcount_decr`
-            for (uint32_t i = 0; i < num_refcounted_fields; ++i) {
-                void* const field =
-                    static_cast<unsigned char*>(get_object_start(object)) + typeinfo->refcounted_field_offsets[i + 1];
-                refcount_decr(*reinterpret_cast<void**>(field));
-            }
+/**
+ * @brief Decrements the reference count of each refcounted child (field or element) of the given object.
+ */
+void walk_children(void* const object) {
+    const auto* const typeinfo = get_object_typeinfo(object);
+    const uint32_t num_refcounted_fields = typeinfo->refcounted_field_offsets[0];
+
+    if (num_refcounted_fields == REFCOUNT_ARRAY_MAGIC) {
+        // Array of pointer elements - dereference each element and pass to `refcount_decr`
+        auto* const obj_start = static_cast<unsigned char*>(get_object_start(object));
+        const size_t size = *reinterpret_cast<size_t*>(obj_start);
+        for (size_t i = 0; i < size; ++i) {
+            void* const field = obj_start + (i + 1) * sizeof(size_t);
+            refcount_decr(*reinterpret_cast<void**>(field));
         }
-    };
+    } else if (num_refcounted_fields == REFCOUNT_ARRAY_INLINE_MAGIC) {
+        // Array of inline elements with ObjectHeaders - directly pass each element to `refcount_decr`
+        auto* const obj_start = static_cast<unsigned char*>(get_object_start(object));
+        const size_t size = *reinterpret_cast<size_t*>(obj_start);
+        const uint32_t stride = typeinfo->refcounted_field_offsets[1];
+        for (size_t i = 0; i < size; ++i) {
+            void* const elem = obj_start + sizeof(size_t) + i * stride;
+            refcount_decr(elem);
+        }
+    } else {
+        // Struct with fixed refcounted fields - dereference each refcounted field and pass to `refcount_decr`
+        for (uint32_t i = 0; i < num_refcounted_fields; ++i) {
+            void* const field =
+                static_cast<unsigned char*>(get_object_start(object)) + typeinfo->refcounted_field_offsets[i + 1];
+            refcount_decr(*reinterpret_cast<void**>(field));
+        }
+    }
+}
 
+void refcount_decr(void* const object) {
     auto* const header = get_object_header(object);
     if (!header) {
         return;

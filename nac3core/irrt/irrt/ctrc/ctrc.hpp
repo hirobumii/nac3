@@ -1,0 +1,180 @@
+#pragma once
+
+#include "irrt/stdlib/cstddef.h"
+#include "irrt/stdlib/cstdint.h"
+
+#include "irrt/ctrc/page.hpp"
+#include "irrt/reference/reference.hpp"
+
+// Constant-time reference counting (CTRC) slab allocator: the slab logic (allocation, deferred
+// drop, pool growth) and the extern "C" entry points. See docs/ctrc.md for the design overview.
+namespace __nac3_impl::ctrc {
+namespace {
+/**
+ * @brief The stack of pages with at least one available cell, or `nullptr` if the reserved pool
+ * and all recycled cells are exhausted.
+ */
+Page* last_page = nullptr;
+
+/**
+ * @brief The total number of currently allocated and reserved pages.
+ */
+size_t num_reserved_pages = 0;
+
+/**
+ * @brief Pushes a dropped cell onto its owning page's free or drop list.
+ *
+ * The cell must hold an object whose refcount has reached zero. Cells of objects without
+ * refcounted children go straight to the free list; cells with (potential) children go to the
+ * drop list, deferring the child-drop to `pop_free`.
+ */
+void defer_drop(Cell* const cell) {
+    Page* const page = page_of(cell);
+
+    // a page with no available cells is not in the available-pages stack; it becomes available now
+    const bool was_exhausted = page->free_ptr == nullptr && page->drop_ptr == nullptr && page->free_counter == 0;
+    if (was_exhausted) {
+        page->next_page = last_page;
+        last_page = page;
+    }
+
+    // the array magic values are nonzero, so array objects always take the drop path
+    const auto* const typeinfo = reference::get_object_typeinfo(cell);
+    const bool has_children = typeinfo->refcounted_field_offsets[0] != 0;
+
+    if (has_children) {
+        cell->header.refcount = page->drop_ptr == nullptr ? CTRC_NO_CELL : cell_index(page, page->drop_ptr);
+        page->drop_ptr = cell;
+    } else {
+        cell->header.refcount = page->free_ptr == nullptr ? CTRC_NO_CELL : cell_index(page, page->free_ptr);
+        page->free_ptr = cell;
+    }
+}
+
+/**
+ * @brief Drop the fields of an object within the given cell.
+ *
+ * Grandchildren that are also CTRC are deferred for dropping, while heap-allocated grandchildren are freed immediately.
+ */
+void drop_fields(Cell* const cell) {
+    reference::walk_children(cell);
+}
+
+/**
+ * @brief Pops an available cell from the slab, or returns `nullptr` if the reserved pool and all
+ * recycled cells are exhausted.
+ *
+ * Cells are drawn in order of cost: recycled cells with no pending drops, then never-allocated
+ * cells, then recycled cells from the drop list - cells in the drop list are dropped before being returned.
+ */
+Cell* pop_free() {
+    if (last_page == nullptr) {
+        return nullptr;
+    }
+
+    Page* const page = last_page;
+    Cell* result = page->free_ptr;
+    bool need_drop = false;
+
+    if (result != nullptr) {
+        page->free_ptr = cell_at(page, result->header.refcount);
+    } else if (page->free_counter > 0) {
+        result = &page->cells[--page->free_counter];
+    } else {
+        // non-null: an exhausted page would not be in the available-pages stack
+        result = page->drop_ptr;
+        page->drop_ptr = cell_at(page, result->header.refcount);
+        need_drop = true;
+    }
+
+    // page exhausted - unlink it from the available-pages stack
+    if (page->free_ptr == nullptr && page->drop_ptr == nullptr && page->free_counter == 0) {
+        last_page = page->next_page;
+    }
+
+    // perform bookkeeping after cell is popped, since a child in the same page may be dropped,
+    // corrupting the free list
+    if (need_drop) {
+        drop_fields(result);
+    }
+
+    return result;
+}
+
+/**
+ * @brief Grows the persistent pool to `num_pages` total pages. No-op if the pool already holds at
+ * least `num_pages` pages.
+ *
+ * Returns whether the pool holds at least `num_pages` pages after the call. This is the ONLY
+ * function that may allocate backing memory for the slab.
+ */
+bool reserve(const size_t num_pages) {
+    if (num_pages <= num_reserved_pages) {
+        return true;
+    }
+
+    const size_t grow = num_pages - num_reserved_pages;
+    Page* const chunk = page_backend_alloc(grow);
+    if (chunk == nullptr) {
+        return false;
+    }
+
+    for (size_t i = 0; i < grow; ++i) {
+        Page* const page = &chunk[i];
+        page->free_ptr = nullptr;
+        page->drop_ptr = nullptr;
+        page->free_counter = CTRC_CELLS_PER_PAGE;
+        page->next_page = last_page;
+        last_page = page;
+    }
+
+    num_reserved_pages = num_pages;
+    return true;
+}
+
+/**
+ * @brief Allocates one cell from the slab, or returns `nullptr` if `size` exceeds the cell
+ * capacity or the slab is exhausted.
+ *
+ * `size` is the total object size including the `ObjectHeader`. The returned memory is
+ * uninitialized: the caller must initialize the object header before the object is used or
+ * dropped.
+ */
+void* alloc(const size_t size) {
+    if (size > CTRC_CELL_SIZE) {
+        return nullptr;
+    }
+
+    return pop_free();
+}
+}  // namespace
+}  // namespace __nac3_impl::ctrc
+
+extern "C" {
+using namespace __nac3_impl;
+using namespace __nac3_impl::ctrc;
+
+/**
+ * @brief Allocates `size` bytes (including the `ObjectHeader`) from the CTRC slab.
+ *
+ * Returns `nullptr` if `size` exceeds the cell capacity or the slab is exhausted.
+ */
+void* __nac3_ctrc_alloc(size_t size) {
+    return alloc(size);
+}
+
+/**
+ * @brief Grows the persistent CTRC pool to `num_pages` total pages, returning whether the pool
+ * holds at least `num_pages` pages afterwards.
+ */
+bool __nac3_ctrc_reserve(size_t num_pages) {
+    return reserve(num_pages);
+}
+
+/**
+ * @brief Defers the drop of a CTRC-allocated object whose refcount has reached zero.
+ */
+void __nac3_ctrc_defer_drop(void* object) {
+    defer_drop(static_cast<Cell*>(object));
+}
+}  // extern "C"
