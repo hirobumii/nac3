@@ -26,8 +26,24 @@ struct ObjectHeader {
     /**
      * @brief The offset to the `typeinfo` structure for this object, relative to `__nac3_global_begin`.
      *
-     * The lowest 3 bits are reserved and unused.
+     * The lowest 3 bits are reserved for flags:
+     *
+     * - Bit 0 (`TYPEINFO_OFFSET_CTRC_BIT`) marks objects allocated from the CTRC slab.
+     * - Bits 1-2 are unused.
      */
     int32_t typeinfo_offset;
 };
+
+/**
+ * @brief Flag bit for `ObjectHeader::typeinfo_offset` marking an object as allocated from the CTRC slab.
+ *
+ * Objects marked with this bit shall not be freed via `__builtin_free`.
+ */
+constexpr const int32_t TYPEINFO_OFFSET_CTRC_BIT = 0x1;
+
+/**
+ * @brief Mask recovering the actual typeinfo offset from `ObjectHeader::typeinfo_offset` by clearing the reserved flag
+ * bits.
+ */
+constexpr const int32_t TYPEINFO_OFFSET_MASK = static_cast<int32_t>(~0x7);
 }  // namespace __nac3_impl::reference

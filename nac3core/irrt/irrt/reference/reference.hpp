@@ -6,6 +6,13 @@
 #include "irrt/reference/header.hpp"
 #include "irrt/reference/typeinfo.hpp"
 
+extern "C" {
+/**
+ * Forward-declared from `irrt/ctrc/ctrc.hpp`.
+ */
+void __nac3_ctrc_defer_drop(void* object);
+}
+
 namespace __nac3_impl::reference {
 namespace {
 /**
@@ -59,7 +66,8 @@ constexpr const uint32_t REFCOUNT_ARRAY_INLINE_MAGIC = 0xffff'fffe;
  */
 [[gnu::always_inline]] const Typeinfo* get_object_typeinfo(const void* object) {
     if (const auto* const header = get_object_header(object)) {
-        return reinterpret_cast<const Typeinfo*>(&__nac3_global_begin + header->typeinfo_offset);
+        return reinterpret_cast<const Typeinfo*>(&__nac3_global_begin
+                                                 + (header->typeinfo_offset & TYPEINFO_OFFSET_MASK));
     }
 
     return nullptr;
@@ -79,6 +87,19 @@ constexpr const uint32_t REFCOUNT_ARRAY_INLINE_MAGIC = 0xffff'fffe;
 }
 
 /**
+ * @brief Checks if the given object was allocated from the CTRC slab.
+ *
+ * Note that this function does NOT check if the object is refcounted; See `is_object_refcounted`.
+ */
+[[gnu::always_inline]] bool is_object_ctrc_allocated(const void* object) {
+    if (const auto* const header = get_object_header(object)) {
+        return (header->typeinfo_offset & TYPEINFO_OFFSET_CTRC_BIT) != 0;
+    }
+
+    return false;
+}
+
+/**
  * @brief Initializes the object header for a newly allocated object.
  *
  * @param is_refcounted Whether the object should be initialized as refcounted (refcount=1) or non-refcounted
@@ -88,7 +109,9 @@ constexpr const uint32_t REFCOUNT_ARRAY_INLINE_MAGIC = 0xffff'fffe;
 [[gnu::always_inline]] void object_header_init(void* const object, bool is_refcounted, const void* const typeinfo) {
     if (auto* const header = get_object_header(object)) {
         header->refcount = is_refcounted ? 1 : 0;
-        header->typeinfo_offset = static_cast<const unsigned char*>(typeinfo) - &__nac3_global_begin;
+        const auto typeinfo_offset =
+            static_cast<int32_t>(static_cast<const unsigned char*>(typeinfo) - &__nac3_global_begin);
+        header->typeinfo_offset = typeinfo_offset & TYPEINFO_OFFSET_MASK;
     }
 }
 
@@ -148,6 +171,15 @@ void walk_children(void* const object) {
     }
 }
 
+/**
+ * @brief Eagerly reclaims a heap object, recursively drops its children, and returns its memory to the system
+ * allocator.
+ */
+void free_heap_object(void* const object) {
+    walk_children(object);
+    __builtin_free(object);
+}
+
 void refcount_decr(void* const object) {
     auto* const header = get_object_header(object);
     if (!header) {
@@ -155,11 +187,15 @@ void refcount_decr(void* const object) {
     }
 
     if (header->refcount > 0) {
-        // refcounted object - decrement refcount and free if refcount reaches zero
+        // refcounted object - decrement refcount and reclaim if refcount reaches zero
         --header->refcount;
         if (header->refcount == 0) {
-            walk_children(object);
-            __builtin_free(object);
+            if (is_object_ctrc_allocated(object)) {
+                // CTRC objects are managed by the CTRC slab allocator - Let the CTRC allocator handle it
+                __nac3_ctrc_defer_drop(object);
+            } else {
+                free_heap_object(object);
+            }
         }
     } else {
         // non-refcounted object - just walk children to decrement any refcounted sub-fields
