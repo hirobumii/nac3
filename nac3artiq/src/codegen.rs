@@ -1122,7 +1122,23 @@ fn format_rpc_ret<'ctx>(
                     "",
                 )?;
 
-                ctx.make_assert(cmp, "0:AssertionError", "Unexpected allocation size request for ndarray data - Expected up to {0} bytes, got {1} bytes", [Some(expected_ndarray_nbytes), Some(ndarray_nbytes), None])?;
+                // make_assert takes u64 parameters
+                let expected_u64 = ctx.builder.build_int_z_extend(
+                    expected_ndarray_nbytes,
+                    ctx.i64,
+                    "expected_ndarray_bytes",
+                )?;
+                let actual_u64 = ctx.builder.build_int_z_extend(
+                    ndarray_nbytes,
+                    ctx.i64,
+                    "actual_ndarray_bytes",
+                )?;
+                ctx.make_assert(
+                    cmp,
+                    "0:AssertionError", 
+                    "Unexpected allocation size request for ndarray data - Expected up to {0} bytes, got {1} bytes", 
+                    [Some(expected_u64), Some(actual_u64), None]
+                )?;
             }
 
             let ndarray_offset = ndarray.inner_value(ctx)?.load(ctx, field!(offset))?;
