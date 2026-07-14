@@ -398,12 +398,14 @@ impl WireDescriptorKind {
 /// Returns whether a value of `ty` can be `memcpy`'d directly between NAC3's in-memory
 /// representation and `libproto_artiq`'s wire representation without any layout conversion.
 ///
-/// Only the primitive types (`int32`, `int64`, `float`, `bool`, `none`, `str`) qualify. All
-/// composite types — including tuples of primitives — are not RPC-bit-compatible because NAC3
-/// prefixes them with an `ObjectHeader` that the wire format does not carry.
+/// Only the primitive types (`int32`, `int64`, `uint32`, `uint64`, `float`, `bool`, `none`, `str`)
+/// qualify. All composite types — including tuples of primitives — are not RPC-bit-compatible
+/// because NAC3 prefixes them with an `ObjectHeader` that the wire format does not carry.
 fn is_rpc_bit_compatible(unifier: &mut Unifier, primitives: &PrimitiveStore, ty: Type) -> bool {
     unifier.unioned(ty, primitives.int32)
         || unifier.unioned(ty, primitives.int64)
+        || unifier.unioned(ty, primitives.uint32)
+        || unifier.unioned(ty, primitives.uint64)
         || unifier.unioned(ty, primitives.float)
         || unifier.unioned(ty, primitives.bool)
         || unifier.unioned(ty, primitives.none)
@@ -822,12 +824,17 @@ fn gen_rpc_tag(
     ty: Type,
     buffer: &mut Vec<u8>,
 ) -> anyhow::Result<()> {
-    let PrimitiveStore { int32, int64, float, bool, str, none, .. } = ctx.primitives;
+    let PrimitiveStore { int32, int64, uint32, uint64, float, bool, str, none, .. } =
+        ctx.primitives;
 
     if ctx.unifier.unioned(ty, int32) {
         buffer.push(b'i');
     } else if ctx.unifier.unioned(ty, int64) {
         buffer.push(b'I');
+    } else if ctx.unifier.unioned(ty, uint32) {
+        buffer.push(b'u');
+    } else if ctx.unifier.unioned(ty, uint64) {
+        buffer.push(b'U');
     } else if ctx.unifier.unioned(ty, float) {
         buffer.push(b'f');
     } else if ctx.unifier.unioned(ty, bool) {
