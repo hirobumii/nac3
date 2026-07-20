@@ -112,7 +112,7 @@ impl fmt::Display for Tok {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Name { name } => {
-                write!(f, "'{}'", ast::get_str_from_ref(&ast::get_str_ref_lock(), *name))
+                write!(f, "'{name}'")
             }
             Self::Int { value } => {
                 if *value == i128::MAX {
@@ -142,11 +142,7 @@ impl fmt::Display for Tok {
                 }
                 f.write_str("\"")
             }
-            Self::ConfigComment { content } => write!(
-                f,
-                "ConfigComment: '{}'",
-                ast::get_str_from_ref(&ast::get_str_ref_lock(), *content)
-            ),
+            Self::ConfigComment { content } => write!(f, "ConfigComment: '{content}'"),
             Self::Newline => f.write_str("Newline"),
             Self::Indent => f.write_str("Indent"),
             Self::Dedent => f.write_str("Dedent"),

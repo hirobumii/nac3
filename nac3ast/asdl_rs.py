@@ -4,6 +4,7 @@
 import os
 import sys
 import textwrap
+import subprocess
 
 import json
 
@@ -184,12 +185,13 @@ class StructVisitor(TypeInfoEmitVisitor):
         else:
             self.sum_with_constructors(sum, name, depth)
 
-    def emit_attrs(self, depth):
-        self.emit("#[derive(Clone, Debug, PartialEq)]", depth)
+    def emit_attrs(self, depth, *, copy=False):
+        copy_attr = "Copy, " if copy else ""
+        self.emit(f"#[derive(Clone, {copy_attr}Debug, PartialEq)]", depth)
 
     def simple_sum(self, sum, name, depth):
         rustname = get_rust_type(name)
-        self.emit_attrs(depth)
+        self.emit_attrs(depth, copy=True)
         self.emit(f"pub enum {rustname} {{", depth)
         for variant in sum.types:
             self.emit(f"{variant.name},", depth + 1)
@@ -546,9 +548,7 @@ class ChainOfVisitors:
 
 
 def write_ast_def(mod, typeinfo, f):
-    f.write('pub use crate::{constant::*, location::Location};\n')
-    f.write('\n')
-    f.write('type Ident = String;\n')
+    f.write('pub use crate::{constant::*, Ident, Location};\n')
     f.write('\n')
     StructVisitor(f, typeinfo).emit_attrs(0)
     f.write('pub struct Located<T, U = ()> {\n')
@@ -598,7 +598,14 @@ def main(input_filename, ast_mod_filename, ast_def_filename, dump_module=False):
         mod_file.write(auto_gen_msg)
         write_ast_mod(mod, mod_file)
 
-    print(f"{ast_def_filename}, {ast_mod_filename} regenerated.")
+    print(f"{ast_def_filename}, {ast_mod_filename} regenerated. Formatting...")
+
+    try:
+        result = subprocess.run(["cargo", "fmt", "--", ast_def_filename], check=True)
+        print("Formatting successful.")
+    except Exception as e:
+        print("Could not format file: {e}")
+
 
 if __name__ == "__main__":
     parser = ArgumentParser()
