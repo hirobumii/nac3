@@ -1981,8 +1981,9 @@ impl TopLevelComposer {
             }
 
             let (name, simple_name, signature, var_id, resolver) = {
-                let TopLevelDef::Function { name, simple_name, signature, var_id, resolver, .. } =
-                    &*def.read()
+                let TopLevelDef::Function {
+                    name, simple_name, signature, var_id, resolver, ..
+                } = &*def.read()
                 else {
                     return Ok(());
                 };

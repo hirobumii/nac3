@@ -492,7 +492,7 @@ impl TestEnvironment {
             (PrimDef::Option.id().0, "option".into()),
             (PrimDef::List.id().0, "list".into()),
             (PrimDef::NDArray.id().0, "ndarray".into()),
-            (defs + 0, "Foo".into()),
+            (defs, "Foo".into()),
             (defs + 1, "Bar".into()),
             (defs + 2, "Bar2".into()),
         ]
@@ -508,7 +508,7 @@ impl TestEnvironment {
         let resolver = Arc::new(Resolver {
             id_to_type: identifier_mapping.clone(),
             id_to_def: [
-                ("Foo".into(), DefinitionId(defs + 0)),
+                ("Foo".into(), DefinitionId(defs)),
                 ("Bar".into(), DefinitionId(defs + 1)),
                 ("Bar2".into(), DefinitionId(defs + 2)),
             ]
