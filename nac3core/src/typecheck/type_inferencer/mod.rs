@@ -271,7 +271,7 @@ impl Fold<()> for Inferencer<'_> {
                     custom: None,
                 }
             }
-            ast::StmtKind::For { target, iter, body, orelse, config_comment, type_comment } => {
+            ast::StmtKind::For { target, iter, body, orelse, config_comment } => {
                 self.infer_pattern(&target)?;
                 let target = self.fold_expr(*target)?;
                 let iter = self.fold_expr(*iter)?;
@@ -291,12 +291,11 @@ impl Fold<()> for Inferencer<'_> {
                         body,
                         orelse,
                         config_comment,
-                        type_comment,
                     },
                     custom: None,
                 }
             }
-            ast::StmtKind::Assign { mut targets, type_comment, config_comment, value, .. } => {
+            ast::StmtKind::Assign { mut targets, config_comment, value, .. } => {
                 // Fix parser bug
                 targets.iter_mut().for_each(fix_assignment_target_context);
 
@@ -323,12 +322,7 @@ impl Fold<()> for Inferencer<'_> {
 
                 Located {
                     location: node.location,
-                    node: ast::StmtKind::Assign {
-                        targets,
-                        type_comment,
-                        config_comment,
-                        value: Box::new(value),
-                    },
+                    node: ast::StmtKind::Assign { targets, config_comment, value: Box::new(value) },
                     custom: None,
                 }
             }

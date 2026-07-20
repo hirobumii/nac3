@@ -993,8 +993,6 @@ impl TopLevelComposer {
                 .vararg
                 .as_ref()
                 .map(|vararg| -> Result<_, Vec<anyhow::Error>> {
-                    let vararg = vararg.as_ref();
-
                     let annotation = vararg
                         .node
                         .annotation

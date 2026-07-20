@@ -1,8 +1,6 @@
 ---
 source: nac3parser/src/parser.rs
-assertion_line: 143
-expression: "parse_program(&source, Default::default()).unwrap()"
-
+expression: "parse_program(source, FileName::default()).unwrap()"
 ---
 [
     Located {
@@ -74,7 +72,6 @@ expression: "parse_program(&source, Default::default()).unwrap()"
                                     node: ArgData {
                                         arg: "self",
                                         annotation: None,
-                                        type_comment: None,
                                     },
                                 },
                             ],
@@ -101,7 +98,6 @@ expression: "parse_program(&source, Default::default()).unwrap()"
                         ],
                         decorator_list: [],
                         returns: None,
-                        type_comment: None,
                         config_comment: [],
                     },
                 },
@@ -131,7 +127,6 @@ expression: "parse_program(&source, Default::default()).unwrap()"
                                     node: ArgData {
                                         arg: "self",
                                         annotation: None,
-                                        type_comment: None,
                                     },
                                 },
                                 Located {
@@ -146,7 +141,6 @@ expression: "parse_program(&source, Default::default()).unwrap()"
                                     node: ArgData {
                                         arg: "arg",
                                         annotation: None,
-                                        type_comment: None,
                                     },
                                 },
                             ],
@@ -190,7 +184,6 @@ expression: "parse_program(&source, Default::default()).unwrap()"
                         ],
                         decorator_list: [],
                         returns: None,
-                        type_comment: None,
                         config_comment: [],
                     },
                 },

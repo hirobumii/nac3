@@ -110,7 +110,7 @@ ExpressionStatement: ast::Stmt = {
             ast::Stmt {
                 custom: (),
                 location,
-                node: ast::StmtKind::Assign { targets, value, type_comment: None, config_comment: vec![] },
+                node: ast::StmtKind::Assign { targets, value, config_comment: vec![] },
             }
         }
     },
@@ -395,14 +395,12 @@ ForStatement: ast::Stmt = {
         let orelse = s2.map(|s| s.2).unwrap_or_default();
         let target = Box::new(target);
         let iter = Box::new(iter);
-        let type_comment = None;
         let node = if is_async.is_some() {
             ast::StmtKind::AsyncFor {
                 target,
                 iter,
                 body,
                 orelse,
-                type_comment,
                 config_comment: make_config_comment(location, stmt_loc, nac3com_above, nac3com_end)?
             }
         } else {
@@ -411,7 +409,6 @@ ForStatement: ast::Stmt = {
                 iter,
                 body,
                 orelse,
-                type_comment,
                 config_comment: make_config_comment(location, stmt_loc, nac3com_above, nac3com_end)?
             }
         };
@@ -478,19 +475,16 @@ ExceptClause: ast::Excepthandler = {
 
 WithStatement: ast::Stmt = {
     <location:@L> <nac3com_above:(config_comment "\n")*> <stmt_loc:@L> <is_async:"async"?> "with" <items:OneOrMore<WithItem>> ":" <nac3com_end:config_comment?> <body:Suite> =>? {
-        let type_comment = None;
         let node = if is_async.is_some() {
             ast::StmtKind::AsyncWith {
                 items,
                 body,
-                type_comment,
                 config_comment: make_config_comment(location, stmt_loc, nac3com_above, nac3com_end)?
             }
         } else {
             ast::StmtKind::With {
                 items,
                 body,
-                type_comment,
                 config_comment: make_config_comment(location, stmt_loc, nac3com_above, nac3com_end)?
             }
         };
@@ -510,7 +504,6 @@ FuncDef: ast::Stmt = {
     <location:@L> <nac3com_above:(config_comment "\n")*> <decorator_list:Decorator*> <stmt_loc:@L> <is_async:"async"?> "def" <name:Identifier> <args:Parameters> <r:("->" Test)?> ":" <nac3com_end:config_comment?> <body:Suite> =>? {
         let args = Box::new(args);
         let returns = r.map(|x| Box::new(x.1));
-        let type_comment = None;
         let node = if is_async.is_some() {
             ast::StmtKind::AsyncFunctionDef {
                 name,
@@ -518,7 +511,6 @@ FuncDef: ast::Stmt = {
                 body,
                 decorator_list,
                 returns,
-                type_comment,
                 config_comment: make_config_comment(location, stmt_loc, nac3com_above, nac3com_end)?
             }
         } else {
@@ -528,7 +520,6 @@ FuncDef: ast::Stmt = {
                 body,
                 decorator_list,
                 returns,
-                type_comment,
                 config_comment: make_config_comment(location, stmt_loc, nac3com_above, nac3com_end)?
             }
         };
@@ -632,21 +623,21 @@ ParameterDef<ArgType>: (ast::Arg, Option<ast::Expr>) = {
 UntypedParameter: ast::Arg = {
     <location:@L> <arg:Identifier> => ast::Arg::new(
         location,
-        ast::ArgData { arg, annotation: None, type_comment: None },
+        ast::ArgData { arg, annotation: None },
     ),
 };
 
 TypedParameter: ast::Arg = {
     <location:@L> <arg:Identifier> <a:(":" Test)?>=> {
         let annotation = a.map(|x| Box::new(x.1));
-        ast::Arg::new(location, ast::ArgData { arg, annotation, type_comment: None })
+        ast::Arg::new(location, ast::ArgData { arg, annotation })
     },
 };
 
 // Use inline here to make sure the "," is not creating an ambiguity.
 // TODO: figure out another grammar that makes this inline no longer required.
 #[inline]
-ParameterListStarArgs<ArgType>: (Option<Box<ast::Arg>>, Vec<ast::Arg>, Vec<Option<Box<ast::Expr>>>, Option<Box<ast::Arg>>) = {
+ParameterListStarArgs<ArgType>: (Option<ast::Arg>, Vec<ast::Arg>, Vec<Option<Box<ast::Expr>>>, Option<ast::Arg>) = {
     "*" <va:ArgType?> <kw:("," ParameterDef<ArgType>)*> <kwarg:("," KwargParameter<ArgType>)?> => {
         // Extract keyword arguments:
         let mut kwonlyargs = vec![];
@@ -657,15 +648,14 @@ ParameterListStarArgs<ArgType>: (Option<Box<ast::Arg>>, Vec<ast::Arg>, Vec<Optio
         }
 
         let kwarg = kwarg.map(|n| n.1).flatten();
-        let va = va.map(Box::new);
 
         (va, kwonlyargs, kw_defaults, kwarg)
     }
 };
 
-KwargParameter<ArgType>: Option<Box<ast::Arg>> = {
+KwargParameter<ArgType>: Option<ast::Arg> = {
     "**" <kwarg:ArgType?> => {
-        kwarg.map(Box::new)
+        kwarg
     }
 };
 

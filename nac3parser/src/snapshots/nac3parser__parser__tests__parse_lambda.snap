@@ -1,8 +1,6 @@
 ---
 source: nac3parser/src/parser.rs
-assertion_line: 125
 expression: parse_ast
-
 ---
 [
     Located {
@@ -40,7 +38,6 @@ expression: parse_ast
                                 node: ArgData {
                                     arg: "x",
                                     annotation: None,
-                                    type_comment: None,
                                 },
                             },
                             Located {
@@ -55,7 +52,6 @@ expression: parse_ast
                                 node: ArgData {
                                     arg: "y",
                                     annotation: None,
-                                    type_comment: None,
                                 },
                             },
                         ],

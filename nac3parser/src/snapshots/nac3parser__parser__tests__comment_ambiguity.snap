@@ -1,8 +1,6 @@
 ---
 source: nac3parser/src/parser.rs
-assertion_line: 218
-expression: "parse_program(&source, Default::default()).unwrap()"
-
+expression: "parse_program(source, FileName::default()).unwrap()"
 ---
 [
     Located {
@@ -282,7 +280,6 @@ expression: "parse_program(&source, Default::default()).unwrap()"
                     kind: None,
                 },
             },
-            type_comment: None,
             config_comment: [],
         },
     },
@@ -382,7 +379,6 @@ expression: "parse_program(&source, Default::default()).unwrap()"
                     ctx: Load,
                 },
             },
-            type_comment: None,
             config_comment: [
                 "notif",
             ],
@@ -430,7 +426,6 @@ expression: "parse_program(&source, Default::default()).unwrap()"
                     kind: None,
                 },
             },
-            type_comment: None,
             config_comment: [
                 "smallsingle1",
                 "smallsingle3",
@@ -551,7 +546,6 @@ expression: "parse_program(&source, Default::default()).unwrap()"
                 },
             ],
             orelse: [],
-            type_comment: None,
             config_comment: [
                 "for1",
             ],

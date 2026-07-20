@@ -1,8 +1,6 @@
 ---
 source: nac3parser/src/parser.rs
-assertion_line: 186
-expression: "parse_program(&source, Default::default()).unwrap()"
-
+expression: "parse_program(source, FileName::default()).unwrap()"
 ---
 [
     Located {
@@ -167,7 +165,6 @@ expression: "parse_program(&source, Default::default()).unwrap()"
                 },
             ],
             orelse: [],
-            type_comment: None,
             config_comment: [
                 "sdf4",
                 "sf2",

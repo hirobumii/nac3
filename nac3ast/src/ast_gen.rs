@@ -31,7 +31,6 @@ pub enum StmtKind<U = ()> {
         body: Vec<Stmt<U>>,
         decorator_list: Vec<Expr<U>>,
         returns: Option<Box<Expr<U>>>,
-        type_comment: Option<String>,
         config_comment: Vec<Ident>,
     },
     AsyncFunctionDef {
@@ -40,7 +39,6 @@ pub enum StmtKind<U = ()> {
         body: Vec<Stmt<U>>,
         decorator_list: Vec<Expr<U>>,
         returns: Option<Box<Expr<U>>>,
-        type_comment: Option<String>,
         config_comment: Vec<Ident>,
     },
     ClassDef {
@@ -62,7 +60,6 @@ pub enum StmtKind<U = ()> {
     Assign {
         targets: Vec<Expr<U>>,
         value: Box<Expr<U>>,
-        type_comment: Option<String>,
         config_comment: Vec<Ident>,
     },
     AugAssign {
@@ -83,7 +80,6 @@ pub enum StmtKind<U = ()> {
         iter: Box<Expr<U>>,
         body: Vec<Stmt<U>>,
         orelse: Vec<Stmt<U>>,
-        type_comment: Option<String>,
         config_comment: Vec<Ident>,
     },
     AsyncFor {
@@ -91,7 +87,6 @@ pub enum StmtKind<U = ()> {
         iter: Box<Expr<U>>,
         body: Vec<Stmt<U>>,
         orelse: Vec<Stmt<U>>,
-        type_comment: Option<String>,
         config_comment: Vec<Ident>,
     },
     While {
@@ -109,13 +104,11 @@ pub enum StmtKind<U = ()> {
     With {
         items: Vec<Withitem<U>>,
         body: Vec<Stmt<U>>,
-        type_comment: Option<String>,
         config_comment: Vec<Ident>,
     },
     AsyncWith {
         items: Vec<Withitem<U>>,
         body: Vec<Stmt<U>>,
-        type_comment: Option<String>,
         config_comment: Vec<Ident>,
     },
     Raise {
@@ -356,10 +349,10 @@ pub type Excepthandler<U = ()> = Located<ExcepthandlerKind<U>, U>;
 pub struct Arguments<U = ()> {
     pub posonlyargs: Vec<Arg<U>>,
     pub args: Vec<Arg<U>>,
-    pub vararg: Option<Box<Arg<U>>>,
+    pub vararg: Option<Arg<U>>,
     pub kwonlyargs: Vec<Arg<U>>,
     pub kw_defaults: Vec<Option<Box<Expr<U>>>>,
-    pub kwarg: Option<Box<Arg<U>>>,
+    pub kwarg: Option<Arg<U>>,
     pub defaults: Vec<Expr<U>>,
 }
 
@@ -367,7 +360,6 @@ pub struct Arguments<U = ()> {
 pub struct ArgData<U = ()> {
     pub arg: Ident,
     pub annotation: Option<Box<Expr<U>>>,
-    pub type_comment: Option<String>,
 }
 pub type Arg<U = ()> = Located<ArgData<U>, U>;
 
@@ -520,30 +512,22 @@ pub mod fold {
         node: Stmt<U>,
     ) -> Result<Stmt<F::TargetU>, F::Error> {
         fold_located(folder, node, |folder, node| match node {
-            StmtKind::FunctionDef {
-                name,
-                args,
-                body,
-                decorator_list,
-                returns,
-                type_comment,
-                config_comment,
-            } => Ok(StmtKind::FunctionDef {
-                name: Foldable::fold(name, folder)?,
-                args: Foldable::fold(args, folder)?,
-                body: Foldable::fold(body, folder)?,
-                decorator_list: Foldable::fold(decorator_list, folder)?,
-                returns: Foldable::fold(returns, folder)?,
-                type_comment: Foldable::fold(type_comment, folder)?,
-                config_comment: Foldable::fold(config_comment, folder)?,
-            }),
+            StmtKind::FunctionDef { name, args, body, decorator_list, returns, config_comment } => {
+                Ok(StmtKind::FunctionDef {
+                    name: Foldable::fold(name, folder)?,
+                    args: Foldable::fold(args, folder)?,
+                    body: Foldable::fold(body, folder)?,
+                    decorator_list: Foldable::fold(decorator_list, folder)?,
+                    returns: Foldable::fold(returns, folder)?,
+                    config_comment: Foldable::fold(config_comment, folder)?,
+                })
+            }
             StmtKind::AsyncFunctionDef {
                 name,
                 args,
                 body,
                 decorator_list,
                 returns,
-                type_comment,
                 config_comment,
             } => Ok(StmtKind::AsyncFunctionDef {
                 name: Foldable::fold(name, folder)?,
@@ -551,7 +535,6 @@ pub mod fold {
                 body: Foldable::fold(body, folder)?,
                 decorator_list: Foldable::fold(decorator_list, folder)?,
                 returns: Foldable::fold(returns, folder)?,
-                type_comment: Foldable::fold(type_comment, folder)?,
                 config_comment: Foldable::fold(config_comment, folder)?,
             }),
             StmtKind::ClassDef { name, bases, keywords, body, decorator_list, config_comment } => {
@@ -572,14 +555,11 @@ pub mod fold {
                 targets: Foldable::fold(targets, folder)?,
                 config_comment: Foldable::fold(config_comment, folder)?,
             }),
-            StmtKind::Assign { targets, value, type_comment, config_comment } => {
-                Ok(StmtKind::Assign {
-                    targets: Foldable::fold(targets, folder)?,
-                    value: Foldable::fold(value, folder)?,
-                    type_comment: Foldable::fold(type_comment, folder)?,
-                    config_comment: Foldable::fold(config_comment, folder)?,
-                })
-            }
+            StmtKind::Assign { targets, value, config_comment } => Ok(StmtKind::Assign {
+                targets: Foldable::fold(targets, folder)?,
+                value: Foldable::fold(value, folder)?,
+                config_comment: Foldable::fold(config_comment, folder)?,
+            }),
             StmtKind::AugAssign { target, op, value, config_comment } => Ok(StmtKind::AugAssign {
                 target: Foldable::fold(target, folder)?,
                 op: Foldable::fold(op, folder)?,
@@ -595,23 +575,19 @@ pub mod fold {
                     config_comment: Foldable::fold(config_comment, folder)?,
                 })
             }
-            StmtKind::For { target, iter, body, orelse, type_comment, config_comment } => {
-                Ok(StmtKind::For {
-                    target: Foldable::fold(target, folder)?,
-                    iter: Foldable::fold(iter, folder)?,
-                    body: Foldable::fold(body, folder)?,
-                    orelse: Foldable::fold(orelse, folder)?,
-                    type_comment: Foldable::fold(type_comment, folder)?,
-                    config_comment: Foldable::fold(config_comment, folder)?,
-                })
-            }
-            StmtKind::AsyncFor { target, iter, body, orelse, type_comment, config_comment } => {
+            StmtKind::For { target, iter, body, orelse, config_comment } => Ok(StmtKind::For {
+                target: Foldable::fold(target, folder)?,
+                iter: Foldable::fold(iter, folder)?,
+                body: Foldable::fold(body, folder)?,
+                orelse: Foldable::fold(orelse, folder)?,
+                config_comment: Foldable::fold(config_comment, folder)?,
+            }),
+            StmtKind::AsyncFor { target, iter, body, orelse, config_comment } => {
                 Ok(StmtKind::AsyncFor {
                     target: Foldable::fold(target, folder)?,
                     iter: Foldable::fold(iter, folder)?,
                     body: Foldable::fold(body, folder)?,
                     orelse: Foldable::fold(orelse, folder)?,
-                    type_comment: Foldable::fold(type_comment, folder)?,
                     config_comment: Foldable::fold(config_comment, folder)?,
                 })
             }
@@ -627,20 +603,16 @@ pub mod fold {
                 orelse: Foldable::fold(orelse, folder)?,
                 config_comment: Foldable::fold(config_comment, folder)?,
             }),
-            StmtKind::With { items, body, type_comment, config_comment } => Ok(StmtKind::With {
+            StmtKind::With { items, body, config_comment } => Ok(StmtKind::With {
                 items: Foldable::fold(items, folder)?,
                 body: Foldable::fold(body, folder)?,
-                type_comment: Foldable::fold(type_comment, folder)?,
                 config_comment: Foldable::fold(config_comment, folder)?,
             }),
-            StmtKind::AsyncWith { items, body, type_comment, config_comment } => {
-                Ok(StmtKind::AsyncWith {
-                    items: Foldable::fold(items, folder)?,
-                    body: Foldable::fold(body, folder)?,
-                    type_comment: Foldable::fold(type_comment, folder)?,
-                    config_comment: Foldable::fold(config_comment, folder)?,
-                })
-            }
+            StmtKind::AsyncWith { items, body, config_comment } => Ok(StmtKind::AsyncWith {
+                items: Foldable::fold(items, folder)?,
+                body: Foldable::fold(body, folder)?,
+                config_comment: Foldable::fold(config_comment, folder)?,
+            }),
             StmtKind::Raise { exc, cause, config_comment } => Ok(StmtKind::Raise {
                 exc: Foldable::fold(exc, folder)?,
                 cause: Foldable::fold(cause, folder)?,
@@ -1018,11 +990,10 @@ pub mod fold {
         node: Arg<U>,
     ) -> Result<Arg<F::TargetU>, F::Error> {
         fold_located(folder, node, |folder, node| {
-            let ArgData { arg, annotation, type_comment } = node;
+            let ArgData { arg, annotation } = node;
             Ok(ArgData {
                 arg: Foldable::fold(arg, folder)?,
                 annotation: Foldable::fold(annotation, folder)?,
-                type_comment: Foldable::fold(type_comment, folder)?,
             })
         })
     }
