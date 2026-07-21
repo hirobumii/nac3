@@ -190,6 +190,10 @@ void __nac3_ctrc_defer_drop(void* object) {
  * and any allocations that exceeds the pool size will raise a `MemoryError` at the point of allocation.
  */
 void __nac3_ctrc_enter(size_t num_pages) {
+    // Note: We deliberately ignore the return value of `reserve` here, since the failure to reserve pages may still
+    // leave sufficient cells for allocation during the critical region.
+    // Moreover, this function must not raise, since this function must be paired with `__nac3_ctrc_exit` at all times
+    // to update the CTRC mode depth, and an unwind during this function would leave the depth unbalanced.
     reserve(num_pages);
     ++ctrc_mode_depth;
 }

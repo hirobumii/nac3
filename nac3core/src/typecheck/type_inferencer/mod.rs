@@ -373,15 +373,33 @@ impl Fold<()> for Inferencer<'_> {
                 for item in items {
                     let ty = item.context_expr.custom.unwrap();
 
-                    // `critical` is registered unconditionally (to avoid `PrimDef` IDs from
-                    // moving), so reject it here if the `ctrc` feature is not enabled
-                    #[cfg(not(feature = "ctrc"))]
+                    // `critical` is recognized structurally in the codegen and is never evaluated,
+                    // so we check its restrictions here to emit a more user-friendly error message
                     if matches!(&*self.unifier.get_ty(ty), TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::Critical.id())
                     {
+                        // `critical` is registered unconditionally (to avoid `PrimDef` IDs from
+                        // moving), so reject it here if the `ctrc` feature is not enabled
+                        #[cfg(not(feature = "ctrc"))]
                         return report_error(
                             "`with critical(...)` requires compiler to be built with feature `ctrc`",
                             stmt.location,
                         );
+
+                        #[cfg(feature = "ctrc")]
+                        {
+                            if items.len() > 1 {
+                                return report_error(
+                                    "`critical` must be the only context manager of a `with` statement",
+                                    stmt.location,
+                                );
+                            }
+                            if item.optional_vars.is_some() {
+                                return report_error(
+                                    "`critical` cannot be bound to a name",
+                                    stmt.location,
+                                );
+                            }
+                        }
                     }
 
                     // if we can simply unify without creating new types...

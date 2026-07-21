@@ -12,6 +12,8 @@ use inkwell::{
 use itertools::{Itertools as _, izip};
 use nac3parser::ast::{ExcepthandlerKind, Expr, ExprKind, Stmt, StmtKind, StrRef};
 
+#[cfg(feature = "ctrc")]
+use crate::codegen::expr::call_extern;
 use crate::{
     codegen::{
         CodeGenContext, CodeGenerator, ModuleContext, VarValue,
@@ -2386,6 +2388,94 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
     Ok(())
 }
 
+/// The method information for a `with` statement's `__enter__` method call.
+///
+/// This is used to generate the call to `__enter__` and the optional `as` binding.
+struct WithEnterMethodInfo<'ctx> {
+    obj_ty: Type,
+    obj: ValueEnum<'ctx>,
+    signature: FunSignature,
+    fun_id: DefinitionId,
+    optional_vars: Option<Box<Expr<Option<Type>>>>,
+}
+
+/// The method information for a `with` statement's `__exit__` method call.
+///
+/// This is used to generate the call to `__exit__`.
+struct WithExitMethodInfo<'ctx> {
+    obj_ty: Type,
+    obj: ValueEnum<'ctx>,
+    signature: FunSignature,
+    fun_id: DefinitionId,
+}
+
+/// The context manager of a `with` statement, which may be either a method call or a critical
+/// region.
+enum CtxManager<'ctx> {
+    /// A context manager object with `__enter__` and `__exit__` methods.
+    Method { enter: WithEnterMethodInfo<'ctx>, exit: WithExitMethodInfo<'ctx> },
+
+    /// A `with critical(...):` region, which reserves a number of free pages for the duration of
+    /// the `with` block.
+    #[cfg(feature = "ctrc")]
+    Critical { num_free_pages: IntValue<'ctx> },
+}
+
+/// Evaluates the page count of a `with critical(...):` item, or materializes
+/// [`CTRC_DEFAULT_RESERVED_PAGES`] if the argument is omitted.
+///
+/// The context expression is deliberately *not* evaluated to avoid a heap allocation of the
+/// `critical` object - only the argument subexpression is generated.
+///
+/// Note that this function must be called **before** entering the body of the `with` statement.
+/// Otherwise, if the page count assertion fires, this causes the `landingpad` (and thus
+/// `__nac3_ctrc_exit`) to be invoked, causing a mismatched CTRC depth.
+///
+/// Raises a `ValueError` if the page count is negative.
+#[cfg(feature = "ctrc")]
+fn gen_critical_num_free_pages<'ctx, G: CodeGenerator>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    context_expr: &Expr<Option<Type>>,
+) -> anyhow::Result<IntValue<'ctx>> {
+    use crate::codegen::allocator::CTRC_DEFAULT_RESERVED_PAGES;
+
+    let ExprKind::Call { args, keywords, .. } = &context_expr.node else {
+        // `critical` is a class, this must be a constructor call
+        codegen_unreachable!(ctx)
+    };
+
+    let num_free_pages_expr = args.first().or_else(|| {
+        keywords.iter().find(|kw| kw.node.arg == Some("num_pages".into())).map(|kw| &*kw.node.value)
+    });
+
+    let num_free_pages = match num_free_pages_expr {
+        Some(expr) => generator.gen_expr(ctx, expr)?.to_basic_value_enum(ctx)?.into_int_value(),
+        None => {
+            // since `critical` bypasses the default-argument machinery, we materialize the default
+            // value here
+            ctx.i32.const_int(CTRC_DEFAULT_RESERVED_PAGES as u64, true)
+        }
+    };
+
+    let is_non_negative = ctx.builder.build_int_compare(
+        IntPredicate::SGE,
+        num_free_pages,
+        num_free_pages.get_type().const_zero(),
+        "critical.num_free_pages.sge",
+    )?;
+    let num_free_pages_sext =
+        ctx.builder.build_int_s_extend_or_bit_cast(num_free_pages, ctx.i64, "")?;
+    ctx.make_assert(
+        is_non_negative,
+        "0:ValueError",
+        "critical() expects a non-negative page count, got {0}",
+        [Some(num_free_pages_sext), None, None],
+    )?;
+
+    Ok(num_free_pages)
+}
+
 /// See [`CodeGenerator::gen_with`].
 pub fn gen_with<'ctx, 'a, G: CodeGenerator>(
     generator: &mut G,
@@ -2393,13 +2483,26 @@ pub fn gen_with<'ctx, 'a, G: CodeGenerator>(
     stmt: &Stmt<Option<Type>>,
 ) -> anyhow::Result<()> {
     let StmtKind::With { items, body, .. } = &stmt.node else { codegen_unreachable!(ctx) };
-    let mut exits = vec![];
-    let mut enters = vec![];
+    let mut ctx_mgrs = Vec::new();
 
     // prepare enters and exits
     for item in items {
-        // evaluate the expression first
         let expr_ty = item.context_expr.custom.unwrap();
+
+        // `critical` is matched by definition ID *before* the context expression is evaluated:
+        // constructing a `critical` object would be a heap allocation at the boundary of the region
+        // whose allocation behavior is being changed. The type inferencer has already rejected the
+        // multi-item and `as`-bound forms, so only the size argument remains to be generated.
+        #[cfg(feature = "ctrc")]
+        if matches!(&*ctx.unifier.get_ty(expr_ty), TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::Critical.id())
+        {
+            let num_free_pages = gen_critical_num_free_pages(generator, ctx, &item.context_expr)?;
+
+            ctx_mgrs.push(CtxManager::Critical { num_free_pages });
+            continue;
+        }
+
+        // evaluate the expression first
         let expr = generator.gen_expr(ctx, &item.context_expr)?.val.unwrap();
 
         // get the __enter__ method signature and ID
@@ -2420,14 +2523,6 @@ pub fn gen_with<'ctx, 'a, G: CodeGenerator>(
             codegen_unreachable!(ctx)
         };
 
-        enters.push((
-            expr_ty,
-            expr.clone(),
-            enter_signature.clone(),
-            enter_fun_id,
-            item.optional_vars.clone(),
-        ));
-
         // save __exit__() data to be called later in final stage
         let exit_fun_id = methods
             .iter()
@@ -2438,29 +2533,66 @@ pub fn gen_with<'ctx, 'a, G: CodeGenerator>(
         let TypeEnum::TFunc(exit_signature) = &*ctx.unifier.get_ty(exit.0) else {
             codegen_unreachable!(ctx)
         };
+
         // stack the exits as the exit order is opposite of enter
         // would be best to reuse try...finally but re-building Stmt vec seems infeasible
-        exits.push((expr_ty, expr, exit_signature.clone(), exit_fun_id));
+        ctx_mgrs.push(CtxManager::Method {
+            enter: WithEnterMethodInfo {
+                obj_ty: expr_ty,
+                obj: expr.clone(),
+                signature: enter_signature.clone(),
+                fun_id: enter_fun_id,
+                optional_vars: item.optional_vars.clone(),
+            },
+            exit: WithExitMethodInfo {
+                obj_ty: expr_ty,
+                obj: expr,
+                signature: exit_signature.clone(),
+                fun_id: exit_fun_id,
+            },
+        });
     }
 
     let body_gen_lambda = |ctx: &mut CodeGenContext<'ctx, 'a>, generator: &mut G| {
-        for enter in &enters {
-            // call __enter__()
-            let enter_ret = generator.gen_call(
-                ctx,
-                Some((enter.0, enter.1.clone())),
-                (&enter.2, enter.3),
-                Vec::default(),
-            )?;
+        for ctx_mgr in &ctx_mgrs {
+            match ctx_mgr {
+                CtxManager::Method {
+                    enter: WithEnterMethodInfo { obj_ty, obj, signature, fun_id, optional_vars },
+                    ..
+                } => {
+                    // call __enter__()
+                    let enter_ret = generator.gen_call(
+                        ctx,
+                        Some((*obj_ty, obj.clone())),
+                        (signature, *fun_id),
+                        Vec::default(),
+                    )?;
 
-            // deal with assignments (`as`)
-            if let Some(optional_vars) = &enter.4 {
-                generator.gen_assign(
-                    ctx,
-                    optional_vars,
-                    &enter_ret.unwrap().into(),
-                    enter.2.ret,
-                )?;
+                    // deal with assignments (`as`)
+                    if let Some(optional_vars) = optional_vars {
+                        generator.gen_assign(
+                            ctx,
+                            optional_vars,
+                            &enter_ret.unwrap().into(),
+                            signature.ret,
+                        )?;
+                    }
+                }
+
+                #[cfg(feature = "ctrc")]
+                CtxManager::Critical { num_free_pages } => {
+                    let num_free_pages = ctx.builder.build_int_z_extend_or_bit_cast(
+                        *num_free_pages,
+                        ctx.size_t,
+                        "",
+                    )?;
+                    // Note: The failure to reserve is not an error, since there may still be
+                    // available cells for allocation. Actual allocation errors will be caught and
+                    // reported at the point of allocation.
+                    // `__nac3_ctrc_enter` must not raise either, since this would leave the CTRC
+                    // mode depth unbalanced.
+                    call_extern!(ctx: void _ = "__nac3_ctrc_enter"(num_free_pages))?;
+                }
             }
         }
 
@@ -2470,13 +2602,25 @@ pub fn gen_with<'ctx, 'a, G: CodeGenerator>(
 
     let exit_gen_lambda = |ctx: &mut CodeGenContext<'ctx, 'a>, generator: &mut G| {
         // call __exit__()s in the reverse order
-        for exit in exits.iter().rev() {
-            generator.gen_call(
-                ctx,
-                Some((exit.0, exit.1.clone())),
-                (&exit.2, exit.3),
-                Vec::default(),
-            )?;
+        for ctx_mgr in ctx_mgrs.iter().rev() {
+            match ctx_mgr {
+                CtxManager::Method {
+                    exit: WithExitMethodInfo { obj_ty, obj, signature, fun_id },
+                    ..
+                } => {
+                    generator.gen_call(
+                        ctx,
+                        Some((*obj_ty, obj.clone())),
+                        (signature, *fun_id),
+                        Vec::default(),
+                    )?;
+                }
+
+                #[cfg(feature = "ctrc")]
+                CtxManager::Critical { .. } => {
+                    call_extern!(ctx: void _ = "__nac3_ctrc_exit"())?;
+                }
+            }
         }
         anyhow::Ok(())
     };
