@@ -190,6 +190,12 @@ pub enum PrimDef {
 
     // Enumerate methods
     FunEnumerateInit,
+
+    // Context managers
+    Critical,
+    FunCriticalInit,
+    FunCriticalEnter,
+    FunCriticalExit,
 }
 
 /// Associated details of a [`PrimDef`]
@@ -431,6 +437,12 @@ impl PrimDef {
 
             // Enumerate methods
             Self::FunEnumerateInit => fun("enumerate.__init__", Some("__init__")),
+
+            // Context managers
+            Self::Critical => class("critical", |primitives| primitives.critical),
+            Self::FunCriticalInit => fun("critical.__init__", Some("__init__")),
+            Self::FunCriticalEnter => fun("critical.__enter__", Some("__enter__")),
+            Self::FunCriticalExit => fun("critical.__exit__", Some("__exit__")),
         }
     }
 }
@@ -668,6 +680,26 @@ impl TopLevelComposer {
 
         unifier.unify(ndarray_copy_fun_ret_ty.ty, ndarray).unwrap();
 
+        let critical_ctxmgr_fun_ty = unifier.add_ty(TypeEnum::TFunc(FunSignature {
+            args: vec![],
+            ret: none,
+            vars: VarMap::new(),
+        }));
+        let critical = unifier.add_ty(TypeEnum::TObj {
+            obj_id: PrimDef::Critical.id(),
+            fields: Mapping::from([
+                (
+                    PrimDef::FunCriticalEnter.simple_name().into(),
+                    (critical_ctxmgr_fun_ty, AttrKind::Method),
+                ),
+                (
+                    PrimDef::FunCriticalExit.simple_name().into(),
+                    (critical_ctxmgr_fun_ty, AttrKind::Method),
+                ),
+            ]),
+            params: VarMap::new(),
+        });
+
         let primitives = PrimitiveStore {
             int32,
             int64,
@@ -678,6 +710,7 @@ impl TopLevelComposer {
             none,
             range,
             enumerate,
+            critical,
             str,
             exception,
             option,

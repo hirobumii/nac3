@@ -125,6 +125,11 @@ impl TestEnvironment {
             fields: HashMap::new(),
             params: VarMap::new(),
         });
+        let critical = unifier.add_ty(TypeEnum::TObj {
+            obj_id: PrimDef::Critical.id(),
+            fields: HashMap::new(),
+            params: VarMap::new(),
+        });
         let str = unifier.add_ty(TypeEnum::TObj {
             obj_id: PrimDef::Str.id(),
             fields: HashMap::new(),
@@ -172,6 +177,7 @@ impl TestEnvironment {
             none,
             range,
             enumerate,
+            critical,
             str,
             exception,
             uint32,
@@ -278,6 +284,11 @@ impl TestEnvironment {
             fields: HashMap::new(),
             params: VarMap::new(),
         });
+        let critical = unifier.add_ty(TypeEnum::TObj {
+            obj_id: PrimDef::Critical.id(),
+            fields: HashMap::new(),
+            params: VarMap::new(),
+        });
         let str = unifier.add_ty(TypeEnum::TObj {
             obj_id: PrimDef::Str.id(),
             fields: HashMap::new(),
@@ -359,6 +370,7 @@ impl TestEnvironment {
             none,
             range,
             enumerate,
+            critical,
             str,
             exception,
             uint32,

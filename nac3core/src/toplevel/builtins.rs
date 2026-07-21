@@ -1,5 +1,6 @@
 use std::{collections::HashMap, iter::once, sync::Arc};
 
+use anyhow::anyhow;
 use indexmap::IndexMap;
 use inkwell::{
     IntPredicate,
@@ -12,6 +13,7 @@ use strum::IntoEnumIterator;
 
 use crate::{
     codegen::{
+        allocator::CTRC_DEFAULT_RESERVED_PAGES,
         builtin_fns,
         numpy::{
             gen_ndarray_array, gen_ndarray_copy, gen_ndarray_empty, gen_ndarray_eye,
@@ -376,6 +378,11 @@ impl<'a> BuiltinBuilder<'a> {
             PrimDef::Enumerate | PrimDef::FunEnumerateInit => {
                 self.build_enumerate_class_related(prim)
             }
+
+            PrimDef::Critical
+            | PrimDef::FunCriticalInit
+            | PrimDef::FunCriticalEnter
+            | PrimDef::FunCriticalExit => self.build_critical_class_related(prim),
 
             PrimDef::Exception => self.build_exception_class_related(prim),
 
@@ -791,6 +798,103 @@ impl<'a> BuiltinBuilder<'a> {
                 })))),
                 loc: None,
             },
+
+            _ => unreachable!(),
+        }
+    }
+
+    /// Build the context manager class `critical` and its associated methods.
+    ///
+    /// `with critical(num_pages=CTRC_DEFAULT_RESERVED_PAGES):` switches the program allocator
+    /// into CTRC mode for the duration of the block, and ensuring (i.e. allocating if necessary)
+    /// that at least `num_free_pages` worth of cells are available in the CTRC allocator slab.
+    /// TODO(Derppening): Fixup this comment once `num_free_pages` actually guards the number of
+    ///                   free pages (rather than number of allocated pages)
+    fn build_critical_class_related(&mut self, prim: PrimDef) -> TopLevelDef {
+        fn make_unsupported_callback(prim: PrimDef) -> GenCall {
+            let name = prim.name();
+            GenCall::new(Box::new(move |_, _, _, _| {
+                Err(anyhow!(
+                    "`{name}` is not callable; `critical` may only be used as `with critical(...):`"
+                ))
+            }))
+        }
+
+        debug_assert_prim_is_allowed(
+            prim,
+            &[
+                PrimDef::Critical,
+                PrimDef::FunCriticalInit,
+                PrimDef::FunCriticalEnter,
+                PrimDef::FunCriticalExit,
+            ],
+        );
+
+        let PrimitiveStore { int32, none, critical, .. } = *self.primitives;
+
+        let ctor_signature = self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
+            args: vec![FuncArg {
+                // TODO(Derppening): Rename to `num_free_pages` once this argument is converted to
+                //                   represent the number of free pages (rather than the number of
+                //                   allocated pages)
+                name: "num_pages".into(),
+                ty: int32,
+                default_value: Some(SymbolValue::I32(CTRC_DEFAULT_RESERVED_PAGES)),
+                is_vararg: false,
+            }],
+            ret: critical,
+            vars: VarMap::default(),
+        }));
+
+        // `__enter__` and `__exit__` only need to exist and take no argument other than self; see
+        // the context-manager check in `Inferencer::fold_stmt`.
+        let enter_exit_signature = self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
+            args: Vec::default(),
+            ret: none,
+            vars: VarMap::default(),
+        }));
+
+        match prim {
+            PrimDef::Critical => TopLevelDef::Class {
+                name: prim.name().into(),
+                simple_name: prim
+                    .name()
+                    .rsplit_once('.')
+                    .map_or_else(|| prim.name(), |(_, nme)| nme)
+                    .to_string(),
+                object_id: prim.id(),
+                type_vars: Vec::default(),
+                fields: Vec::default(),
+                attributes: Vec::default(),
+                methods: vec![
+                    ("__init__".into(), ctor_signature, PrimDef::FunCriticalInit.id()),
+                    ("__enter__".into(), enter_exit_signature, PrimDef::FunCriticalEnter.id()),
+                    ("__exit__".into(), enter_exit_signature, PrimDef::FunCriticalExit.id()),
+                ],
+                ancestors: Vec::default(),
+                constructor: Some(ctor_signature),
+                resolver: None,
+                loc: None,
+            },
+
+            PrimDef::FunCriticalInit | PrimDef::FunCriticalEnter | PrimDef::FunCriticalExit => {
+                TopLevelDef::Function {
+                    name: prim.name().into(),
+                    simple_name: prim.simple_name().into(),
+                    signature: if prim == PrimDef::FunCriticalInit {
+                        ctor_signature
+                    } else {
+                        enter_exit_signature
+                    },
+                    var_id: Vec::default(),
+                    attributes: Vec::default(),
+                    instance_to_symbol: HashMap::default(),
+                    instance_to_stmt: HashMap::default(),
+                    resolver: None,
+                    codegen_callback: Some(Arc::new(make_unsupported_callback(prim))),
+                    loc: None,
+                }
+            }
 
             _ => unreachable!(),
         }

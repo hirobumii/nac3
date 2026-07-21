@@ -61,6 +61,7 @@ pub struct PrimitiveStore {
     pub none: Type,
     pub range: Type,
     pub enumerate: Type,
+    pub critical: Type,
     pub str: Type,
     pub exception: Type,
     pub option: Type,
@@ -371,6 +372,18 @@ impl Fold<()> for Inferencer<'_> {
             ast::StmtKind::With { items, .. } => {
                 for item in items {
                     let ty = item.context_expr.custom.unwrap();
+
+                    // `critical` is registered unconditionally (to avoid `PrimDef` IDs from
+                    // moving), so reject it here if the `ctrc` feature is not enabled
+                    #[cfg(not(feature = "ctrc"))]
+                    if matches!(&*self.unifier.get_ty(ty), TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::Critical.id())
+                    {
+                        return report_error(
+                            "`with critical(...)` requires compiler to be built with feature `ctrc`",
+                            stmt.location,
+                        );
+                    }
+
                     // if we can simply unify without creating new types...
                     let mut fast_path = false;
                     if let TypeEnum::TObj { fields, .. } = &*self.unifier.get_ty(ty) {

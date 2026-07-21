@@ -87,6 +87,9 @@ pub trait BuiltinRegistry: Send + Sync {
             "Some" => PrimDef::FunSome,
             "staticmethod" => PrimDef::StaticMethod,
 
+            // Context managers
+            "critical" => PrimDef::Critical,
+
             // Type qualifier
             "Auto" => PrimDef::Auto,
             "Kernel" => PrimDef::Kernel,

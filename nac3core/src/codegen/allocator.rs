@@ -8,6 +8,12 @@ use inkwell::{
 
 use crate::codegen::{CodeGenContext, types::ArraySliceValue};
 
+/// The number of CTRC pages reserved by `with critical():` when no page count is given.
+///
+/// One page holds `CTRC_CELLS_PER_PAGE` (31) cells of `CTRC_CELL_SIZE` (128) bytes each, so the
+/// default reserves 496 objects / 64 KiB.
+pub const CTRC_DEFAULT_RESERVED_PAGES: i32 = 16;
+
 /// The scope where an allocation should take place.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AllocationScope {
