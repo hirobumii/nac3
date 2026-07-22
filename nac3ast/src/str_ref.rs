@@ -1,5 +1,3 @@
-#![allow(clippy::nursery)]
-
 use fxhash::FxBuildHasher;
 use parking_lot::{Mutex, MutexGuard};
 use std::{cell::RefCell, collections::HashMap, fmt, sync::LazyLock};
@@ -65,7 +63,6 @@ pub fn get_str_ref(lock: &mut MutexGuard<Interner>, str: &str) -> StrRef {
 }
 
 #[must_use]
-#[allow(clippy::missing_panics_doc)]
 pub fn get_str_from_ref(lock: &Interner, id: StrRef) -> &str {
     lock.resolve(id.0).unwrap()
 }

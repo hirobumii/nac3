@@ -39,3 +39,6 @@ function_name = "0.3"
 [build-dependencies]
 build-rs = "0.3"
 regex = "1.12"
+
+[lints]
+workspace = true

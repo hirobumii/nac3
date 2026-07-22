@@ -2,8 +2,7 @@
 // all Types and Values also being very large, yet they are supposed to be cheaply
 // copyable. Consider refactoring such that one does not generate StructFields
 // repeatedly and copy them around.
-#![allow(clippy::large_types_passed_by_value)]
-#![allow(clippy::large_enum_variant)]
+#![allow(clippy::large_types_passed_by_value, clippy::large_enum_variant)]
 
 use std::{
     cell::OnceCell,
@@ -190,7 +189,7 @@ pub struct TargetMachineOptions {
 }
 
 impl TargetMachineOptions {
-    /// Creates an instance of [`CodeGenTargetMachineOptions`] using the triple of the host machine.
+    /// Creates an instance of [`TargetMachineOptions`] using the triple of the host machine.
     /// Other options are set to defaults.
     #[must_use]
     pub fn from_host_triple(level: OptimizationLevel) -> Self {
@@ -204,7 +203,7 @@ impl TargetMachineOptions {
         }
     }
 
-    /// Creates an instance of [`CodeGenTargetMachineOptions`] using the properties of the host
+    /// Creates an instance of [`TargetMachineOptions`] using the properties of the host
     /// machine. Other options are set to defaults.
     #[must_use]
     pub fn from_host(level: OptimizationLevel) -> Self {
@@ -239,7 +238,7 @@ impl TargetMachineOptions {
 }
 
 pub struct CodeGenContext<'ctx, 'a> {
-    /// The [`CoreContext`] instance which includes the module and target-specific information.
+    /// The [`ModuleContext`] instance which includes the module and target-specific information.
     pub inner: &'a mut ModuleContext<'ctx>,
 
     /// The [`Builder`] instance for creating LLVM IR statements.
@@ -284,7 +283,7 @@ pub struct CodeGenContext<'ctx, 'a> {
     /// The [`PointerValue`] containing the return value of the function.
     pub return_buffer: Option<PointerValue<'ctx>>,
 
-    /// The type of the value stored in [`return_buffer`].
+    /// The type of the value stored in `return_buffer`.
     pub return_buffer_type: Option<BasicTypeEnum<'ctx>>,
 
     // outer catch clauses
@@ -541,10 +540,7 @@ fn get_alloca_type<'ctx>(ctx: &mut CodeGenContext<'ctx, '_>, ty: Type) -> BasicT
     *ctx.alloca_type_cache.entry(ty).insert_entry(item).get()
 }
 
-/// Retrieves the [LLVM type][BasicTypeEnum] corresponding to the [Type].
-///
-/// This function is used to obtain the in-memory representation of `ty`, e.g. a `bool` variable
-/// would be represented by an `i8`.
+/// See [`CodeGenContext::get_llvm_type`].
 #[allow(clippy::too_many_arguments)]
 fn get_llvm_type<'ctx>(
     ctx: &ModuleContext<'ctx>,
@@ -581,15 +577,7 @@ fn get_llvm_type<'ctx>(
     })
 }
 
-/// Retrieves the [LLVM type][`BasicTypeEnum`] corresponding to the [`Type`].
-///
-/// This function is used mainly to obtain the ABI representation of `ty`, e.g. a `bool` is
-/// would be represented by an `i1`.
-///
-/// The difference between the in-memory representation (as returned by [`get_llvm_type`]) and the
-/// ABI representation is that the in-memory representation must be at least byte-sized and must
-/// be byte-aligned for the variable to be addressable in memory, whereas there is no such
-/// restriction for ABI representations.
+/// See [`CodeGenContext::get_llvm_abi_type`].
 #[allow(clippy::too_many_arguments)]
 fn get_llvm_abi_type<'ctx>(
     ctx: &ModuleContext<'ctx>,
@@ -992,7 +980,7 @@ pub fn gen_func_impl<
 
 /// Generates LLVM IR for a function.
 ///
-/// * `context` - The [`CoreContext`] we are inserting into.
+/// * `context` - The [`ModuleContext`] we are inserting into.
 /// * `generator` - The [`CodeGenerator`] for generating various program constructs.
 /// * `registry` - The [`WorkerRegistry`] responsible for monitoring this function generation task.
 /// * `task` - The [`CodeGenTask`] associated with this function generation task.
@@ -1090,7 +1078,7 @@ fn gen_in_range_check<'ctx>(
 /// # Panics
 ///
 /// Panics if `scope` is `AllocationScope::StackStartOfFunc` - See
-/// [`CodeGenContext::build_dyn_array_allocate`].
+/// [`CodeGenContext::alloc_dyn_array`].
 pub fn type_aligned_allocate<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     scope: AllocationScope,
@@ -1180,7 +1168,7 @@ pub struct ModuleContext<'ctx> {
 }
 
 impl<'ctx> ModuleContext<'ctx> {
-    /// Constructs a [`CoreContext`].
+    /// Constructs a [`ModuleContext`].
     #[must_use]
     pub fn new(ctx: ContextRef<'ctx>, module_name: &str, options: &TargetMachineOptions) -> Self {
         let module = ctx.create_module(module_name);

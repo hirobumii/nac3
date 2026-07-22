@@ -1,5 +1,3 @@
-#![allow(nonstandard_style)]
-
 use std::{cmp, collections::HashMap, fmt::Error, mem, ptr, slice};
 
 use crate::{

@@ -1,5 +1,3 @@
-#![allow(nonstandard_style, non_upper_case_globals, clippy::wildcard_imports)]
-
 use std::{mem, str};
 
 use byteorder::{ByteOrder, LittleEndian};

@@ -1,14 +1,4 @@
-#![deny(future_incompatible, let_underscore, nonstandard_style, clippy::all)]
-#![warn(clippy::pedantic, clippy::nursery)]
-
-#[allow(
-    clippy::nursery,
-    clippy::missing_errors_doc,
-    clippy::missing_panics_doc,
-    clippy::too_many_lines,
-    clippy::wildcard_imports,
-    clippy::needless_pass_by_value
-)]
+#[allow(clippy::wildcard_imports, clippy::needless_pass_by_value, clippy::nursery)]
 mod ast_gen;
 
 mod constant;

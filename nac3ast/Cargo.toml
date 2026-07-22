@@ -13,3 +13,6 @@ fold = []
 parking_lot = "0.12"
 string-interner = "0.20"
 fxhash = "0.2"
+
+[lints]
+workspace = true

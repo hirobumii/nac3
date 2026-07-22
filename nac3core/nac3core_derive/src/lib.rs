@@ -1,6 +1,3 @@
-#![deny(future_incompatible, let_underscore, nonstandard_style, clippy::all)]
-#![warn(clippy::pedantic, clippy::nursery)]
-
 use proc_macro::TokenStream;
 use proc_macro_error::{abort, proc_macro_error};
 use quote::quote;
@@ -19,6 +16,8 @@ use syn::{Data, DataStruct, Expr, LitStr, Type, TypePath, parse_macro_input, spa
 ///
 /// Moreover, `#[derive(StructFields)]` can only be used for `struct`s with named fields, and may only contain fields
 /// with either `StructField` or [`PhantomData`] types.
+///
+/// [`PhantomData`]: std::marker::PhantomData
 ///
 /// # Attributes for [`StructFields`]
 ///

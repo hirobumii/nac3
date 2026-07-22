@@ -106,7 +106,7 @@ pub enum TopLevelDef {
         name: StrRef,
         /// Simple name of the module.
         simple_name: String,
-        /// Module ID used for [`TypeEnum`]
+        /// Module ID used for [`TypeEnum`][crate::typecheck::typedef::TypeEnum].
         module_id: DefinitionId,
         /// [`DefinitionId`] of [`TopLevelDef::Class`] within the module
         classes: Vec<(StrRef, DefinitionId)>,
@@ -122,7 +122,7 @@ pub enum TopLevelDef {
         name: StrRef,
         /// Simple name of the module.
         simple_name: String,
-        /// Object ID used for [`TypeEnum`].
+        /// Object ID used for [`TypeEnum`][crate::typecheck::typedef::TypeEnum].
         object_id: DefinitionId,
         /// type variables bounded to the class.
         type_vars: Vec<Type>,

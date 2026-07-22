@@ -154,7 +154,7 @@ pub trait ProxyTypeBase<'ctx> {
     type Value;
 
     /// Allocates a new instance of this type in the
-    /// [default allocation scope][`AllocationScope::Default`].
+    /// [default allocation scope][`crate::codegen::allocator::AllocationScope::Default`].
     ///
     /// Note that this allocates space for the type itself and does not initialize any of
     /// its fields.

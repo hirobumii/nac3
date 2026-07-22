@@ -45,7 +45,7 @@ impl<'ctx> NDArrayValue<'ctx> {
     /// If reshape without copying is impossible, this function will allocate a new ndarray and copy
     /// contents.
     ///
-    /// * `new_ndims` - The number of dimensions of `new_shape` as a [`Type`].
+    /// * `new_ndims` - The number of dimensions of `new_shape`.
     /// * `new_shape` - The target shape to do `np.reshape()`.
     pub fn reshape_or_copy(
         &self,

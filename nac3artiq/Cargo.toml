@@ -24,3 +24,6 @@ init-llvm-profile = []
 ctrc = ["nac3core/ctrc"]
 escape-analysis = ["nac3core/escape-analysis"]
 malloc = ["nac3core/malloc"]
+
+[lints]
+workspace = true

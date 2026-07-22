@@ -5,16 +5,7 @@
 //! * `NDArray` data pointer can be directly read and converted to `nalgebra::Matrix` (row and column number must be known)
 //! * `nalgebra::Matrix::as_slice` returns the content of matrix in column-major order and initial data needs to be transposed before storing it in `NDArray` data pointer
 
-#![deny(future_incompatible, let_underscore, nonstandard_style, clippy::all)]
-#![warn(clippy::pedantic, clippy::nursery)]
-#![allow(
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    clippy::missing_errors_doc,
-    clippy::missing_panics_doc,
-    clippy::similar_names,
-    clippy::too_many_lines
-)]
+#![allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 
 use std::slice;
 

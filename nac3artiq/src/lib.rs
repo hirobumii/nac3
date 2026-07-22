@@ -1,11 +1,4 @@
-#![deny(future_incompatible, let_underscore, nonstandard_style, clippy::all)]
-#![warn(clippy::pedantic, clippy::nursery)]
-#![allow(
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    clippy::similar_names,
-    clippy::too_many_lines
-)]
+#![allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 
 use std::{
     cell::OnceCell,

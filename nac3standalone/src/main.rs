@@ -1,7 +1,3 @@
-#![deny(future_incompatible, let_underscore, nonstandard_style, clippy::all)]
-#![warn(clippy::pedantic, clippy::nursery)]
-#![allow(clippy::too_many_lines)]
-
 use std::{collections::HashMap, fs, num::NonZeroUsize, path::Path, sync::Arc};
 
 use anyhow::anyhow;

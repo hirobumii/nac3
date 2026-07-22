@@ -13,8 +13,8 @@ use crate::{
             array::ArrayLikeIndexer,
             field,
             list::ListType,
-            ndarray::RawNDArrayType,
-            reference::{TypedRefCountedType, TypedRefCountedValue},
+            ndarray::{NDArrayValue, RawNDArrayType},
+            reference::TypedRefCountedType,
         },
     },
     toplevel::helper::{arraylike_flatten_element_type, arraylike_get_ndims},
@@ -32,7 +32,7 @@ fn get_list_object_dtype_and_ndims<'ctx>(
     (ctx.get_llvm_type(dtype), ndims)
 }
 
-impl<'ctx> TypedRefCountedValue<'ctx, RawNDArrayType<'ctx>> {
+impl<'ctx> NDArrayValue<'ctx> {
     /// Implementation of `np_array(<list>, copy=True)`
     fn from_list_must_copy(
         ctx: &mut CodeGenContext<'ctx, '_>,

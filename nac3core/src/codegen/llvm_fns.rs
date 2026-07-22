@@ -25,7 +25,7 @@ const INTERNAL_CALL_CONV: u32 = inkwell::llvm_sys::LLVMCallConv::LLVMFastCallCon
 
 /// An LLVM function declaration.
 ///
-/// Created by [`FunctionStore::declare_external`] and [`FunctionStore::declare_internal`].
+/// Created by [`ModuleContext::declare_external`] and [`ModuleContext::declare_internal`].
 /// See their documentation for more.
 pub struct FunctionDecl<'ctx> {
     name: String,

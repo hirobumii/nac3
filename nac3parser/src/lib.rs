@@ -15,14 +15,7 @@
 //!
 //! ```
 
-#![deny(future_incompatible, let_underscore, nonstandard_style, clippy::all)]
-#![warn(clippy::pedantic, clippy::nursery)]
-#![allow(
-    clippy::fn_params_excessive_bools,
-    clippy::missing_errors_doc,
-    clippy::missing_panics_doc,
-    clippy::too_many_lines
-)]
+#![allow(clippy::fn_params_excessive_bools)]
 
 #[macro_use]
 extern crate log;

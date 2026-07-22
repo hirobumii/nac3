@@ -1,7 +1,3 @@
-#![deny(clippy::all)]
-#![warn(clippy::cargo, clippy::pedantic, clippy::nursery)]
-#![allow(clippy::cargo_common_metadata)]
-
 use std::{
     env,
     fs::File,

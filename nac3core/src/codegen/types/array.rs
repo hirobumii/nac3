@@ -217,8 +217,8 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> ArraySliceValue<'ctx, T> {
     /// Creates a new [`ArraySliceValue`] by reinterpreting the data in this slice as the specified
     /// `target_type`.
     ///
-    /// Unlike [`cast`], this function computes the new size at compile-time, and therefore can only
-    /// be used if this slice has a compile-time constant size.
+    /// Unlike [`cast`][ArraySliceValue::cast], this function computes the new size at compile-time,
+    /// and therefore can only= be used if this slice has a compile-time constant size.
     ///
     /// # Panic
     ///

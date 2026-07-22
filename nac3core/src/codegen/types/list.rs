@@ -141,7 +141,7 @@ pub type RawListValue<'ctx> = Value<'ctx, RawListType<'ctx>>;
 pub type ListValue<'ctx> = TypedRefCountedValue<'ctx, RawListType<'ctx>>;
 
 impl<'ctx> RawListValue<'ctx> {
-    /// Returns the data of this list as an [`ArraySliceValue`].
+    /// Returns the data of this list as an [`RefCountedArrayValue`].
     pub fn data(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,

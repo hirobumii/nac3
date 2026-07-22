@@ -159,10 +159,8 @@ where
             unreachable!()
         };
     f(unifier, &mut fields);
-    unsafe {
-        let unification_table = unifier.get_unification_table();
-        unification_table.set_value(ty, Rc::new(TypeEnum::TObj { obj_id: id, fields, params }));
-    }
+    let unification_table = &mut unifier.unification_table;
+    unification_table.set_value(ty, Rc::new(TypeEnum::TObj { obj_id: id, fields, params }));
 }
 
 pub fn impl_binop(

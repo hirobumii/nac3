@@ -210,7 +210,10 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
         })
     }
 
-    /// See [`get_llvm_type`].
+    /// Retrieves the [LLVM type][BasicTypeEnum] corresponding to the [Type].
+    ///
+    /// This function is used to obtain the in-memory representation of `ty`, e.g. a `bool` variable
+    /// would be represented by an `i8`.
     pub fn get_llvm_type(&mut self, ty: Type) -> BasicTypeEnum<'ctx> {
         get_llvm_type(self.inner, &mut self.unifier, &mut self.type_cache, ty)
     }
@@ -220,12 +223,21 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
         get_alloca_type(self, ty)
     }
 
-    /// See [`get_llvm_abi_type`].
+    /// Retrieves the [LLVM type][`BasicTypeEnum`] corresponding to the [`Type`].
+    ///
+    /// This function is used mainly to obtain the ABI representation of `ty`, e.g. a `bool` is
+    /// would be represented by an `i1`.
+    ///
+    /// The difference between the in-memory representation
+    /// (as returned by [`get_llvm_type`][Self::get_llvm_type]) and the
+    /// ABI representation is that the in-memory representation must be at least byte-sized and must
+    /// be byte-aligned for the variable to be addressable in memory, whereas there is no such
+    /// restriction for ABI representations.
     pub fn get_llvm_abi_type(&mut self, ty: Type) -> BasicTypeEnum<'ctx> {
         get_llvm_abi_type(self.inner, &mut self.unifier, &mut self.type_cache, &self.primitives, ty)
     }
 
-    /// Generates an LLVM variable for a [constant value][value] with a given [type][ty].
+    /// Generates an LLVM variable for a constant value with a given type.
     pub fn gen_const(
         &mut self,
         value: &Constant,
@@ -887,7 +899,7 @@ pub fn gen_call<'ctx, G: CodeGenerator>(
     Ok(call_result)
 }
 
-/// Generates three LLVM variables representing the start, stop, and step values of a [range] class
+/// Generates three LLVM variables representing the start, stop, and step values of a range
 /// respectively.
 pub fn destructure_range<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
@@ -899,7 +911,7 @@ pub fn destructure_range<'ctx>(
     Ok((start, end, step))
 }
 
-/// Generates LLVM IR for a [list comprehension expression][expr].
+/// Generates LLVM IR for a list comprehension expression.
 pub fn gen_comprehension<'ctx, G: CodeGenerator>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
@@ -2668,7 +2680,7 @@ macro_rules! impl_type {
 }
 
 #[doc(hidden)]
-#[allow(private_bounds, reason = "macro internals")]
+#[expect(private_bounds, reason = "macro internals")]
 pub fn __handle_return_type<'ctx, T: __ReturnType<'ctx, Value = V>, V>(
     t: T,
 ) -> (Option<BasicTypeEnum<'ctx>>, impl FnOnce(Option<BasicValueEnum<'ctx>>) -> V) {

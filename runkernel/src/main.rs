@@ -1,6 +1,3 @@
-#![deny(future_incompatible, let_underscore, nonstandard_style, clippy::all)]
-#![warn(clippy::pedantic, clippy::nursery)]
-
 use std::env;
 
 static mut NOW: i64 = 0;

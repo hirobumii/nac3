@@ -11,6 +11,6 @@ nac3core = { path = ".." }
 
 [dependencies]
 proc-macro2 = "1.0"
-proc-macro-error = "1.0"
-syn = "2.0"
+proc-macro-error = { version = "1.0", default-features = false }
+syn = "3.0"
 quote = "1.0"

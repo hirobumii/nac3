@@ -43,8 +43,9 @@ impl AllocationScope {
     /// Returns the default allocation scope for a given type.
     ///
     /// The default allocation scope is [`AllocationScope::Heap`] for array and struct values, and
-    /// [`AllocationScope::Stack`] for all other values. However, members of structs and arrays should
-    /// always inherit the allocation scope of their parent, and should be handled separately.
+    /// [`AllocationScope::StackStartOfFunc`] for all other values. However, members of structs and
+    /// arrays should always inherit the allocation scope of their parent, and should be handled
+    /// separately.
     pub fn default_for_type<'ctx>(ty: &impl BasicType<'ctx>) -> Self {
         match ty.as_basic_type_enum() {
             #[cfg(feature = "malloc")]

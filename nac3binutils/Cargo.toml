@@ -6,3 +6,6 @@ edition = "2024"
 
 [dependencies]
 byteorder = { version = "1.5", default-features = false }
+
+[lints]
+workspace = true

@@ -6,3 +6,6 @@ edition = "2024"
 
 [dependencies]
 libloading = "0.9"
+
+[lints]
+workspace = true

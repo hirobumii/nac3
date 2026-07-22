@@ -365,18 +365,6 @@ impl Unifier {
         self.primitive_store.replace(*primitives);
     }
 
-    /// Returns the [`UnificationTable`] associated with this `Unifier`.
-    ///
-    /// # Safety
-    ///
-    /// The use of this function is discouraged under most circumstances. Only use this function if
-    /// in-place manipulation of type variables and/or type fields is necessary, otherwise prefer to
-    /// [add a new type][`Unifier::add_ty`] and [unify the type][`Unifier::unify`] with an existing
-    /// type.
-    pub const unsafe fn get_unification_table(&mut self) -> &mut UnificationTable<Rc<TypeEnum>> {
-        &mut self.unification_table
-    }
-
     /// Determine if the two types are the same
     pub fn unioned(&mut self, a: Type, b: Type) -> bool {
         self.unification_table.unioned(a, b)
@@ -561,7 +549,7 @@ impl Unifier {
         TypeVar { id, ty }
     }
 
-    /// Returns a fresh type representing a [literal][TypeEnum::TConstant] with the given `values`.
+    /// Returns a fresh type representing a [literal][TypeEnum::TLiteral] with the given `values`.
     pub fn get_fresh_literal(&mut self, values: Vec<SymbolValue>, loc: Option<Location>) -> Type {
         let ty_enum = TypeEnum::TLiteral { values: values.into_iter().dedup().collect(), loc };
         self.add_ty(ty_enum)
