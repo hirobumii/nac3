@@ -805,11 +805,10 @@ impl<'a> BuiltinBuilder<'a> {
 
     /// Build the context manager class `critical` and its associated methods.
     ///
-    /// `with critical(num_pages=CTRC_DEFAULT_RESERVED_PAGES):` switches the program allocator
-    /// into CTRC mode for the duration of the block, and ensuring (i.e. allocating if necessary)
-    /// that at least `num_free_pages` worth of cells are available in the CTRC allocator slab.
-    /// TODO(Derppening): Fixup this comment once `num_free_pages` actually guards the number of
-    ///                   free pages (rather than number of allocated pages)
+    /// `with critical(num_free_pages=CTRC_DEFAULT_RESERVED_PAGES):` switches the program allocator
+    /// into CTRC mode for the duration of the block, ensuring (i.e. allocating if necessary) that
+    /// at least `num_free_pages` worth of cells are available in the CTRC allocator slab.
+    /// `num_free_pages=0` allocates nothing and runs on whatever capacity is already free.
     fn build_critical_class_related(&mut self, prim: PrimDef) -> TopLevelDef {
         fn make_unsupported_callback(prim: PrimDef) -> GenCall {
             let name = prim.name();
@@ -834,10 +833,7 @@ impl<'a> BuiltinBuilder<'a> {
 
         let ctor_signature = self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
             args: vec![FuncArg {
-                // TODO(Derppening): Rename to `num_free_pages` once this argument is converted to
-                //                   represent the number of free pages (rather than the number of
-                //                   allocated pages)
-                name: "num_pages".into(),
+                name: "num_free_pages".into(),
                 ty: int32,
                 default_value: Some(SymbolValue::I32(CTRC_DEFAULT_RESERVED_PAGES)),
                 is_vararg: false,

@@ -143,11 +143,28 @@ is `nullptr`, it returns `nullptr` (honoring the latency invariant).
 
 ### Growing the pool (`reserve`)
 
-`reserve(num_pages)` raises the persistent pool to `num_pages` total pages,
-obtaining a single contiguous, page-aligned chunk from the platform backend and
-threading each new page onto the available stack with all its cells virgin. It
-is a no-op if the pool already holds at least that many pages, and it is the
-**only** function that may allocate backing memory for the slab.
+`reserve(num_free_pages)` grows the pool until at least `num_free_pages` pages
+worth of *available* cells exist, obtaining a single contiguous, page-aligned
+chunk from the platform backend and threading each new page onto the available
+stack with all its cells virgin. It is a no-op if that many cells are already
+available, and it is the **only** function that may allocate backing memory for
+the slab.
+
+The guarantee is deliberately on **free capacity, not cumulative allocation**.
+The pool never shrinks, so a cumulative page count would be a high-water mark:
+a block that retained everything it allocated would leave a subsequent
+`with critical(n)` with zero usable cells, defeating the very real-time
+guarantee the syntax promises. Availability is tracked in `num_free_cells` —
+the sum, over every page, of its free list, its drop list, and its virgin cells
+— maintained by one increment or decrement in each of `reserve`, `pop_free` and
+`defer_drop`, so both hot paths stay O(1). The shortfall is rounded up to whole
+pages, since pages are the unit of backing memory.
+
+Cells are counted rather than free *pages* because free pages are not
+well-defined under fragmentation: 31 pages each holding a single free cell are
+not one free page, and this design has no compaction. A consequence worth
+noting is that `num_free_pages == 0` is a meaningful opt-out — it allocates
+nothing and runs the block on whatever capacity is already free.
 
 ## 5. Page Backend
 
@@ -172,5 +189,5 @@ from generated code:
 | Function                             | Role                                                                 |
 | ------------------------------------ | -------------------------------------------------------------------- |
 | `__nac3_ctrc_alloc(size)`            | Allocate one cell of at least `size` bytes (header included). Returns `nullptr` if `size` exceeds cell capacity or the slab is exhausted; never grows the slab. |
-| `__nac3_ctrc_reserve(num_pages)`     | Grow the persistent pool to `num_pages` pages; returns whether the pool holds at least that many afterwards. The sole growth site. |
+| `__nac3_ctrc_reserve(num_free_pages)` | Grow the pool until `num_free_pages` pages worth of cells are available; returns whether that many are available afterwards. The sole growth site. |
 | `__nac3_ctrc_defer_drop(object)`     | Defer the drop of a CTRC object whose refcount has reached zero (O(1)). |

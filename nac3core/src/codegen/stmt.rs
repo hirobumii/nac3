@@ -2446,7 +2446,10 @@ fn gen_critical_num_free_pages<'ctx, G: CodeGenerator>(
     };
 
     let num_free_pages_expr = args.first().or_else(|| {
-        keywords.iter().find(|kw| kw.node.arg == Some("num_pages".into())).map(|kw| &*kw.node.value)
+        keywords
+            .iter()
+            .find(|kw| kw.node.arg == Some("num_free_pages".into()))
+            .map(|kw| &*kw.node.value)
     });
 
     let num_free_pages = match num_free_pages_expr {

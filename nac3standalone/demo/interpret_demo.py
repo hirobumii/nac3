@@ -48,6 +48,23 @@ def Some(v: T) -> Option[T]:
 
 none = Option(None)
 
+class critical:
+    """No-op stand-in for the CTRC region context manager.
+
+    `with critical(n):` only changes which allocator NAC3-compiled code uses; it has no observable
+    effect on program output, so the interpreter simply ignores it.
+    """
+
+    def __init__(self, num_free_pages=16):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return False
+
+
 class _ConstGenericMarker:
     pass
 
@@ -185,6 +202,7 @@ def patch(module):
     module.Option = Option
     module.Some = Some
     module.none = none
+    module.critical = critical
 
     # Builtin Math functions
     module.round = round_away_zero

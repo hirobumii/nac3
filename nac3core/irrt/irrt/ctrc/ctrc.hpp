@@ -20,9 +20,9 @@ namespace {
 Page* last_page = nullptr;
 
 /**
- * @brief The total number of currently allocated and reserved pages.
+ * @brief The number of cells currently available for allocation across all pages.
  */
-size_t num_reserved_pages = 0;
+size_t num_free_cells = 0;
 
 /**
  * @brief Pushes a dropped cell onto its owning page's free or drop list.
@@ -33,6 +33,7 @@ size_t num_reserved_pages = 0;
  */
 void defer_drop(Cell* const cell) {
     Page* const page = page_of(cell);
+    ++num_free_cells;
 
     // a page with no available cells is not in the available-pages stack; it becomes available now
     const bool was_exhausted = page->free_ptr == nullptr && page->drop_ptr == nullptr && page->free_counter == 0;
@@ -95,6 +96,8 @@ Cell* pop_free() {
         last_page = page->next_page;
     }
 
+    --num_free_cells;
+
     // perform bookkeeping after cell is popped, since a child in the same page may be dropped,
     // corrupting the free list
     if (need_drop) {
@@ -105,18 +108,20 @@ Cell* pop_free() {
 }
 
 /**
- * @brief Grows the persistent pool to `num_pages` total pages. No-op if the pool already holds at
- * least `num_pages` pages.
+ * @brief Grows the pool until it holds at least `num_free_pages` pages worth of *available* cells.
+ * No-op if that many cells are already available.
  *
- * Returns whether the pool holds at least `num_pages` pages after the call. This is the ONLY
- * function that may allocate backing memory for the slab.
+ * Returns whether that many cells are available after the call. This is the ONLY function that may
+ * allocate backing memory for the slab.
  */
-bool reserve(const size_t num_pages) {
-    if (num_pages <= num_reserved_pages) {
+bool reserve(const size_t num_free_pages) {
+    const size_t num_needed_cells = num_free_pages * CTRC_CELLS_PER_PAGE;
+    if (num_needed_cells <= num_free_cells) {
         return true;
     }
 
-    const size_t grow = num_pages - num_reserved_pages;
+    // round the shortfall up to whole pages - pages are the unit of backing memory
+    const size_t grow = (num_needed_cells - num_free_cells + CTRC_CELLS_PER_PAGE - 1) / CTRC_CELLS_PER_PAGE;
     Page* const chunk = page_backend_alloc(grow);
     if (chunk == nullptr) {
         return false;
@@ -131,7 +136,7 @@ bool reserve(const size_t num_pages) {
         last_page = page;
     }
 
-    num_reserved_pages = num_pages;
+    num_free_cells += grow * CTRC_CELLS_PER_PAGE;
     return true;
 }
 
@@ -167,11 +172,11 @@ void* __nac3_ctrc_alloc(size_t size) {
 }
 
 /**
- * @brief Grows the persistent CTRC pool to `num_pages` total pages, returning whether the pool
- * holds at least `num_pages` pages afterwards.
+ * @brief Grows the CTRC pool until it holds at least `num_free_pages` pages worth of available
+ * cells, returning whether that many cells are available afterwards.
  */
-bool __nac3_ctrc_reserve(size_t num_pages) {
-    return reserve(num_pages);
+bool __nac3_ctrc_reserve(size_t num_free_pages) {
+    return reserve(num_free_pages);
 }
 
 /**
@@ -182,19 +187,19 @@ void __nac3_ctrc_defer_drop(void* object) {
 }
 
 /**
- * @brief Enters CTRC mode by growing the CTRC pool to `num_pages` total pages, and setting the current allocation mode
- * to the CTRC slab allocator.
+ * @brief Enters CTRC mode by growing the CTRC pool to hold at least `num_free_pages` pages worth of available cells,
+ * and setting the current allocation mode to the CTRC slab allocator.
  *
- * Note that the CTRC pool size only allocates if the requested number of pages exceeds the currently-allocated page
- * count. If the allocation cannot be satisfied, this function will fail silently - The original pool size is retained,
- * and any allocations that exceeds the pool size will raise a `MemoryError` at the point of allocation.
+ * Note that the pool only grows if the requested capacity exceeds the cells already available. If the allocation cannot
+ * be satisfied, this function will fail silently - The original pool size is retained, and any allocations that exceeds
+ * the pool size will raise a `MemoryError` at the point of allocation.
  */
-void __nac3_ctrc_enter(size_t num_pages) {
+void __nac3_ctrc_enter(size_t num_free_pages) {
     // Note: We deliberately ignore the return value of `reserve` here, since the failure to reserve pages may still
     // leave sufficient cells for allocation during the critical region.
     // Moreover, this function must not raise, since this function must be paired with `__nac3_ctrc_exit` at all times
     // to update the CTRC mode depth, and an unwind during this function would leave the depth unbalanced.
-    reserve(num_pages);
+    reserve(num_free_pages);
     ++ctrc_mode_depth;
 }
 
