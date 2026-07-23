@@ -1,4 +1,6 @@
 #[cfg(feature = "malloc")]
+use anyhow::bail;
+#[cfg(feature = "malloc")]
 use inkwell::types::BasicTypeEnum;
 use inkwell::{
     builder::Builder,
@@ -6,6 +8,8 @@ use inkwell::{
     values::{IntValue, PointerValue},
 };
 
+#[cfg(feature = "malloc")]
+use crate::codegen::llvm_intrinsics::call_umul_with_overflow;
 use crate::codegen::{CodeGenContext, types::ArraySliceValue};
 
 /// The number of CTRC pages made available by `with critical():` when no page count is given.
@@ -84,6 +88,54 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
             .basic()
             .unwrap()
             .into_pointer_value())
+    }
+
+    /// Builds the byte size of an allocation of `size` elements of type `ty`, guarding against
+    /// `size_t` overflow of the product.
+    ///
+    /// A too-large element count would otherwise wrap around and under-allocate. Under CTRC this is
+    /// especially dangerous: a logically huge array would be handed a single cell, and writing its
+    /// elements corrupts neighboring live cells in the same page.
+    ///
+    /// A compile-time-known `size` is checked in Rust and returned as a folded constant, so no
+    /// guard is emitted for allocations whose size is already known to fit.
+    #[cfg(feature = "malloc")]
+    fn build_checked_alloc_size(
+        &mut self,
+        size: IntValue<'ctx>,
+        ty: impl BasicType<'ctx> + Copy,
+    ) -> anyhow::Result<IntValue<'ctx>> {
+        let sizeof_ty = self.sizeof(ty);
+
+        if let Some(size) = size.get_zero_extended_constant() {
+            let Some(nbytes) = size.checked_mul(sizeof_ty).filter(|n| *n <= self.size_t_max())
+            else {
+                bail!(
+                    "Allocation of {size} elements of {sizeof_ty} bytes exceeds maximum value of {} bytes",
+                    self.size_t_max(),
+                );
+            };
+
+            return Ok(self.size_t.const_int(nbytes, false));
+        }
+
+        let sizeof_ty = self.size_t.const_int(sizeof_ty, false);
+        let (nbytes, overflow) = call_umul_with_overflow(self, size, sizeof_ty, None)?;
+        let no_overflow = self.builder.build_not(overflow, "")?;
+        let size_zext = self.builder.build_int_z_extend_or_bit_cast(size, self.i64, "")?;
+        let sizeof_ty_zext =
+            self.builder.build_int_z_extend_or_bit_cast(sizeof_ty, self.i64, "")?;
+        self.make_assert(
+            no_overflow,
+            "0:OverflowError",
+            &format!(
+                "Allocation of {{0}} elements of {{1}} bytes exceeds maximum value of {} bytes",
+                self.size_t_max(),
+            ),
+            [Some(size_zext), Some(sizeof_ty_zext), None],
+        )?;
+
+        Ok(nbytes)
     }
 
     /// Builds an instruction which allocates memory for a value of type `ty`.
@@ -186,6 +238,20 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
             return self.alloc_array(AllocationScope::StackStartOfFunc, ty, size, name);
         }
 
+        // `size` is known at compile time here, so the allocation size is checked in Rust rather
+        // than by emitting a runtime guard - An oversized allocation becomes a compile-time error.
+        #[cfg(feature = "malloc")]
+        if scope == AllocationScope::Heap {
+            let sizeof_ty = self.sizeof(ty);
+            let nbytes = size.checked_mul(sizeof_ty).filter(|n| *n <= self.size_t_max());
+            if nbytes.is_none() {
+                bail!(
+                    "Allocation of {size} x {sizeof_ty} bytes exceeds maximum value of {} bytes",
+                    self.size_t_max(),
+                );
+            }
+        }
+
         let size = self.size_t.const_int(size, false);
         let b = self.alloc_builder(scope);
         let ty = ty.as_basic_type_enum();
@@ -235,7 +301,7 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
     /// Panics if `scope` is `AllocationScope::StackStartOfFunc`, as dynamic arrays cannot be
     /// allocated at the start of a function.
     pub fn alloc_dyn_array(
-        &self,
+        &mut self,
         scope: AllocationScope,
         ty: impl BasicType<'ctx> + Copy,
         size: IntValue<'ctx>,
@@ -254,6 +320,21 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
             return self.alloc_dyn_array(AllocationScope::StackStartOfFunc, ty, size, name);
         }
 
+        // Note: Use `self` before `alloc_builder` borrows a builder out of it
+        #[cfg(feature = "ctrc")]
+        let nbytes = if scope == AllocationScope::Heap {
+            let size = self.builder.build_int_truncate_or_bit_cast(size, self.size_t, "")?;
+            Some(self.build_checked_alloc_size(size, ty)?)
+        } else {
+            None
+        };
+        // `build_array_malloc` recomputes the byte size itself, so only the guard is needed here.
+        #[cfg(all(feature = "malloc", not(feature = "ctrc")))]
+        if scope == AllocationScope::Heap {
+            let size = self.builder.build_int_truncate_or_bit_cast(size, self.size_t, "")?;
+            self.build_checked_alloc_size(size, ty)?;
+        }
+
         let b = self.alloc_builder(scope);
         let ty = ty.as_basic_type_enum();
         let ptr = match scope {
@@ -264,17 +345,12 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
                 &name.map(|n| format!("{n}.malloc")).unwrap_or_default(),
             )?,
             #[cfg(feature = "ctrc")]
-            AllocationScope::Heap => {
-                let size = b.build_int_truncate_or_bit_cast(size, self.size_t, "")?;
-                let nbytes =
-                    b.build_int_mul(size, self.size_t.const_int(self.sizeof(ty), false), "")?;
-                self.build_generalized_alloc(
-                    b,
-                    nbytes,
-                    self.alignof(ty),
-                    &name.map(|n| format!("{n}.alloc")).unwrap_or_default(),
-                )?
-            }
+            AllocationScope::Heap => self.build_generalized_alloc(
+                b,
+                nbytes.unwrap(),
+                self.alignof(ty),
+                &name.map(|n| format!("{n}.alloc")).unwrap_or_default(),
+            )?,
             AllocationScope::StackCurrentLoc => b.build_array_alloca(
                 ty,
                 size,

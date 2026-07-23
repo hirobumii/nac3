@@ -108,7 +108,15 @@ static_assert(sizeof(Page) == CTRC_PAGE_SIZE);
  * The block is over-allocated by `CTRC_PAGE_SIZE - 1` and aligned up to ensure `CTRC_PAGE_SIZE` alignment.
  */
 Page* page_backend_alloc(const size_t num_pages) {
-    void* const mem = __builtin_malloc(num_pages * CTRC_PAGE_SIZE + CTRC_PAGE_SIZE - 1);
+    // A page count whose byte size overflows `size_t` must fail rather than wrap around to a small, satisfiable
+    // request - the caller would then hand out cells from pages that were never allocated.
+    size_t nbytes;
+    if (__builtin_mul_overflow(num_pages, static_cast<size_t>(CTRC_PAGE_SIZE), &nbytes)
+        || __builtin_add_overflow(nbytes, static_cast<size_t>(CTRC_PAGE_SIZE - 1), &nbytes)) {
+        return nullptr;
+    }
+
+    void* const mem = __builtin_malloc(nbytes);
     if (mem == nullptr) {
         return nullptr;
     }

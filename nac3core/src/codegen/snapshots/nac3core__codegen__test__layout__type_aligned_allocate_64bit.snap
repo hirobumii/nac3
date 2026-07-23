@@ -4,9 +4,47 @@ expression: ir
 ---
 define fastcc void @dummy() {
 init:
-  %0 = udiv i64 add (i64 sub (i64 ptrtoint (ptr getelementptr ({ %__nac3_object_header, { i64, [0 x i8], [0 x i32] } }, ptr null, i32 1) to i64), i64 1), i64 4112), ptrtoint (ptr getelementptr ({ %__nac3_object_header, { i64, [0 x i8], [0 x i32] } }, ptr null, i32 1) to i64)
-  %1 = mul i64 %0, 16
-  %2 = call ptr @__nac3_alloc(i64 %1, i64 8)
-  store ptr %2, ptr @keep_alloc, align 8
+  %0 = icmp uge i64 add (i64 sub (i64 ptrtoint (ptr getelementptr ({ %__nac3_object_header, { i64, [0 x i8], [0 x i32] } }, ptr null, i32 1) to i64), i64 1), i64 4112), 4112
+  %expect = call i1 @llvm.expect.i1(i1 %0, i1 true)
+  br i1 %expect, label %succ, label %fail
+
+succ:                                             ; preds = %init
+  %1 = udiv i64 add (i64 sub (i64 ptrtoint (ptr getelementptr ({ %__nac3_object_header, { i64, [0 x i8], [0 x i32] } }, ptr null, i32 1) to i64), i64 1), i64 4112), ptrtoint (ptr getelementptr ({ %__nac3_object_header, { i64, [0 x i8], [0 x i32] } }, ptr null, i32 1) to i64)
+  %2 = call { i64, i1 } @llvm.umul.with.overflow.i64(i64 %1, i64 16)
+  %3 = extractvalue { i64, i1 } %2, 0
+  %4 = extractvalue { i64, i1 } %2, 1
+  %5 = xor i1 %4, true
+  %expect1 = call i1 @llvm.expect.i1(i1 %5, i1 true)
+  br i1 %expect1, label %succ2, label %fail3
+
+succ2:                                            ; preds = %succ
+  %6 = call ptr @__nac3_alloc(i64 %3, i64 8)
+  store ptr %6, ptr @keep_alloc, align 8
   ret void
+
+fail:                                             ; preds = %init
+  store i32 0, ptr null, align 4
+  store %str { ptr @const, i64 113 }, ptr getelementptr inbounds nuw (%exception, ptr null, i32 0, i32 5), align 8
+  store i64 4112, ptr getelementptr inbounds nuw (%exception, ptr null, i32 0, i32 6), align 8
+  store i64 ptrtoint (ptr getelementptr ({ %__nac3_object_header, { i64, [0 x i8], [0 x i32] } }, ptr null, i32 1) to i64), ptr getelementptr inbounds nuw (%exception, ptr null, i32 0, i32 7), align 8
+  store i64 0, ptr getelementptr inbounds nuw (%exception, ptr null, i32 0, i32 8), align 8
+  store %str { ptr @const.1, i64 7 }, ptr getelementptr inbounds nuw (%exception, ptr null, i32 0, i32 1), align 8
+  store i32 0, ptr getelementptr inbounds nuw (%exception, ptr null, i32 0, i32 2), align 4
+  store i32 0, ptr getelementptr inbounds nuw (%exception, ptr null, i32 0, i32 3), align 4
+  store %str { ptr @const.2, i64 5 }, ptr getelementptr inbounds nuw (%exception, ptr null, i32 0, i32 4), align 8
+  call void @__nac3_raise(ptr null)
+  unreachable
+
+fail3:                                            ; preds = %succ
+  store i32 0, ptr null, align 4
+  store %str { ptr @const.3, i64 91 }, ptr getelementptr inbounds nuw (%exception, ptr null, i32 0, i32 5), align 8
+  store i64 %1, ptr getelementptr inbounds nuw (%exception, ptr null, i32 0, i32 6), align 8
+  store i64 16, ptr getelementptr inbounds nuw (%exception, ptr null, i32 0, i32 7), align 8
+  store i64 0, ptr getelementptr inbounds nuw (%exception, ptr null, i32 0, i32 8), align 8
+  store %str { ptr @const.1, i64 7 }, ptr getelementptr inbounds nuw (%exception, ptr null, i32 0, i32 1), align 8
+  store i32 0, ptr getelementptr inbounds nuw (%exception, ptr null, i32 0, i32 2), align 4
+  store i32 0, ptr getelementptr inbounds nuw (%exception, ptr null, i32 0, i32 3), align 4
+  store %str { ptr @const.2, i64 5 }, ptr getelementptr inbounds nuw (%exception, ptr null, i32 0, i32 4), align 8
+  call void @__nac3_raise(ptr null)
+  unreachable
 }

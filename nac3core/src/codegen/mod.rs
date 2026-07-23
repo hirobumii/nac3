@@ -1117,12 +1117,29 @@ pub fn type_aligned_allocate<'ctx>(
     // Allocate the buffer as whole `align_ty`-sized slices to keep the allocation aligned to
     // `align_ty`'s alignment; the number of slices is `ceil(size / sizeof(align_ty))` so that the
     // buffer holds at least `size` bytes.
+    //
+    // Guard the round-up against `size_t` overflow due to the `size + sizeof(align_ty) - 1` calculation, which would
+    // yield a far smaller slice count and under-allocate the buffer. Callers that already bound `size` only bound it by
+    // `size_t::MAX`, which is not sufficient to make this addition safe.
     let max_rem = ctx.builder.build_int_sub(sizeof_align_ty, llvm_usize.const_int(1, false), "")?;
-    let aligned_slices = ctx.builder.build_int_unsigned_div(
-        ctx.builder.build_int_add(size, max_rem, "")?,
-        sizeof_align_ty,
-        "",
-    )?;
+    let rounded_size = ctx.builder.build_int_add(size, max_rem, "")?;
+    {
+        let no_overflow =
+            ctx.builder.build_int_compare(IntPredicate::UGE, rounded_size, size, "")?;
+        let size_zext = ctx.builder.build_int_z_extend_or_bit_cast(size, ctx.i64, "")?;
+        let sizeof_align_ty_zext =
+            ctx.builder.build_int_z_extend_or_bit_cast(sizeof_align_ty, ctx.i64, "")?;
+        ctx.make_assert(
+            no_overflow,
+            "0:OverflowError",
+            &format!(
+                "Allocation of {{0}} bytes rounded up to a multiple of {{1}} bytes exceeds maximum value of {} bytes",
+                ctx.size_t_max(),
+            ),
+            [Some(size_zext), Some(sizeof_align_ty_zext), None],
+        )?;
+    }
+    let aligned_slices = ctx.builder.build_int_unsigned_div(rounded_size, sizeof_align_ty, "")?;
 
     ctx.alloc_dyn_array(scope, align_ty, aligned_slices, name)
 }

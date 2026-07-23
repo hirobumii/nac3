@@ -117,7 +117,14 @@ Cell* pop_free() {
  * allocate backing memory for the slab.
  */
 bool reserve(const size_t num_free_pages) {
-    const size_t num_needed_cells = num_free_pages * CTRC_CELLS_PER_PAGE;
+    // A large enough page count must not wrap into a small (and therefore satisfiable) cell count - the region would
+    // then be entered believing it had reserved capacity it does not have.
+    // Reachable from `with critical(n)` on 32-bit, where `n` need only exceed `size_t::MAX / CTRC_CELLS_PER_PAGE`.
+    size_t num_needed_cells;
+    if (__builtin_mul_overflow(num_free_pages, static_cast<size_t>(CTRC_CELLS_PER_PAGE), &num_needed_cells)) {
+        return false;
+    }
+
     if (num_needed_cells <= num_free_cells) {
         return true;
     }
