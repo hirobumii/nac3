@@ -1,5 +1,7 @@
 #pragma once
 
+#ifdef IRRT_CTRC
+
 #include "irrt/stdlib/cstddef.h"
 #include "irrt/stdlib/cstdint.h"
 
@@ -240,3 +242,5 @@ void __nac3_ctrc_exit() {
     return ptr;
 }
 }  // extern "C"
+
+#endif  // IRRT_CTRC

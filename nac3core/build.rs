@@ -11,7 +11,7 @@ use std::{
     sync::LazyLock,
 };
 
-use build_rs::output::rerun_if_changed;
+use build_rs::{input::cargo_feature, output::rerun_if_changed};
 use regex::Regex;
 
 // For debugging
@@ -119,6 +119,13 @@ fn compile_to_bc_with_target(target: &str, input: &str, suffix: &str) {
         irrt_dir.to_str().unwrap(),
         irrt_cpp_path.to_str().unwrap(),
     ];
+
+    if cargo_feature("malloc") {
+        flags.push("-DIRRT_MALLOC");
+    }
+    if cargo_feature("ctrc") {
+        flags.push("-DIRRT_CTRC");
+    }
 
     match env::var("PROFILE").as_deref() {
         Ok("debug") => {

@@ -1,5 +1,11 @@
 #pragma once
 
+#ifdef IRRT_CTRC
+
+#ifndef IRRT_MALLOC
+#error "IRRT_CTRC requires IRRT_MALLOC"
+#endif  // IRRT_MALLOC
+
 #include "irrt/stdlib/cstddef.h"
 
 namespace __nac3_impl::ctrc {
@@ -25,3 +31,5 @@ size_t ctrc_mode_depth = 0;
 }
 }  // namespace
 }  // namespace __nac3_impl::ctrc
+
+#endif  // IRRT_CTRC

@@ -1,5 +1,7 @@
 #pragma once
 
+#ifdef IRRT_CTRC
+
 #include "irrt/stdlib/cstddef.h"
 #include "irrt/stdlib/cstdint.h"
 
@@ -116,3 +118,5 @@ Page* page_backend_alloc(const size_t num_pages) {
 }
 }  // namespace
 }  // namespace __nac3_impl::ctrc
+
+#endif  // IRRT_CTRC

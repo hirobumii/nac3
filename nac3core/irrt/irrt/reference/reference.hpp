@@ -3,19 +3,24 @@
 #include "irrt/stdlib/cstddef.h"
 #include "irrt/stdlib/cstdint.h"
 
+#ifdef IRRT_CTRC
 #include "irrt/ctrc/mode.hpp"
+#endif  // IRRT_CTRC
 #include "irrt/reference/header.hpp"
 #include "irrt/reference/typeinfo.hpp"
 
+#ifdef IRRT_CTRC
 extern "C" {
 /**
  * Forward-declared from `irrt/ctrc/ctrc.hpp`.
  */
 void __nac3_ctrc_defer_drop(void* object);
 }
+#endif  // IRRT_CTRC
 
 namespace __nac3_impl::reference {
 namespace {
+#ifdef IRRT_MALLOC
 /**
  * @brief A magic value for `Typeinfo::refcounted_field_offsets[0]`, indicating that the object is an array of pointer
  * elements.
@@ -28,7 +33,9 @@ constexpr const uint32_t REFCOUNT_ARRAY_MAGIC = 0xffff'ffff;
  * elements.
  */
 constexpr const uint32_t REFCOUNT_ARRAY_INLINE_MAGIC = 0xffff'fffe;
+#endif  // IRRT_MALLOC
 
+#ifdef IRRT_MALLOC
 /**
  * @brief Returns a pointer to the start of the user data of the object after the `ObjectHeader`.
  */
@@ -39,6 +46,7 @@ constexpr const uint32_t REFCOUNT_ARRAY_INLINE_MAGIC = 0xffff'fffe;
 
     return static_cast<void*>(static_cast<unsigned char*>(object) + sizeof(ObjectHeader));
 }
+#endif  // IRRT_MALLOC
 
 /**
  * @brief Returns a pointer to the object header for the given object.
@@ -62,6 +70,7 @@ constexpr const uint32_t REFCOUNT_ARRAY_INLINE_MAGIC = 0xffff'fffe;
     return reinterpret_cast<const ObjectHeader*>(object);
 }
 
+#ifdef IRRT_MALLOC
 /**
  * @brief Returns a pointer to the `Typeinfo` instance for the given object.
  */
@@ -73,6 +82,7 @@ constexpr const uint32_t REFCOUNT_ARRAY_INLINE_MAGIC = 0xffff'fffe;
 
     return nullptr;
 }
+#endif  // IRRT_MALLOC
 
 /**
  * @brief Checks if the given object is refcounted.
@@ -87,6 +97,7 @@ constexpr const uint32_t REFCOUNT_ARRAY_INLINE_MAGIC = 0xffff'fffe;
     return false;
 }
 
+#ifdef IRRT_CTRC
 /**
  * @brief Checks if the given object was allocated from the CTRC slab.
  *
@@ -99,6 +110,7 @@ constexpr const uint32_t REFCOUNT_ARRAY_INLINE_MAGIC = 0xffff'fffe;
 
     return false;
 }
+#endif  // IRRT_CTRC
 
 /**
  * @brief Initializes the object header for a newly allocated object.
@@ -113,10 +125,12 @@ constexpr const uint32_t REFCOUNT_ARRAY_INLINE_MAGIC = 0xffff'fffe;
         int32_t typeinfo_offset =
             static_cast<int32_t>(static_cast<const unsigned char*>(typeinfo) - &__nac3_global_begin)
             & TYPEINFO_OFFSET_MASK;
+#ifdef IRRT_CTRC
         if (is_refcounted && ctrc::in_ctrc_mode()) {
             // set the CTRC bit if this object is refcounted and allocated when CTRC mode is active
             typeinfo_offset |= TYPEINFO_OFFSET_CTRC_BIT;
         }
+#endif  // IRRT_CTRC
         header->typeinfo_offset = typeinfo_offset;
     }
 }
@@ -124,11 +138,13 @@ constexpr const uint32_t REFCOUNT_ARRAY_INLINE_MAGIC = 0xffff'fffe;
 /**
  * @brief Increments the reference count of the given object by `count` if it is refcounted.
  */
-[[gnu::always_inline]] void refcount_incr_by(void* const object, const size_t count) {
+[[gnu::always_inline]] void refcount_incr_by([[maybe_unused]] void* const object, [[maybe_unused]] const size_t count) {
+#ifdef IRRT_MALLOC
     if (is_object_refcounted(object)) {
         auto* const header = get_object_header(object);
         header->refcount += static_cast<uint32_t>(count);
     }
+#endif  // IRRT_MALLOC
 }
 
 /**
@@ -143,6 +159,7 @@ constexpr const uint32_t REFCOUNT_ARRAY_INLINE_MAGIC = 0xffff'fffe;
  */
 void refcount_decr(void* object);
 
+#ifdef IRRT_MALLOC
 /**
  * @brief Decrements the reference count of each refcounted child (field or element) of the given object.
  */
@@ -176,7 +193,9 @@ void walk_children(void* const object) {
         }
     }
 }
+#endif  // IRRT_MALLOC
 
+#ifdef IRRT_MALLOC
 /**
  * @brief Eagerly reclaims a heap object, recursively drops its children, and returns its memory to the system
  * allocator.
@@ -185,8 +204,10 @@ void free_heap_object(void* const object) {
     walk_children(object);
     __builtin_free(object);
 }
+#endif  // IRRT_MALLOC
 
-void refcount_decr(void* const object) {
+void refcount_decr([[maybe_unused]] void* const object) {
+#ifdef IRRT_MALLOC
     auto* const header = get_object_header(object);
     if (!header) {
         return;
@@ -196,17 +217,22 @@ void refcount_decr(void* const object) {
         // refcounted object - decrement refcount and reclaim if refcount reaches zero
         --header->refcount;
         if (header->refcount == 0) {
+#ifdef IRRT_CTRC
             if (is_object_ctrc_allocated(object)) {
                 // CTRC objects are managed by the CTRC slab allocator - Let the CTRC allocator handle it
                 __nac3_ctrc_defer_drop(object);
             } else {
                 free_heap_object(object);
             }
+#else
+            free_heap_object(object);
+#endif  // IRRT_CTRC
         }
     } else {
         // non-refcounted object - just walk children to decrement any refcounted sub-fields
         walk_children(object);
     }
+#endif  // IRRT_MALLOC
 }
 }  // namespace
 }  // namespace __nac3_impl::reference
