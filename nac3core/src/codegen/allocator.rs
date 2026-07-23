@@ -8,6 +8,8 @@ use inkwell::{
     values::{IntValue, PointerValue},
 };
 
+#[cfg(all(feature = "malloc", not(feature = "ctrc")))]
+use crate::codegen::extern_fns::call_malloc;
 #[cfg(feature = "malloc")]
 use crate::codegen::llvm_intrinsics::call_umul_with_overflow;
 use crate::codegen::{CodeGenContext, types::ArraySliceValue};
@@ -193,7 +195,10 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
         let ty = ty.as_basic_type_enum();
         let ptr = match scope {
             #[cfg(all(feature = "malloc", not(feature = "ctrc")))]
-            AllocationScope::Heap => b.build_malloc(ty, name.unwrap_or_default())?,
+            AllocationScope::Heap => {
+                let size = self.size_t.const_int(self.sizeof(ty), false);
+                call_malloc(self, b, size, name.unwrap_or_default())?
+            }
             #[cfg(feature = "ctrc")]
             AllocationScope::Heap => {
                 let size = self.size_t.const_int(self.sizeof(ty), false);
@@ -241,38 +246,39 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
         // `size` is known at compile time here, so the allocation size is checked in Rust rather
         // than by emitting a runtime guard - An oversized allocation becomes a compile-time error.
         #[cfg(feature = "malloc")]
-        if scope == AllocationScope::Heap {
+        let nbytes = if scope == AllocationScope::Heap {
             let sizeof_ty = self.sizeof(ty);
-            let nbytes = size.checked_mul(sizeof_ty).filter(|n| *n <= self.size_t_max());
-            if nbytes.is_none() {
+            let Some(nbytes) = size.checked_mul(sizeof_ty).filter(|n| *n <= self.size_t_max())
+            else {
                 bail!(
                     "Allocation of {size} x {sizeof_ty} bytes exceeds maximum value of {} bytes",
                     self.size_t_max(),
                 );
-            }
-        }
+            };
+
+            Some(self.size_t.const_int(nbytes, false))
+        } else {
+            None
+        };
 
         let size = self.size_t.const_int(size, false);
         let b = self.alloc_builder(scope);
         let ty = ty.as_basic_type_enum();
         let ptr = match scope {
             #[cfg(all(feature = "malloc", not(feature = "ctrc")))]
-            AllocationScope::Heap => b.build_array_malloc(
-                ty,
-                size,
+            AllocationScope::Heap => call_malloc(
+                self,
+                b,
+                nbytes.unwrap(),
                 &name.map(|n| format!("{n}.malloc")).unwrap_or_default(),
             )?,
             #[cfg(feature = "ctrc")]
-            AllocationScope::Heap => {
-                let nbytes =
-                    b.build_int_mul(size, self.size_t.const_int(self.sizeof(ty), false), "")?;
-                self.build_generalized_alloc(
-                    b,
-                    nbytes,
-                    self.alignof(ty),
-                    &name.map(|n| format!("{n}.alloc")).unwrap_or_default(),
-                )?
-            }
+            AllocationScope::Heap => self.build_generalized_alloc(
+                b,
+                nbytes.unwrap(),
+                self.alignof(ty),
+                &name.map(|n| format!("{n}.alloc")).unwrap_or_default(),
+            )?,
             AllocationScope::StackStartOfFunc | AllocationScope::StackCurrentLoc => b
                 .build_array_alloca(
                     ty,
@@ -321,27 +327,22 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
         }
 
         // Note: Use `self` before `alloc_builder` borrows a builder out of it
-        #[cfg(feature = "ctrc")]
+        #[cfg(feature = "malloc")]
         let nbytes = if scope == AllocationScope::Heap {
             let size = self.builder.build_int_truncate_or_bit_cast(size, self.size_t, "")?;
             Some(self.build_checked_alloc_size(size, ty)?)
         } else {
             None
         };
-        // `build_array_malloc` recomputes the byte size itself, so only the guard is needed here.
-        #[cfg(all(feature = "malloc", not(feature = "ctrc")))]
-        if scope == AllocationScope::Heap {
-            let size = self.builder.build_int_truncate_or_bit_cast(size, self.size_t, "")?;
-            self.build_checked_alloc_size(size, ty)?;
-        }
 
         let b = self.alloc_builder(scope);
         let ty = ty.as_basic_type_enum();
         let ptr = match scope {
             #[cfg(all(feature = "malloc", not(feature = "ctrc")))]
-            AllocationScope::Heap => b.build_array_malloc(
-                ty,
-                size,
+            AllocationScope::Heap => call_malloc(
+                self,
+                b,
+                nbytes.unwrap(),
                 &name.map(|n| format!("{n}.malloc")).unwrap_or_default(),
             )?,
             #[cfg(feature = "ctrc")]

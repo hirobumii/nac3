@@ -1,6 +1,50 @@
 use inkwell::values::{BasicValueEnum, FloatValue};
+#[cfg(all(feature = "malloc", not(feature = "ctrc")))]
+use inkwell::{
+    attributes::{Attribute, AttributeLoc},
+    builder::Builder,
+    values::{IntValue, PointerValue},
+};
 
 use crate::codegen::{CodeGenContext, expr::call_extern};
+
+/// Invokes the [`malloc`](https://en.cppreference.com/w/c/memory/malloc) function, allocating
+/// `size` bytes.
+///
+/// Inkwell's `build_malloc`/`build_array_malloc` wrap LLVM's C API, which hardcodes an `i32` size
+/// argument regardless of the target's pointer width - so on a 64-bit target they emit
+/// `malloc(i32 ...)` and any allocation of 4 GiB or more silently wraps. Emitting the call directly
+/// keeps the size in `size_t`.
+///
+/// Note: This function manually builds the call to `malloc` because `call_extern!` requires
+/// `&mut CodeGenContext`, which cannot be satifisied when the `CodeGenContext` is already borrowed
+/// by the `Builder`.
+#[cfg(all(feature = "malloc", not(feature = "ctrc")))]
+pub fn call_malloc<'ctx>(
+    ctx: &CodeGenContext<'ctx, '_>,
+    builder: &Builder<'ctx>,
+    size: IntValue<'ctx>,
+    name: &str,
+) -> anyhow::Result<PointerValue<'ctx>> {
+    const FUNC_NAME: &str = "malloc";
+
+    let f = ctx.module.get_function(FUNC_NAME).unwrap_or_else(|| {
+        ctx.module.add_function(FUNC_NAME, ctx.ptr.fn_type(&[ctx.size_t.into()], false), None)
+    });
+    // Apply the `noalias` attribute to the return value of `malloc` on every resolution as IRRT
+    // may already have declared `malloc` when this module was set up. Reapplying the attribute is
+    // idempotent as `noalias` is a set-attribute.
+    f.add_attribute(
+        AttributeLoc::Return,
+        ctx.ctx.create_enum_attribute(Attribute::get_named_enum_kind_id("noalias"), 0),
+    );
+    Ok(builder
+        .build_call(f, &[size.into()], name)?
+        .try_as_basic_value()
+        .basic()
+        .map(BasicValueEnum::into_pointer_value)
+        .unwrap())
+}
 
 /// Invokes the [`j1`](https://en.cppreference.com/w/c/numeric/math/j1) function.
 pub fn call_j1<'ctx>(
