@@ -464,20 +464,20 @@ mod layout {
     use inkwell::{
         OptimizationLevel,
         debug_info::{AsDIScope, DWARFEmissionKind, DWARFSourceLanguage},
-        passes::PassBuilderOptions,
         targets::{InitializationConfig, Target},
         types::BasicTypeEnum,
-        values::AnyValue,
     };
+    #[cfg(feature = "malloc")]
+    use inkwell::{passes::PassBuilderOptions, values::AnyValue};
     use nac3parser::ast::Location;
     use parking_lot::RwLock;
 
+    #[cfg(feature = "malloc")]
+    use crate::codegen::{allocator::AllocationScope, type_aligned_allocate};
     use crate::{
         codegen::{
             CodeGenContext, CodeGenOptions, DefaultCodeGenerator, ModuleContext,
-            TargetMachineOptions, WithCall, WorkerRegistry,
-            allocator::AllocationScope,
-            context_ref, type_aligned_allocate,
+            TargetMachineOptions, WithCall, WorkerRegistry, context_ref,
             types::{
                 ClassType, NDArrayType, ObjectHeaderType, OptionSomeType, ProxyType,
                 RefCountedArrayType, RefType, TupleType, TypeinfoType,
@@ -774,6 +774,7 @@ mod layout {
     ///
     /// Panics if the call is missing, or if its size argument has not been folded to an integer
     /// literal.
+    #[cfg(feature = "malloc")]
     fn parse_alloc_size(ir: &str) -> u64 {
         #[cfg(feature = "ctrc")]
         const ALLOC_FN: &str = "@__nac3_alloc";
@@ -800,6 +801,7 @@ mod layout {
     ///
     /// `actual` is read back from the `malloc` call after constant-folding; `expected` is the
     /// correct `ceil(size / sizeof) * sizeof`.
+    #[cfg(feature = "malloc")]
     fn run_type_aligned_allocate(ctx: &mut CodeGenContext<'_, '_>) -> (String, u64, u64) {
         const BUFFER_SIZE: u64 = 1024;
 
@@ -831,6 +833,7 @@ mod layout {
     }
 
     #[test]
+    #[cfg(feature = "malloc")]
     fn test_type_aligned_allocate_64bit() {
         context_ref!(ctx_ref);
 
@@ -860,6 +863,7 @@ mod layout {
     }
 
     #[test]
+    #[cfg(feature = "malloc")]
     fn test_type_aligned_allocate_32bit() {
         context_ref!(ctx_ref);
 
