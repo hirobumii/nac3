@@ -65,7 +65,7 @@ class CtxMgrTest:
         a = PassContextManager()
         with a:
             x += 1
-        
+
         h = CustomDataContextManager(1, 2)
         with h:
             x += h.a + h.b
@@ -80,5 +80,53 @@ class CtxMgrTest:
         print_int32(x)
         return
 
+@compile
+class CriticalCtxMgrTest:
+    core: KernelInvariant[Core]
+
+    def __init__(self):
+        self.core = Core()
+
+    @kernel
+    def run(self):
+        x = 0
+
+        # Default reservation size.
+        with critical():
+            x += 1
+
+        # Reservation size given positionally and by keyword.
+        with critical(2):
+            a = [1, 2, 3]
+            x += a[0]
+
+        with critical(num_free_pages=2):
+            b = [4, 5, 6]
+            x += b[2]
+
+        # `critical(0)` reserves nothing - Still valid.
+        with critical(0):
+            x += 1
+
+        # Nested critical regions.
+        with critical(2):
+            with critical(1):
+                c = [7, 8]
+                x += c[1]
+
+        # Nesting in both directions with the ARTIQ timeline context managers, which
+        # nac3artiq intercepts in its own `gen_with` before delegating to the core one.
+        with sequential:
+            with critical(1):
+                x += 1
+
+        with critical(1):
+            with parallel:
+                x += 1
+
+        print_int32(x)
+        return
+
 if __name__ == "__main__":
     CtxMgrTest().run()
+    CriticalCtxMgrTest().run()

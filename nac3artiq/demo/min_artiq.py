@@ -19,7 +19,7 @@ __all__ = [
     "rpc", "ms", "us", "ns",
     "print_int32", "print_int64",
     "Core", "TTLOut",
-    "parallel", "legacy_parallel", "sequential"
+    "parallel", "legacy_parallel", "sequential", "critical"
 ]
 
 
@@ -77,6 +77,18 @@ class _ConstGenericMarker:
 
 def ConstGeneric(name, constraint):
     return TypeVar(name, _ConstGenericMarker, constraint)
+
+class critical:
+    # Keep the default in sync with `CTRC_DEFAULT_RESERVED_PAGES` in `nac3core/src/codegen/allocator.rs`
+    def __init__(self, num_free_pages=16):
+        pass
+
+    def __enter__(self):
+        pass
+
+    # NAC3's `critical.__exit__` is nullary, but CPython passes the exception triple.
+    def __exit__(self, *exc):
+        pass
 
 def round64(x):
     return round(x)
@@ -284,6 +296,7 @@ builtins = {
         "none": none,
         "virtual": virtual,
         "Option": Option,
+        "critical": critical,
 
         # Decorator functions
         "compile": compile,

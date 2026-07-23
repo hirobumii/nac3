@@ -222,6 +222,9 @@ impl ArtiqBuiltinRegistry {
         id_to_builtin.insert(primitive_ids.artiq.virtual_class, PrimDef::Virtual);
         id_to_builtin.insert(primitive_ids.artiq.option, PrimDef::Option);
 
+        // Context managers
+        id_to_builtin.insert(primitive_ids.artiq.critical, PrimDef::Critical);
+
         // Decorators
         id_to_builtin.insert(primitive_ids.artiq.compile_decor_fn, PrimDef::Compile);
         id_to_builtin.insert(primitive_ids.artiq.extern_decor_fn, PrimDef::ExternFn);
@@ -513,6 +516,9 @@ pub struct ArtiqPythonId {
     none: u64,
     virtual_class: u64,
     option: u64,
+
+    // Context Managers
+    critical: u64,
 
     // Decorator Functions
     compile_decor_fn: u64,
@@ -1819,6 +1825,7 @@ impl Nac3 {
                 none: get_artiq_builtin_id(Some("artiq"), "none")?,
                 const_generic_marker: get_artiq_builtin_id(Some("artiq"), "_ConstGenericMarker")?,
                 option: get_artiq_builtin_id(Some("artiq"), "Option")?,
+                critical: get_artiq_builtin_id(Some("artiq"), "critical")?,
                 compile_decor_fn: get_artiq_builtin_id(Some("artiq"), "compile")?,
                 extern_decor_fn: get_artiq_builtin_id(Some("artiq"), "extern")?,
                 kernel_decor_fn: get_artiq_builtin_id(Some("artiq"), "kernel")?,
