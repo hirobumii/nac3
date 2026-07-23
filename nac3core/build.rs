@@ -11,6 +11,7 @@ use std::{
     sync::LazyLock,
 };
 
+use build_rs::output::rerun_if_changed;
 use regex::Regex;
 
 // For debugging
@@ -134,7 +135,7 @@ fn compile_to_bc_with_target(target: &str, input: &str, suffix: &str) {
     }
 
     // Tell Cargo to rerun if any file under `irrt_dir` (recursive) changes
-    println!("cargo:rerun-if-changed={}", irrt_dir.to_str().unwrap());
+    rerun_if_changed(irrt_dir);
 
     let output = compile_irrt(target, &flags);
     let mut filtered_output = String::with_capacity(output.len());

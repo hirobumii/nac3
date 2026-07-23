@@ -120,6 +120,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "build-rs"
+version = "0.3.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "87a490fb7ec2896b97a4c721c03a2b2dc5c2b9b75b2a57ca396db4470dea0381"
+dependencies = [
+ "unicode-ident",
+]
+
+[[package]]
 name = "byteorder"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -663,6 +672,7 @@ name = "nac3core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "build-rs",
  "crossbeam",
  "function_name",
  "indexmap",
