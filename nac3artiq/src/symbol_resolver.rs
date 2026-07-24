@@ -334,11 +334,11 @@ impl InnerResolver {
     ) -> anyhow::Result<Type> {
         let mut ty = self
             .get_obj_type(py, &list.get_item(0)?, unifier, defs, primitives, type_hint)
-            .map_err(|e| anyhow!("type error ({e}) at element #0 of the list").context(e))?;
+            .map_err(|e| anyhow!("type error ({e}) at element #0 of the list"))?;
         for i in 1..len {
             let b = self
                 .get_obj_type(py, &list.get_item(i)?, unifier, defs, primitives, type_hint)
-                .map_err(|e| anyhow!("type error ({e}) at element #{i} of the list").context(e))?;
+                .map_err(|e| anyhow!("type error ({e}) at element #{i} of the list"))?;
             ty = match unifier.unify(ty, b) {
                 Ok(()) => ty,
                 Err(e) => {
