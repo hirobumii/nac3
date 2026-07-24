@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 
 import sys
+import dis
+import types
 import importlib.util
 import importlib.machinery
 import math
@@ -91,6 +93,24 @@ def _ceil(x):
         return np.vectorize(_ceil)(x)
     else:
         return math.ceil(x)
+
+def _unborrow_code(code, borrow_opcode, plain_opcode):
+    new_bytes = bytearray(code.co_code)
+    for i in range(0, len(new_bytes), 2):
+        if new_bytes[i] == borrow_opcode:
+            new_bytes[i] = plain_opcode
+    return code.replace(co_code=bytes(new_bytes))
+
+def _unborrow_module(module):
+    # Hack: Python 3.14 introduces the LOAD_FAST_BORROW opcode, which skips
+    # an internal refcount operation. Revert it back to LOAD_FAST so
+    # output_refcount() observes the expected refcount behavior.
+    # See: https://github.com/python/cpython/pull/130708
+    borrow_opcode = dis.opmap["LOAD_FAST_BORROW"]
+    plain_opcode = dis.opmap["LOAD_FAST"]
+    for obj in vars(module).values():
+        if isinstance(obj, types.FunctionType):
+            obj.__code__ = _unborrow_code(obj.__code__, borrow_opcode, plain_opcode)
 
 def patch(module):
     def dbl_nan():
@@ -277,6 +297,7 @@ def file_import(filename, prefix="file_import_"):
         module = importlib.util.module_from_spec(spec)
         patch(module)
         spec.loader.exec_module(module)
+        _unborrow_module(module)
     finally:
         sys.path.remove(path)
 
