@@ -129,8 +129,11 @@ bool reserve(const size_t num_free_pages) {
         return true;
     }
 
-    // round the shortfall up to whole pages - pages are the unit of backing memory
-    const size_t grow = (num_needed_cells - num_free_cells + CTRC_CELLS_PER_PAGE - 1) / CTRC_CELLS_PER_PAGE;
+    // round the shortfall up to whole pages - pages are the unit of backing memory.
+    // compute the ceiling without a `+ (CTRC_CELLS_PER_PAGE - 1)` term, since it could wrap if close enough to
+    // `size_t::MAX` (reachable on 32-bit) and yield a bogus-small `grow`.
+    const size_t delta_cells = num_needed_cells - num_free_cells;
+    const size_t grow = delta_cells / CTRC_CELLS_PER_PAGE + (delta_cells % CTRC_CELLS_PER_PAGE != 0);
     Page* const chunk = page_backend_alloc(grow);
     if (chunk == nullptr) {
         return false;
