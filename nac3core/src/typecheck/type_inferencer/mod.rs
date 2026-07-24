@@ -6,7 +6,7 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::{Context, anyhow};
+use anyhow::anyhow;
 use itertools::{Itertools as _, izip};
 use nac3parser::ast::{
     self, Arguments, Comprehension, Expr, ExprContext, ExprKind, Located, Location, StrRef,
@@ -2089,8 +2089,7 @@ impl Inferencer<'_> {
                                     self.primitives,
                                     attr,
                                 )
-                                .with_context(|| value.location)
-                                .map_err(|err| vec![err])
+                                .or_else(|err| report_error(&err.to_string(), value.location))
                         } else {
                             report_type_error(
                                 TypeError::new(
