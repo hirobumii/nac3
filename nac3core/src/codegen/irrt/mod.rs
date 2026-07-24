@@ -14,6 +14,8 @@ use crate::{
 };
 
 pub use cc_builtins::*;
+#[cfg(feature = "ctrc")]
+pub use ctrc::*;
 pub use list::*;
 pub use math::*;
 pub use range::*;
@@ -21,6 +23,8 @@ pub use slice::*;
 pub use string::*;
 
 mod cc_builtins;
+#[cfg(feature = "ctrc")]
+mod ctrc;
 mod list;
 mod math;
 mod range;

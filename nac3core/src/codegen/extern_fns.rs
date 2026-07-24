@@ -17,7 +17,7 @@ use crate::codegen::{CodeGenContext, expr::call_extern};
 /// keeps the size in `size_t`.
 ///
 /// Note: This function manually builds the call to `malloc` because `call_extern!` requires
-/// `&mut CodeGenContext`, which cannot be satifisied when the `CodeGenContext` is already borrowed
+/// `&mut CodeGenContext`, which cannot be satisfied when the `CodeGenContext` is already borrowed
 /// by the `Builder`.
 #[cfg(all(feature = "malloc", not(feature = "ctrc")))]
 pub fn call_malloc<'ctx>(

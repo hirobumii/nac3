@@ -10,6 +10,8 @@ use inkwell::{
 
 #[cfg(all(feature = "malloc", not(feature = "ctrc")))]
 use crate::codegen::extern_fns::call_malloc;
+#[cfg(feature = "ctrc")]
+use crate::codegen::irrt::call_alloc;
 #[cfg(feature = "malloc")]
 use crate::codegen::llvm_intrinsics::call_umul_with_overflow;
 use crate::codegen::{CodeGenContext, types::ArraySliceValue};
@@ -53,45 +55,6 @@ impl AllocationScope {
 }
 
 impl<'ctx> CodeGenContext<'ctx, '_> {
-    /// Builds a call to `__nac3_alloc`, which allocates `size` bytes of memory with `align` bytes
-    /// of alignment for an object.
-    ///
-    /// This function internally invokes the system allocator or the CTRC slab allocator depending
-    /// on whether the current program allocator is in CTRC mode. If allocation fails for whatever
-    /// reason (oversized object or unsatisfiable alignment in CTRC mode, or memory exhaustion),
-    /// this function returns `null`, and the caller is expected to raise a `0:MemoryError` to
-    /// signal the allocation failure.
-    ///
-    /// In CTRC mode, the maximum allocatable size is governed by a constant defined in IRRT - See
-    /// `CTRC_CELL_SIZE`.
-    ///
-    /// The `align` argument is ignored when *not* in CTRC mode; `malloc`'ed objects are always
-    /// aligned based on their allocation size.
-    #[cfg(feature = "ctrc")]
-    fn build_generalized_alloc(
-        &self,
-        b: &Builder<'ctx>,
-        size: IntValue<'ctx>,
-        align: u32,
-        name: &str,
-    ) -> anyhow::Result<PointerValue<'ctx>> {
-        const FUNC_NAME: &str = "__nac3_alloc";
-
-        let f = self.module.get_function(FUNC_NAME).unwrap_or_else(|| {
-            self.module.add_function(
-                FUNC_NAME,
-                self.ptr.fn_type(&[self.size_t.into(), self.size_t.into()], false),
-                None,
-            )
-        });
-        let align = self.size_t.const_int(u64::from(align), false);
-        Ok(b.build_call(f, &[size.into(), align.into()], name)?
-            .try_as_basic_value()
-            .basic()
-            .unwrap()
-            .into_pointer_value())
-    }
-
     /// Builds the byte size of an allocation of `size` elements of type `ty`, guarding against
     /// `size_t` overflow of the product.
     ///
@@ -202,7 +165,7 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
             #[cfg(feature = "ctrc")]
             AllocationScope::Heap => {
                 let size = self.size_t.const_int(self.sizeof(ty), false);
-                self.build_generalized_alloc(b, size, self.alignof(ty), name.unwrap_or_default())?
+                call_alloc(self, b, size, self.alignof(ty), name.unwrap_or_default())?
             }
             AllocationScope::StackStartOfFunc | AllocationScope::StackCurrentLoc => {
                 b.build_alloca(ty, name.unwrap_or_default())?
@@ -273,7 +236,8 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
                 &name.map(|n| format!("{n}.malloc")).unwrap_or_default(),
             )?,
             #[cfg(feature = "ctrc")]
-            AllocationScope::Heap => self.build_generalized_alloc(
+            AllocationScope::Heap => call_alloc(
+                self,
                 b,
                 nbytes.unwrap(),
                 self.alignof(ty),
@@ -346,7 +310,8 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
                 &name.map(|n| format!("{n}.malloc")).unwrap_or_default(),
             )?,
             #[cfg(feature = "ctrc")]
-            AllocationScope::Heap => self.build_generalized_alloc(
+            AllocationScope::Heap => call_alloc(
+                self,
                 b,
                 nbytes.unwrap(),
                 self.alignof(ty),
