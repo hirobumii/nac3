@@ -13,6 +13,7 @@ use itertools::Itertools as _;
 use nac3core::{
     codegen::{
         CodeGenContext,
+        concrete_type::{ConcreteType, ConcreteTypeStore},
         types::{
             ClassType, EnumerateType, ListType, NDArrayType, ProxyType, RefCountedArrayType,
             RefType, TupleType, WithTypeinfo, make_contiguous_strides,
@@ -85,11 +86,30 @@ pub type ResolverField = (u64, StrRef);
 /// A value as stored in Python, represented by the `id()` and [`PyObject`] of the value.
 pub type PyValueHandle = (u64, Arc<Py<PyAny>>);
 
-/// A Python object together with its resolved nac3 [`Type`].
-#[derive(Debug)]
+/// A Python object associated with the [`ConcreteType`] representing its resolved NAC3 type.
+///
+/// **Implementation Note:** The type cannot be stored as a raw [`Type`], since a [`Type`] is only
+/// meaningful within the specific [`Unifier`] instance that created it. When used in a
+/// unifier-agnostic context (e.g. `global_value_ids`, shared across independent unifiers), this may
+/// cause either an index out-of-bounds panic or a type mismatch.
 pub struct TypedPyObject {
     pub obj: Py<PyAny>,
-    pub ty: Type,
+
+    /// The [`ConcreteType`] and its associated [`ConcreteTypeStore`] of the object, if the type of
+    /// this value is fully concrete.
+    ///
+    /// The `ConcreteTypeStore` is used to resolve the type back into a [`Type`].
+    pub cty: Option<(ConcreteTypeStore, ConcreteType)>,
+}
+
+impl std::fmt::Debug for TypedPyObject {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // resolve the `ConcreteType` to a `ConcreteTypeEnum` for better debug output
+        f.debug_struct("TypedPyObject")
+            .field("obj", &self.obj)
+            .field("cty", &self.cty.as_ref().map(|(store, cty)| store.get(*cty)))
+            .finish()
+    }
 }
 
 pub struct InnerResolver {
@@ -300,6 +320,29 @@ impl StaticValue for PythonValue {
 }
 
 impl InnerResolver {
+    /// Build a [`TypedPyObject`] for a global host value, capturing its type as a [`ConcreteType`].
+    ///
+    /// The returned concrete type may be `None` if the type is not fully concrete (e.g. an empty
+    /// list of as-yet-unknown element type).
+    ///
+    /// See [`TypedPyObject`] for why a raw [`Type`] cannot be stored.
+    fn make_typed_pyobject<'py>(
+        py: Python<'py>,
+        obj: &Bound<'py, PyAny>,
+        unifier: &mut Unifier,
+        primitives: &PrimitiveStore,
+        ty: Type,
+    ) -> anyhow::Result<TypedPyObject> {
+        let cty = if unifier.is_concrete(ty, &[]) {
+            let mut store = ConcreteTypeStore::new();
+            let cty = store.from_unifier_type(unifier, primitives, ty, &mut HashMap::new());
+            Some((store, cty))
+        } else {
+            None
+        };
+        Ok(TypedPyObject { obj: obj.as_unbound().into_py_any(py)?, cty })
+    }
+
     /// Pick a concrete integer type for a plain Python `int`, guided by `type_hint`.
     /// Falls back to `int32` when there is no hint (or a non-integer one).
     fn resolve_int_type(
@@ -1235,10 +1278,14 @@ impl InnerResolver {
                     });
                     return Ok(Some(global.as_pointer_value().into()));
                 }
-                self.global_value_ids.write().insert(
-                    id,
-                    TypedPyObject { obj: obj.as_unbound().into_py_any(py)?, ty: expected_ty },
-                );
+                let typed = Self::make_typed_pyobject(
+                    py,
+                    obj,
+                    &mut ctx.unifier,
+                    &ctx.primitives,
+                    expected_ty,
+                )?;
+                self.global_value_ids.write().insert(id, typed);
             }
 
             let arr = (0..len)
@@ -1324,10 +1371,14 @@ impl InnerResolver {
                     });
                     return Ok(Some(global.as_pointer_value().into()));
                 }
-                self.global_value_ids.write().insert(
-                    id,
-                    TypedPyObject { obj: obj.as_unbound().into_py_any(py)?, ty: expected_ty },
-                );
+                let typed = Self::make_typed_pyobject(
+                    py,
+                    obj,
+                    &mut ctx.unifier,
+                    &ctx.primitives,
+                    expected_ty,
+                )?;
+                self.global_value_ids.write().insert(id, typed);
             }
 
             let reduce_tuple = obj.call_method0("__reduce__")?;
@@ -1452,10 +1503,14 @@ impl InnerResolver {
                     });
                     return Ok(Some(global.as_pointer_value().into()));
                 }
-                self.global_value_ids.write().insert(
-                    id,
-                    TypedPyObject { obj: obj.as_unbound().into_py_any(py)?, ty: expected_ty },
-                );
+                let typed = Self::make_typed_pyobject(
+                    py,
+                    obj,
+                    &mut ctx.unifier,
+                    &ctx.primitives,
+                    expected_ty,
+                )?;
+                self.global_value_ids.write().insert(id, typed);
             }
 
             let ndims = llvm_ndarray.object.ndims;
@@ -1684,13 +1739,14 @@ impl InnerResolver {
                                     });
                                 return Ok(Some(global.as_pointer_value().into()));
                             }
-                            self.global_value_ids.write().insert(
-                                id,
-                                TypedPyObject {
-                                    obj: obj.as_unbound().into_py_any(py)?,
-                                    ty: expected_ty,
-                                },
-                            );
+                            let typed = Self::make_typed_pyobject(
+                                py,
+                                obj,
+                                &mut ctx.unifier,
+                                &ctx.primitives,
+                                expected_ty,
+                            )?;
+                            self.global_value_ids.write().insert(id, typed);
                         }
                         let arr_const: BasicValueEnum = match v.get_type() {
                             BasicTypeEnum::ArrayType(ty) => {
@@ -1760,10 +1816,14 @@ impl InnerResolver {
                     });
                     return Ok(Some(global.as_pointer_value().into()));
                 }
-                self.global_value_ids.write().insert(
-                    id,
-                    TypedPyObject { obj: obj.as_unbound().into_py_any(py)?, ty: expected_ty },
-                );
+                let typed = Self::make_typed_pyobject(
+                    py,
+                    obj,
+                    &mut ctx.unifier,
+                    &ctx.primitives,
+                    expected_ty,
+                )?;
+                self.global_value_ids.write().insert(id, typed);
             }
             // should be classes
             let top_level_defs = ctx.top_level.definitions.read();

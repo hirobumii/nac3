@@ -1361,9 +1361,23 @@ pub fn attributes_writeback<'ctx>(
             values.push((ty, obj.to_basic_value_enum(ctx, ty)?));
         }
 
-        for val in (*inner_resolver.global_value_ids.read()).values() {
-            let ty = val.ty;
-            let val = val.obj.bind(py);
+        let primitives = ctx.primitives;
+        for entry in (*inner_resolver.global_value_ids.read()).values() {
+            let val = entry.obj.bind(py);
+            // Recover the value's type in *this* codegen context's unifier, since the `Type` is
+            // only valid in the unifier instance that created it.
+            let ty = if let Some((store, cty)) = &entry.cty {
+                store.to_unifier_type(&mut ctx.unifier, &primitives, *cty, &mut HashMap::new())?
+            } else {
+                inner_resolver.get_obj_type(
+                    py,
+                    val,
+                    &mut ctx.unifier,
+                    &ctx.top_level.definitions.read(),
+                    &primitives,
+                    None,
+                )?
+            };
             match &*ctx.unifier.get_ty(ty) {
                 TypeEnum::TObj { obj_id, params, .. } if *obj_id == PrimDef::List.id() => {
                     let elem_ty = iter_type_vars(params).next().unwrap().ty;
