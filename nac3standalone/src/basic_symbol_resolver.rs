@@ -41,7 +41,7 @@ impl SymbolResolver for Resolver {
     fn get_default_param_value(&self, expr: &ast::Expr) -> anyhow::Result<Option<SymbolValue>> {
         Ok(match &expr.node {
             ast::ExprKind::Name { id, .. } => self.0.module_globals.lock().get(id).cloned(),
-            _ => unimplemented!("other type of expr not supported at {}", expr.location),
+            _ => unimplemented!("other type of expr not supported (at {})", expr.location),
         })
     }
 

@@ -859,7 +859,7 @@ impl TopLevelComposer {
                     } =>
                 {
                     return Err(vec![anyhow!(
-                        "redundant type annotation for class fields at {}",
+                        "redundant type annotation for class fields (at {})",
                         s.location
                     )]);
                 }
@@ -1000,7 +1000,7 @@ impl TopLevelComposer {
                         )?);
                     } else {
                         return Err(vec![anyhow!(
-                            "{}.{} not found in class {class_name} at {}",
+                            "{}.{} not found in class {class_name} (at {})",
                             *id,
                             *attr,
                             value.location
@@ -1226,7 +1226,7 @@ pub fn parse_parameter_default_value(
     fn handle_constant(val: &Constant, loc: &Location) -> Result<SymbolValue, Vec<anyhow::Error>> {
         match val {
             Constant::Int(v) => (*v).try_into().map_or_else(
-                |_| Err(vec![anyhow!("integer value out of range at {loc}")]),
+                |_| Err(vec![anyhow!("integer value out of range (at {loc})")]),
                 |v| Ok(SymbolValue::I32(v)),
             ),
             Constant::Float(v) => Ok(SymbolValue::Double(*v)),
@@ -1235,9 +1235,9 @@ pub fn parse_parameter_default_value(
                 tuple.iter().map(|x| handle_constant(x, loc)).collect::<Result<Vec<_>, _>>()?,
             )),
             Constant::None => Err(vec![anyhow!(
-                "`None` is not supported, use `none` for option type instead ({loc})"
+                "`None` is not supported, use `none` for option type instead (at {loc})"
             )]),
-            _ => unimplemented!("this constant is not supported at {}", loc),
+            _ => unimplemented!("this constant is not supported (at {})", loc),
         }
     }
     match &default.node {
@@ -1250,7 +1250,7 @@ pub fn parse_parameter_default_value(
                         (*v).try_into().map_or_else(
                             |_| {
                                 Err(vec![anyhow!(
-                                    "default param value out of range at {}",
+                                    "default param value out of range (at {})",
                                     default.location
                                 )])
                             },
@@ -1258,7 +1258,7 @@ pub fn parse_parameter_default_value(
                         )
                     }
                     _ => Err(vec![anyhow!(
-                        "only allow constant integer here at {}",
+                        "only allow constant integer here (at {})",
                         default.location
                     )]),
                 },
@@ -1267,7 +1267,7 @@ pub fn parse_parameter_default_value(
                         (*v).try_into().map_or_else(
                             |_| {
                                 Err(vec![anyhow!(
-                                    "default param value out of range at {}",
+                                    "default param value out of range (at {})",
                                     default.location
                                 )])
                             },
@@ -1275,7 +1275,7 @@ pub fn parse_parameter_default_value(
                         )
                     }
                     _ => Err(vec![anyhow!(
-                        "only allow constant integer here at {}",
+                        "only allow constant integer here (at {})",
                         default.location
                     )]),
                 },
@@ -1284,7 +1284,7 @@ pub fn parse_parameter_default_value(
                         (*v).try_into().map_or_else(
                             |_| {
                                 Err(vec![anyhow!(
-                                    "default param value out of range at {}",
+                                    "default param value out of range (at {})",
                                     default.location
                                 )])
                             },
@@ -1292,14 +1292,14 @@ pub fn parse_parameter_default_value(
                         )
                     }
                     _ => Err(vec![anyhow!(
-                        "only allow constant integer here at {}",
+                        "only allow constant integer here (at {})",
                         default.location
                     )]),
                 },
                 Some(PrimDef::FunSome) => Ok(SymbolValue::OptionSome(Box::new(
                     parse_parameter_default_value(&args[0], resolver, builtin_registry)?,
                 ))),
-                _ => Err(vec![anyhow!("unsupported default parameter at {}", default.location)]),
+                _ => Err(vec![anyhow!("unsupported default parameter (at {})", default.location)]),
             }
         }
         ast::ExprKind::Tuple { elts, .. } => Ok(SymbolValue::Tuple(
@@ -1317,13 +1317,13 @@ pub fn parse_parameter_default_value(
             .map_err(|e| vec![anyhow!("{e:?} (at {})", default.location)])?
             .ok_or_else(|| {
                 vec![anyhow!(
-                    "`{id}` cannot be used as a default parameter at {} \
+                    "`{id}` cannot be used as a default parameter (at {}) \
                         (not primitive type, option or tuple / not defined?)",
                     default.location
                 )]
             }),
         _ => Err(vec![anyhow!(
-            "unsupported default parameter (not primitive type, option or tuple) at {}",
+            "unsupported default parameter (not primitive type, option or tuple) (at {})",
             default.location
         )]),
     }

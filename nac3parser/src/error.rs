@@ -169,7 +169,7 @@ impl From<LalrpopError<Location, Tok, LexicalError>> for ParseError {
 
 impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} at {}", self.error, self.location)
+        write!(f, "{} (at {})", self.error, self.location)
     }
 }
 

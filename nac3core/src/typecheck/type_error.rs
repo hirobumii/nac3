@@ -276,7 +276,7 @@ impl Display for DisplayTypeError<'_> {
             }
         }?;
         if let Some(loc) = self.err.loc {
-            write!(f, " at {loc}")?;
+            write!(f, " (at {loc})")?;
         }
         let notes = notes.unwrap();
         if !notes.is_empty() {

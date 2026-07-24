@@ -15,7 +15,7 @@ use crate::{
 impl Inferencer<'_> {
     fn should_have_value(&mut self, expr: &Expr<Option<Type>>) -> Result<(), Vec<anyhow::Error>> {
         if matches!(expr.custom, Some(ty) if self.unifier.unioned(ty, self.primitives.none)) {
-            Err(vec![anyhow!("Error at {}: cannot have value none", expr.location)])
+            Err(vec![anyhow!("Error (at {}): cannot have value none", expr.location)])
         } else {
             Ok(())
         }
@@ -53,7 +53,7 @@ impl Inferencer<'_> {
                 self.check_expr(slice, defined_identifiers)?;
                 if let TypeEnum::TTuple { .. } = &*self.unifier.get_ty(value.custom.unwrap()) {
                     return Err(vec![anyhow!(
-                        "Error at {}: cannot assign to tuple element",
+                        "Error (at {}): cannot assign to tuple element",
                         value.location
                     )]);
                 }
@@ -102,7 +102,7 @@ impl Inferencer<'_> {
 
             let expr_desc = get_expr_desc(expr);
             return Err(vec![anyhow!(
-                "expected concrete type for {expr_desc} at {}, but type could not be inferred. {hint}",
+                "expected concrete type for {expr_desc} (at {}), but type could not be inferred. {hint}",
                 expr.location
             )]);
         }
@@ -122,7 +122,7 @@ impl Inferencer<'_> {
                     if let Err(e) = value {
                         defined_identifiers.remove(id);
                         return Err(vec![anyhow!(
-                            "type error at identifier `{id}` ({e}) at {}",
+                            "type error at identifier `{id}` ({e}) (at {})",
                             expr.location
                         )]);
                     }
@@ -345,7 +345,7 @@ impl Inferencer<'_> {
 
                         if !self.check_return_value_ty(ret_ty) {
                             return Err(vec![anyhow!(
-                                "return value of type {} must be a primitive or a tuple of primitives at {}",
+                                "return value of type {} must be a primitive or a tuple of primitives (at {})",
                                 self.unifier.stringify(ret_ty),
                                 value.location,
                             )]);
@@ -361,7 +361,7 @@ impl Inferencer<'_> {
                 Ok(true)
             }
             StmtKind::Global { .. } => {
-                Err(vec![anyhow!("global statement is not supported at {}", stmt.location)])
+                Err(vec![anyhow!("global statement is not supported (at {})", stmt.location)])
             }
             // break, raise, etc.
             _ => Ok(false),
@@ -376,7 +376,7 @@ impl Inferencer<'_> {
         let mut ret = false;
         for stmt in block {
             if ret {
-                eprintln!("warning: dead code at {}\n", stmt.location);
+                eprintln!("warning: dead code (at {})\n", stmt.location);
             }
             if self.check_stmt(stmt, defined_identifiers)? {
                 ret = true;

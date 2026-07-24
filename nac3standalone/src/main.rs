@@ -194,7 +194,7 @@ fn handle_assignment_pattern(
                     unifier,
                     primitives,
                 ).map_or_else(|_| parse_parameter_default_value(value, &*resolver, builtin_registry).map_or_else(|_| Err(format!(
-                        "fails to evaluate this expression `{:?}` as a constant or generic parameter at {}",
+                        "fails to evaluate this expression `{:?}` as a constant or generic parameter (at {})",
                         target.node, target.location,
                     )), |val| {
                     internal_resolver.add_module_global(*id, val);
@@ -208,7 +208,7 @@ fn handle_assignment_pattern(
                 handle_assignment_pattern(elts, value, resolver, internal_resolver, composer)?;
                 Ok(())
             }
-            _ => Err(format!("assignment to {target:?} is not supported at {}", target.location)),
+            _ => Err(format!("assignment to {target:?} is not supported (at {})", target.location)),
         }
     } else {
         match &value.node {
@@ -226,14 +226,14 @@ fn handle_assignment_pattern(
                     Ok(())
                 } else {
                     Err(format!(
-                        "number of elements to unpack does not match (expect {}, found {}) at {}",
+                        "number of elements to unpack does not match (expect {}, found {}) (at {})",
                         targets.len(),
                         elts.len(),
                         value.location
                     ))
                 }
             }
-            _ => Err(format!("unpack of this expression is not supported at {}", value.location)),
+            _ => Err(format!("unpack of this expression is not supported (at {})", value.location)),
         }
     }
 }

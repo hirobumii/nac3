@@ -432,16 +432,16 @@ pub fn parse_type_annotation<T>(
                     .collect();
                 Ok(unifier.add_ty(TypeEnum::TObj { obj_id, fields, params: VarMap::default() }))
             } else {
-                Err(vec![anyhow!("Cannot use function name as type at {}", name_expr.location)])
+                Err(vec![anyhow!("Cannot use function name as type (at {})", name_expr.location)])
             }
         } else {
             let ty = resolver.get_symbol_type(unifier, top_level_defs, primitives, *id).map_err(
-                |e| vec![anyhow!("Unknown type annotation at {}: {e}", name_expr.location)],
+                |e| vec![anyhow!("Unknown type annotation (at {}): {e}", name_expr.location)],
             )?;
             if let TypeEnum::TVar { .. } = &*unifier.get_ty(ty) {
                 Ok(ty)
             } else {
-                Err(vec![anyhow!("Unknown type annotation {id} at {}", name_expr.location)])
+                Err(vec![anyhow!("Unknown type annotation {id} (at {})", name_expr.location)])
             }
         }
     };
@@ -497,7 +497,7 @@ pub fn parse_type_annotation<T>(
                         match ty_enum {
                             TypeEnum::TLiteral { values, .. } => Ok(values.clone()),
                             _ => Err(vec![anyhow!(
-                                "Expected literal in type argument for Literal at {}",
+                                "Expected literal in type argument for Literal (at {})",
                                 elt.location
                             )]),
                         }
@@ -587,14 +587,14 @@ pub fn parse_type_annotation<T>(
             if let ExprKind::Name { id, .. } = &value.node {
                 subscript_name_handle(value, id, slice, unifier)
             } else {
-                Err(vec![anyhow!("unsupported type expression at {}", expr.location)])
+                Err(vec![anyhow!("unsupported type expression (at {})", expr.location)])
             }
         }
         ExprKind::Constant { value, .. } => SymbolValue::from_constant_inferred(value).map_or_else(
             |err| Err(vec![err]),
             |v| Ok(unifier.get_fresh_literal(vec![v], Some(expr.location))),
         ),
-        _ => Err(vec![anyhow!("unsupported type expression at {}", expr.location)]),
+        _ => Err(vec![anyhow!("unsupported type expression (at {})", expr.location)]),
     }
 }
 

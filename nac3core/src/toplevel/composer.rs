@@ -999,7 +999,7 @@ impl TopLevelComposer {
                         .as_ref()
                         .ok_or_else(|| {
                             vec![anyhow!(
-                                "function parameter `{}` needs type annotation at {}",
+                                "function parameter `{}` needs type annotation (at {})",
                                 vararg.node.arg,
                                 vararg.location
                             )]
@@ -1090,7 +1090,7 @@ impl TopLevelComposer {
                             .as_ref()
                             .ok_or_else(|| {
                                 vec![anyhow!(
-                                    "function parameter `{}` needs type annotation at {}",
+                                    "function parameter `{}` needs type annotation (at {})",
                                     x.node.arg,
                                     x.location
                                 )]
