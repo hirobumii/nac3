@@ -228,7 +228,7 @@ fn parse_name_as_type_annotation<T, S: std::hash::BuildHasher + Clone>(
     } else if let Ok(ty) = resolver.get_symbol_type(unifier, top_level_defs, primitives, *id) {
         if let TypeEnum::TVar { .. } = unifier.get_ty(ty).as_ref() {
             let var = unifier.get_fresh_var(Some(*id), Some(*location)).ty;
-            unifier.unify(var, ty).map_err(|e| vec![anyhow!("{e:?}")])?;
+            unifier.unify(var, ty).map_err(|e| vec![anyhow!("{e:?} (at {location})")])?;
             Ok(TypeAnnotation::TypeVar(ty))
         } else {
             Err(vec![anyhow!("`{id}` is not a valid type annotation (at {location})",)])

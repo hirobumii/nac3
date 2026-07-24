@@ -1314,7 +1314,7 @@ pub fn parse_parameter_default_value(
         }
         ast::ExprKind::Name { id, .. } => resolver
             .get_default_param_value(default)
-            .map_err(|e| vec![anyhow!("{e:?}")])?
+            .map_err(|e| vec![anyhow!("{e:?} (at {})", default.location)])?
             .ok_or_else(|| {
                 vec![anyhow!(
                     "`{id}` cannot be used as a default parameter at {} \

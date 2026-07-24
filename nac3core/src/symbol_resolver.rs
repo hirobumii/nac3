@@ -420,8 +420,9 @@ pub fn parse_type_annotation<T>(
             if let TopLevelDef::Class { fields, methods, type_vars, .. } = &*def {
                 if !type_vars.is_empty() {
                     return Err(vec![anyhow!(
-                        "Unexpected number of type parameters: expected {} but got 0",
-                        type_vars.len()
+                        "Unexpected number of type parameters: expected {} but got 0 (at {})",
+                        type_vars.len(),
+                        name_expr.location
                     )]);
                 }
                 let fields = fields
@@ -477,7 +478,10 @@ pub fn parse_type_annotation<T>(
                             .collect::<Result<Vec<_>, _>>()?;
                         return Ok(unifier.add_ty(TypeEnum::TTuple { ty, is_vararg_ctx: false }));
                     }
-                    return Err(vec![anyhow!("Expected multiple elements for tuple")]);
+                    return Err(vec![anyhow!(
+                        "Expected multiple elements for tuple (at {})",
+                        slice.location
+                    )]);
                 }
                 Some(PrimDef::Literal) => {
                     let mut parse_literal = |elt: &Expr<T>| {
@@ -545,9 +549,10 @@ pub fn parse_type_annotation<T>(
             if let TopLevelDef::Class { fields, methods, type_vars, .. } = &*def {
                 if types.len() != type_vars.len() {
                     return Err(vec![anyhow!(
-                        "Unexpected number of type parameters: expected {} but got {}",
+                        "Unexpected number of type parameters: expected {} but got {} (at {})",
                         type_vars.len(),
-                        types.len()
+                        types.len(),
+                        value.location
                     )]);
                 }
                 let mut subst = VarMap::new();
@@ -572,7 +577,7 @@ pub fn parse_type_annotation<T>(
                 }));
                 Ok(unifier.add_ty(TypeEnum::TObj { obj_id, fields, params: subst }))
             } else {
-                Err(vec![anyhow!("Cannot use function name as type")])
+                Err(vec![anyhow!("Cannot use function name as type (at {})", value.location)])
             }
         };
 

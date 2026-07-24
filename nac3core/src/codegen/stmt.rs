@@ -284,9 +284,10 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
             // RHS is a tuple. Otherwise, it would be impossible type the starred target.
             if tuple.len() < targets.len() {
                 bail!(
-                    "Tuple unpacking requires at least as many values as targets including the starred target, but got {} values and {} targets",
+                    "Tuple unpacking requires at least as many values as targets including the starred target, but got {} values and {} targets (at {})",
                     tuple_tys.len(),
-                    targets.len()
+                    targets.len(),
+                    targets[0].location
                 );
             }
 
@@ -1252,8 +1253,9 @@ pub fn gen_for<G: CodeGenerator>(
                 }
                 _ => {
                     bail!(
-                        "enumerate() with unsupported iterable type: {:?}",
-                        ctx.unifier.get_ty(iterable_ty)
+                        "enumerate() with unsupported iterable type: {:?} (at {})",
+                        ctx.unifier.get_ty(iterable_ty),
+                        iter.location
                     );
                 }
             }

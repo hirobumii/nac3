@@ -762,7 +762,7 @@ impl TopLevelComposer {
                             stmt.node,
                             ast::StmtKind::FunctionDef { .. } | ast::StmtKind::AnnAssign { .. }
                         ) {
-                            errors.push(anyhow!("Classes inherited from exception should have no custom fields/methods"));
+                            errors.push(anyhow!("Classes inherited from exception should have no custom fields/methods (at {})", stmt.location));
                         }
                     }
                 }
@@ -1474,7 +1474,7 @@ impl TopLevelComposer {
                     // which should be fine since type within method_type will be subst later
                     unifier
                         .unify(method_dummy_ty, method_type)
-                        .map_err(|e| vec![anyhow!("{}", e.to_display(unifier))])?;
+                        .map_err(|e| vec![anyhow!("{}", e.at(Some(b.location)).to_display(unifier))])?;
                 }
                 ast::StmtKind::AnnAssign { target, annotation, value, .. } => {
                     if let ExprKind::Name { id: attr, .. } = &target.node {
@@ -1560,7 +1560,7 @@ impl TopLevelComposer {
                                     class_name, *attr, unifier, temp_def_list, primitives,
                                 ) {
                                     unifier.unify(dummy_field_type, resolved_ty)
-                                        .map_err(|e| vec![anyhow!("{}", e.to_display(unifier).to_string())])?;
+                                        .map_err(|e| vec![anyhow!("{}", e.at(Some(b.location)).to_display(unifier))])?;
                                     continue;
                                 }
                             } else {
@@ -1579,7 +1579,7 @@ impl TopLevelComposer {
                                     class_name, *attr, unifier, temp_def_list, primitives,
                                 ) {
                                     unifier.unify(dummy_field_type, resolved_ty)
-                                        .map_err(|e| vec![anyhow!("{}", e.to_display(unifier).to_string())])?;
+                                        .map_err(|e| vec![anyhow!("{}", e.at(Some(b.location)).to_display(unifier))])?;
                                     continue;
                                 }
                             }

@@ -1019,8 +1019,9 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
         }
         _ => {
             bail!(
-                "unsupported list comprehension iterator type: {}",
-                ctx.unifier.stringify(iter_ty)
+                "unsupported list comprehension iterator type: {} (at {})",
+                ctx.unifier.stringify(iter_ty),
+                iter.location
             );
         }
     }
