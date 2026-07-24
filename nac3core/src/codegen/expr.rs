@@ -2856,9 +2856,7 @@ pub use __codegen_call_extern as call_extern;
 /// as it deduces and converts types automatically.
 ///
 /// For repeated function calls and dynamically added external bindings, you might want to use
-/// [`CoreContext::declare_external`] and [`CodeGenContext::build_call_or_invoke`] directly.
-///
-/// [`CoreContext::declare_external`]: crate::codegen::CoreContext::declare_external
+/// [`crate::codegen::ModuleContext::declare_external`] and [`CodeGenContext::build_call_or_invoke`] directly.
 #[allow(clippy::too_many_arguments, reason = "most users use the call_extern macro instead")]
 pub fn call_extern_c_fn<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
