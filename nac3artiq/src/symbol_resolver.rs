@@ -1880,27 +1880,22 @@ impl InnerResolver {
 
 impl SymbolResolver for Resolver {
     fn get_default_param_value(&self, expr: &ast::Expr) -> anyhow::Result<Option<SymbolValue>> {
-        match &expr.node {
-            ast::ExprKind::Name { id, .. } => {
-                Ok(Python::attach(|py| -> PyResult<_> {
-                    let obj = self.0.module.bind(py);
-                    let members = obj.getattr("__dict__")?;
-                    let members = members.cast::<PyDict>()?;
-                    let mut sym_value = None;
-                    for (key, val) in members {
-                        let key: &str = key.extract()?;
-                        if key == id.to_string() {
-                            if let Ok(v) = self.0.get_default_param_obj_value(&val) {
-                                sym_value = Some(v);
-                            }
-                            break;
-                        }
-                    }
-                    Ok(sym_value)
-                })?)
+        fn resolve<'a>(obj: &Bound<'a, PyAny>, expr: &ast::Expr) -> anyhow::Result<pyo3::Bound<'a, pyo3::PyAny>> {
+            match &expr.node {
+                ast::ExprKind::Name { id, .. } => {
+                    Ok(obj.getattr(id.to_string())?)
+                }
+                ast::ExprKind::Attribute { value, attr, .. } => {
+                    let obj = resolve(obj, value)?;
+                    Ok(obj.getattr(attr.to_string())?)
+                }
+                _ => bail!("unsupported default parameter")
             }
-            _ => bail!("unsupported default parameter")
         }
+        Ok(Python::attach(|py| -> anyhow::Result<_> {
+            let val = resolve(&self.0.module.bind(py), expr)?;
+            Ok(self.0.get_default_param_obj_value(&val).ok())
+        })?)
     }
 
     fn get_symbol_type(
