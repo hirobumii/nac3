@@ -1,6 +1,6 @@
 {
   lib,
-  stdenv,
+  clangStdenv,
   wineWow64Packages,
   fetchurl,
   cmake,
@@ -23,7 +23,7 @@ in rec {
     if msys2-env == null
     then ""
     else ".exe";
-  llvm = stdenv.mkDerivation rec {
+  llvm = clangStdenv.mkDerivation rec {
     pname = "llvm-nac3";
     version = "22.1.8";
     src = fetchurl {
@@ -109,7 +109,7 @@ in rec {
       ln -s ${llvm}/bin/llvm-as${exe_suffix} $out/bin/llvm-as-irrt${exe_suffix}
     '';
   clang = wrapCCWith rec {
-    cc = stdenv.mkDerivation {
+    cc = clangStdenv.mkDerivation {
       name = "clang-nac3";
 
       dontUnpack = true;
@@ -122,7 +122,7 @@ in rec {
       passthru.isClang = true;
     };
   };
-  compiler-rt = stdenv.mkDerivation {
+  compiler-rt = clangStdenv.mkDerivation {
     name = "compiler-rt";
     dontUnpack = true;
 

@@ -84,8 +84,6 @@
           extraCmakeFlags = [
             "-DLLVM_BUILD_INSTRUMENTED=IR"
             "-DLLVM_BUILD_RUNTIME=No"
-            "-DCMAKE_C_COMPILER=${clang}/bin/clang"
-            "-DCMAKE_CXX_COMPILER=${clang}/bin/clang++"
             "-DLLVM_NATIVE_TOOL_DIR=${llvm}/bin"
           ];
         }).llvm;
@@ -146,8 +144,6 @@
         (pkgs.callPackage ./nix/llvm {
           extraCmakeFlags = [
             "-DLLVM_PROFDATA_FILE=${nac3artiq-profile}/llvm.profdata"
-            "-DCMAKE_C_COMPILER=${clang}/bin/clang"
-            "-DCMAKE_CXX_COMPILER=${clang}/bin/clang++"
             "-DLLVM_NATIVE_TOOL_DIR=${llvm}/bin"
           ];
         }).llvm;
