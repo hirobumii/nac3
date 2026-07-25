@@ -1880,26 +1880,27 @@ impl InnerResolver {
 
 impl SymbolResolver for Resolver {
     fn get_default_param_value(&self, expr: &ast::Expr) -> anyhow::Result<Option<SymbolValue>> {
-        let ast::ExprKind::Name { id, .. } = &expr.node else {
-            unreachable!("only for resolving names")
-        };
-
-        Ok(Python::attach(|py| -> PyResult<_> {
-            let obj = self.0.module.bind(py);
-            let members = obj.getattr("__dict__")?;
-            let members = members.cast::<PyDict>()?;
-            let mut sym_value = None;
-            for (key, val) in members {
-                let key: &str = key.extract()?;
-                if key == id.to_string() {
-                    if let Ok(v) = self.0.get_default_param_obj_value(&val) {
-                        sym_value = Some(v);
+        match &expr.node {
+            ast::ExprKind::Name { id, .. } => {
+                Ok(Python::attach(|py| -> PyResult<_> {
+                    let obj = self.0.module.bind(py);
+                    let members = obj.getattr("__dict__")?;
+                    let members = members.cast::<PyDict>()?;
+                    let mut sym_value = None;
+                    for (key, val) in members {
+                        let key: &str = key.extract()?;
+                        if key == id.to_string() {
+                            if let Ok(v) = self.0.get_default_param_obj_value(&val) {
+                                sym_value = Some(v);
+                            }
+                            break;
+                        }
                     }
-                    break;
-                }
+                    Ok(sym_value)
+                })?)
             }
-            Ok(sym_value)
-        })?)
+            _ => bail!("unsupported default parameter")
+        }
     }
 
     fn get_symbol_type(

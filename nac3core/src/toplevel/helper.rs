@@ -1312,12 +1312,12 @@ pub fn parse_parameter_default_value(
         {
             Ok(SymbolValue::OptionNone)
         }
-        ast::ExprKind::Name { id, .. } => resolver
+        ast::ExprKind::Name { .. } | ast::ExprKind::Attribute { .. } => resolver
             .get_default_param_value(default)
             .map_err(|e| vec![anyhow!("{e:?} (at {})", default.location)])?
             .ok_or_else(|| {
                 vec![anyhow!(
-                    "`{id}` cannot be used as a default parameter (at {}) \
+                    "incorrect default parameter (at {}) \
                         (not primitive type, option or tuple / not defined?)",
                     default.location
                 )]
