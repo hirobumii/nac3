@@ -10,7 +10,7 @@
     pkgs = import nixpkgs {system = "x86_64-linux";};
     pkgs32 = import nixpkgs {system = "i686-linux";};
     llvm-nac3 = pkgs.callPackage ./nix/llvm {
-      stdenv = pkgs.clangStdenv;
+      stdenv = pkgs.llvmPackages_22.stdenv;
       enableProjects = ["clang" "compiler-rt"];
       llvmTools = ["llvm-config" "llvm-as" "llvm-profdata"];
     };
@@ -82,7 +82,7 @@
       # LLVM PGO support
       llvm-nac3-instrumented =
         (pkgs.callPackage ./nix/llvm {
-          stdenv = pkgs.clangStdenv;
+          stdenv = pkgs.llvmPackages_22.stdenv;
           extraCmakeFlags = [
             "-DLLVM_BUILD_INSTRUMENTED=IR"
             "-DLLVM_BUILD_RUNTIME=No"
@@ -144,7 +144,7 @@
       };
       llvm-nac3-pgo =
         (pkgs.callPackage ./nix/llvm {
-          stdenv = pkgs.clangStdenv;
+          stdenv = pkgs.llvmPackages_22.stdenv;
           extraCmakeFlags = [
             "-DLLVM_PROFDATA_FILE=${nac3artiq-profile}/llvm.profdata"
             "-DLLVM_NATIVE_TOOL_DIR=${llvm}/bin"
