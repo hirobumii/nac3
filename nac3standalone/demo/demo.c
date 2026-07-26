@@ -2,6 +2,7 @@
 #include <limits.h>
 #include <math.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -196,8 +197,14 @@ struct Exception {
     uint32_t column;
     struct cslice function;
     struct cslice message;
+    // Explicit padding to pin `param` at offset 40 on 32-bit targets, where the i686 ABI would
+    // otherwise align `int64_t` to 4 and place it at 36. This must match `Exception` in
+    // `nac3core/irrt/irrt/exception.hpp` and `ExceptionStructFields` in the compiler.
+    uint8_t _padding[8 - sizeof(size_t)];
     int64_t param[3];
 };
+_Static_assert(offsetof(struct Exception, param) == (sizeof(size_t) == 4 ? 40 : 64),
+               "Unexpected Exception param offset");
 
 uint32_t __nac3_raise(struct Exception* e) {
     printf("__nac3_raise called. Exception details:\n");

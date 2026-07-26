@@ -1,5 +1,6 @@
 #pragma once
 
+#include "irrt/stdlib/cstddef.h"
 #include "irrt/stdlib/cstdint.h"
 
 #include "irrt/cslice.hpp"
@@ -44,6 +45,14 @@ struct Exception {
     int32_t column;
     CSlice function;
     CSlice msg;
+
+    // Align `params` to 8 bytes to ensure that the `params` array is always 8-byte aligned for both 32-bit and 64-bit
+    // targets.
+    //
+    // Unlike `reference::Array::elems`, we cannot use `alignas(8)` here because `params` is already naturally aligned
+    // under the wasm datalayout, so clang would emit no padding field into the LLVM struct type at all.
+    uint8_t _padding[8 - sizeof(size_t)];
+
     int64_t params[3];
 };
 
@@ -62,6 +71,7 @@ void _raise_exception_helper(ExceptionId id,
         .column = 0,
         .function = {.base = reinterpret_cast<void*>(const_cast<char*>(function)), .len = __builtin_strlen(function)},
         .msg = {.base = reinterpret_cast<void*>(const_cast<char*>(msg)), .len = __builtin_strlen(msg)},
+        ._padding = {},
         .params = {param0, param1, param2},
     };
     __nac3_raise(reinterpret_cast<void*>(&e));

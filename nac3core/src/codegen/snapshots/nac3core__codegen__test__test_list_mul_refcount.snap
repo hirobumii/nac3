@@ -9,7 +9,7 @@ target triple = "x86_64-unknown-linux-gnu"
 
 %str = type { ptr, i64 }
 %__nac3_typeinfo = type { ptr, ptr }
-%exception = type { i32, %str, i32, i32, %str, %str, i64, i64, i64 }
+%exception = type { i32, %str, i32, i32, %str, %str, [0 x i8], i64, i64, i64 }
 
 @__nac3_global_begin = weak local_unnamed_addr constant i8 poison, align 8
 @"typename array for __nac3_list" = weak constant [11 x i8] c"__nac3_list"

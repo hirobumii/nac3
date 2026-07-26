@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-use inkwell::values::{IntValue, StructValue};
+use inkwell::values::{ArrayValue, IntValue, StructValue};
 use nac3core_derive::{ProxyType, StructFields};
 
 use crate::{
@@ -39,6 +39,14 @@ pub struct ExceptionStructFields<'ctx> {
     /// The exception message.
     #[value_type(ctx.get_struct_type("str").unwrap())]
     pub message: StructField<'ctx, StructValue<'ctx>>,
+
+    /// Explicit padding ensuring 8-byte alignment for `param0`, regardless of the target's actual
+    /// ABI alignment for `i64`.
+    ///
+    /// This mirrors the padding in `Exception` in `nac3core/irrt/irrt/exception.hpp` - Both
+    /// definitions must be kept in sync.
+    #[value_type(i8.array_type(8u32.saturating_sub(ctx.size_t.get_bit_width() / 8)))]
+    padding: StructField<'ctx, ArrayValue<'ctx>>,
 
     #[value_type(i64)]
     pub param0: StructField<'ctx, IntValue<'ctx>>,
