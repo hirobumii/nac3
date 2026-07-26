@@ -287,7 +287,7 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
             #[cfg(feature = "malloc")]
             return self.alloc_dyn_array(AllocationScope::Heap, ty, size, name);
             #[cfg(not(feature = "malloc"))]
-            return self.alloc_dyn_array(AllocationScope::StackStartOfFunc, ty, size, name);
+            return self.alloc_dyn_array(AllocationScope::StackCurrentLoc, ty, size, name);
         }
 
         // Note: Use `self` before `alloc_builder` borrows a builder out of it
