@@ -6,6 +6,7 @@
 #ifdef IRRT_CTRC
 #include "irrt/ctrc/mode.hpp"
 #endif  // IRRT_CTRC
+#include "irrt/reference/array.hpp"
 #include "irrt/reference/header.hpp"
 #include "irrt/reference/typeinfo.hpp"
 
@@ -169,20 +170,20 @@ void walk_children(void* const object) {
 
     if (num_refcounted_fields == REFCOUNT_ARRAY_MAGIC) {
         // Array of pointer elements - dereference each element and pass to `refcount_decr`
-        auto* const obj_start = static_cast<unsigned char*>(get_object_start(object));
-        const size_t size = *reinterpret_cast<size_t*>(obj_start);
+        auto* const array = static_cast<Array<>*>(object);
+        const size_t size = array->refcounted_elems;
+        auto* const elems = array->data<void*>();
         for (size_t i = 0; i < size; ++i) {
-            void* const field = obj_start + (i + 1) * sizeof(size_t);
-            refcount_decr(*reinterpret_cast<void**>(field));
+            refcount_decr(elems[i]);
         }
     } else if (num_refcounted_fields == REFCOUNT_ARRAY_INLINE_MAGIC) {
         // Array of inline elements with ObjectHeaders - directly pass each element to `refcount_decr`
-        auto* const obj_start = static_cast<unsigned char*>(get_object_start(object));
-        const size_t size = *reinterpret_cast<size_t*>(obj_start);
+        auto* const array = static_cast<Array<>*>(object);
+        const size_t size = array->refcounted_elems;
+        auto* const elems = array->data<unsigned char>();
         const uint32_t stride = typeinfo->refcounted_field_offsets[1];
         for (size_t i = 0; i < size; ++i) {
-            void* const elem = obj_start + sizeof(size_t) + i * stride;
-            refcount_decr(elem);
+            refcount_decr(elems + i * stride);
         }
     } else {
         // Struct with fixed refcounted fields - dereference each refcounted field and pass to `refcount_decr`
