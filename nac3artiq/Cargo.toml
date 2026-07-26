@@ -19,6 +19,7 @@ nac3core = { path = "../nac3core", default-features = false, features = ["derive
 nac3binutils = { path = "../nac3binutils" }
 
 [features]
+default = ["ctrc"]
 init-llvm-profile = []
 ctrc = ["nac3core/ctrc"]
 escape-analysis = ["nac3core/escape-analysis"]
