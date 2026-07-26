@@ -64,6 +64,10 @@ static LLVM_IR_SANITIZE_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     .unwrap()
 });
 
+/// A regex capturing the `target datalayout` string of the compiled IRRT module.
+static LLVM_IR_DATALAYOUT_REGEX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new("(?m:^target datalayout = \"(.+)\"$)").unwrap());
+
 /// Compiles the source file into LLVM IR for the given target and returns the output as a string.
 fn compile_irrt(target: &str, flags: &[&str]) -> String {
     let output = Command::new("clang-irrt")
@@ -145,6 +149,18 @@ fn compile_to_bc_with_target(target: &str, input: &str, suffix: &str) {
     rerun_if_changed(irrt_dir);
 
     let output = compile_irrt(target, &flags);
+
+    // Record the datalayout IRRT was compiled with, so that the layout invariance tests can check
+    // that no struct is laid out differently by the datalayout baked into the bitcode.
+    let datalayout = LLVM_IR_DATALAYOUT_REGEX
+        .captures(&output)
+        .expect("IRRT output has no `target datalayout` line")
+        .get(1)
+        .map(|m| m.as_str())
+        .unwrap();
+    let mut file = File::create(out_dir.join(format!("{input}{suffix}.datalayout"))).unwrap();
+    file.write_all(datalayout.as_bytes()).unwrap();
+
     let mut filtered_output = String::with_capacity(output.len());
 
     for f in LLVM_IR_EXTRACT_REGEX.captures_iter(&output) {

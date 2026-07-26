@@ -464,8 +464,8 @@ mod layout {
     use inkwell::{
         OptimizationLevel,
         debug_info::{AsDIScope, DWARFEmissionKind, DWARFSourceLanguage},
-        targets::{InitializationConfig, Target},
-        types::BasicTypeEnum,
+        targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetData},
+        types::{BasicTypeEnum, StructType},
     };
     #[cfg(feature = "malloc")]
     use inkwell::{passes::PassBuilderOptions, values::AnyValue};
@@ -479,8 +479,8 @@ mod layout {
             CodeGenContext, CodeGenOptions, DefaultCodeGenerator, ModuleContext,
             TargetMachineOptions, WithCall, WorkerRegistry, context_ref,
             types::{
-                ClassType, NDArrayType, ObjectHeaderType, OptionSomeType, ProxyType,
-                RefCountedArrayType, RefType, TupleType, TypeinfoType,
+                ClassType, ExceptionType, NDArrayType, ObjectHeaderType, OptionSomeType, ProxyType,
+                RefCountedArrayType, RefType, StringType, TupleType, TypeinfoType,
             },
         },
         symbol_resolver::SymbolResolver,
@@ -764,6 +764,154 @@ mod layout {
 
         let mut ctx = create_codegen_context(&mut ctx, &registry, &composer);
         insta::assert_snapshot!(generate_layouts(&mut ctx));
+    }
+
+    #[test]
+    fn test_shared_type_layouts_are_datalayout_invariant_64bit() {
+        context_ref!(ctx_ref);
+
+        let mut ctx = create_module_context_64(ctx_ref);
+        let composer =
+            TopLevelComposer::new(Vec::new(), Vec::new(), Arc::new(DefaultBuiltinRegistry), 64).0;
+        let top_level = Arc::new(composer.make_top_level_context());
+        let registry = WorkerRegistry::create_workers(
+            Vec::<Box<DefaultCodeGenerator>>::new(),
+            top_level,
+            &codegen_options(),
+            &Arc::new(WithCall::new(Box::new(|_| {}))),
+        )
+        .0;
+
+        let ctx = create_codegen_context(&mut ctx, &registry, &composer);
+        let layouts = collect_datalayouts(IRRT_DATALAYOUT_64, TARGET_TRIPLES_64);
+        for (label, ty) in shared_irrt_types(&ctx) {
+            assert_layout_invariant(&label, ty, &layouts);
+        }
+    }
+
+    #[test]
+    fn test_shared_type_layouts_are_datalayout_invariant_32bit() {
+        context_ref!(ctx_ref);
+
+        let mut ctx = create_module_context_32(ctx_ref);
+        let composer =
+            TopLevelComposer::new(Vec::new(), Vec::new(), Arc::new(DefaultBuiltinRegistry), 32).0;
+        let top_level = Arc::new(composer.make_top_level_context());
+        let registry = WorkerRegistry::create_workers(
+            Vec::<Box<DefaultCodeGenerator>>::new(),
+            top_level,
+            &codegen_options(),
+            &Arc::new(WithCall::new(Box::new(|_| {}))),
+        )
+        .0;
+
+        let ctx = create_codegen_context(&mut ctx, &registry, &composer);
+        let layouts = collect_datalayouts(IRRT_DATALAYOUT_32, TARGET_TRIPLES_32);
+        for (label, ty) in shared_irrt_types(&ctx) {
+            assert_layout_invariant(&label, ty, &layouts);
+        }
+    }
+
+    // The datalayout IRRT is compiled with.
+    const IRRT_DATALAYOUT_32: &str = include_str!(concat!(env!("OUT_DIR"), "/irrt32.datalayout"));
+    const IRRT_DATALAYOUT_64: &str = include_str!(concat!(env!("OUT_DIR"), "/irrt64.datalayout"));
+
+    /// 32-bit targets NAC3 emits code for.
+    ///
+    /// Note that `i686` is the odd one out in terms of alignment: its datalayout gives `i64` and
+    /// `f64` an ABI alignment of 4, where wasm32, armv7 and riscv32 all use 8.
+    const TARGET_TRIPLES_32: &[&str] =
+        &["i686-unknown-linux-gnu", "armv7-unknown-linux-gnueabihf", "riscv32-unknown-none-elf"];
+
+    /// 64-bit targets NAC3 emits code for.
+    const TARGET_TRIPLES_64: &[&str] = &["x86_64-unknown-linux-gnu", "riscv64-unknown-none-elf"];
+
+    /// Collects the datalayout IRRT was compiled with, plus the datalayout of each given target.
+    fn collect_datalayouts(irrt_datalayout: &str, triples: &[&str]) -> Vec<(String, TargetData)> {
+        let config = InitializationConfig::default();
+        Target::initialize_x86(&config);
+        Target::initialize_arm(&config);
+        Target::initialize_riscv(&config);
+
+        // `TargetData::create` parses a datalayout string directly, so the IRRT (wasm) datalayout
+        // is usable even though `llvm-nac3` here is not built with the Wasm backend.
+        let mut layouts = vec![("IRRT".to_string(), TargetData::create(irrt_datalayout.trim()))];
+        layouts.extend(triples.iter().map(|triple| {
+            let options = TargetMachineOptions {
+                triple: (*triple).to_string(),
+                cpu: String::new(),
+                features: String::new(),
+                reloc_mode: RelocMode::Default,
+                code_model: CodeModel::Default,
+                target_opt_level: OptimizationLevel::None,
+            };
+            ((*triple).to_string(), options.create_target_machine().get_target_data())
+        }));
+
+        layouts
+    }
+
+    /// Asserts that `ty` has the same ABI size and the same field offsets under every datalayout.
+    ///
+    /// ABI *alignment* is deliberately not compared: it may legitimately differ (e.g. a struct
+    /// holding a `double` is 4-aligned on i686 and 8-aligned on armv7) without moving any field.
+    fn assert_layout_invariant(
+        label: &str,
+        struct_ty: StructType<'_>,
+        layouts: &[(String, TargetData)],
+    ) {
+        let describe = |dl: &TargetData| {
+            let offsets: Vec<_> = (0..struct_ty.count_fields())
+                .map(|i| dl.offset_of_element(&struct_ty, i).unwrap())
+                .collect();
+            (dl.get_abi_size(&struct_ty), offsets)
+        };
+
+        let (reference_name, reference_dl) = &layouts[0];
+        let reference = describe(reference_dl);
+
+        for (name, dl) in &layouts[1..] {
+            assert_eq!(
+                describe(dl),
+                reference,
+                "layout of `{label}` differs between {reference_name} and {name} \
+                 (abi_size, field offsets); a struct shared with IRRT must lay out identically \
+                 under every datalayout - see `Exception` in nac3core/irrt/irrt/exception.hpp"
+            );
+        }
+    }
+
+    /// Returns the types that are shared between IRRT and codegen, i.e. those with a C++
+    /// counterpart in `nac3core/irrt`.
+    ///
+    /// Types without an IRRT counterpart (tuples, classes, `Option`) are deliberately excluded:
+    /// IRRT only ever reaches their fields through offsets computed by codegen at runtime, so they
+    /// are free to lay out differently per target.
+    fn shared_irrt_types<'ctx>(ctx: &CodeGenContext<'ctx, '_>) -> Vec<(String, StructType<'ctx>)> {
+        vec![
+            (
+                "ObjectHeader".to_string(),
+                ObjectHeaderType::new(ctx).alloca_ty(ctx).into_struct_type(),
+            ),
+            ("Typeinfo".to_string(), TypeinfoType::new(ctx).alloca_ty(ctx).into_struct_type()),
+            // `String` must be built before `Exception`, which refers to the `str` named struct.
+            ("String".to_string(), StringType::new(ctx).llvm_ty(ctx).into_struct_type()),
+            ("Exception".to_string(), ExceptionType::new(ctx).alloca_ty(ctx).into_struct_type()),
+            // `RefCountedArray<f64>` is the #797 case: an 8-byte element type on a 32-bit target,
+            // which only stays in agreement because of the explicit count padding.
+            (
+                "RefCountedArray<i32>".to_string(),
+                RefCountedArrayType::new(ctx, ctx.i32, Some(0)).alloca_ty(ctx).into_struct_type(),
+            ),
+            (
+                "RefCountedArray<f64>".to_string(),
+                RefCountedArrayType::new(ctx, ctx.f64, Some(0)).alloca_ty(ctx).into_struct_type(),
+            ),
+            (
+                "NDArray<i32, 1>".to_string(),
+                NDArrayType::create(ctx, ctx.i32.into(), 1).alloca_ty(ctx).into_struct_type(),
+            ),
+        ]
     }
 
     /// Extracts the size argument of the (single) allocation call in `ir`.
