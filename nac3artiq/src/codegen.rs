@@ -657,8 +657,9 @@ fn demarshal_ndarray_descriptor<'ctx>(
         .cast(ctx, ctx.i8, None, None)?
         .ptr_offset_unchecked(ctx, &ndarray_offset, None)?;
 
+    // `wire_data` is scratch owned by the receive loop in `format_rpc_ret`, which rewinds the stack
+    // once demarshaling is done
     call_memcpy(ctx, ndarray_data, wire_data, nbytes)?;
-    ctx.builder.build_free(wire_data)?;
 
     Ok(ndarray.value)
 }
@@ -667,14 +668,17 @@ fn demarshal_ndarray_descriptor<'ctx>(
 /// `wire_buf`.
 ///
 /// `wire_buf` points to the start of the wire data for `ty`:
-/// - **List**: `wire_buf` is the firmware-allocated `*{elements, length, [pad], data…}`. After
-///   demarshaling, the wire block is `build_free`'d and a fresh refcount-aware NAC3 list is
-///   returned. Non-bit-compatible elements are walked recursively.
+/// - **List**: `wire_buf` is the receive loop's `*{elements, length, [pad], data…}` scratch block.
+///   A fresh refcount-aware NAC3 list is returned; non-bit-compatible elements are walked
+///   recursively.
 /// - **Tuple**: `wire_buf` points to the wire-shape inline tuple (which has the same field
 ///   offsets as NAC3's tuple — both are non-refcounted, so layouts coincide *except* at
 ///   list-typed fields). Such fields are demarshaled in place; the loaded tuple value is
 ///   returned.
 /// - **Scalar / `str` / `none`**: load directly.
+///
+/// All wire blocks are stack-allocated scratch belonging to the receive loop and the returned NAC3
+/// value never aliases them, so the caller is free to rewind the stack once this returns.
 fn demarshal_from_wire<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     ty: Type,
@@ -764,10 +768,6 @@ fn demarshal_from_wire<'ctx>(
                     |(), _| Ok(()),
                 )?;
             }
-
-            // free the wire block after we demarshaling - inner wire blocks are freed by their own
-            // recursive demarshal calls
-            ctx.builder.build_free(wire_buf)?;
 
             list.value.into()
         }
@@ -939,6 +939,9 @@ fn format_rpc_arg<'ctx>(
 /// Drives the RPC receive protocol loop, calling `rpc_recv` repeatedly until it signals
 /// completion (returns 0), and allocating storage on demand via `alloc_fn` for each non-zero
 /// response.
+///
+/// The blocks returned by `alloc_fn` must outlive the loop: they hold the received wire data that
+/// the caller demarshals afterwards.
 fn gen_rpc_recv_loop<'ctx, 'a, AllocFn>(
     ctx: &mut CodeGenContext<'ctx, 'a>,
     rpc_recv: &FunctionDecl<'ctx>,
@@ -952,7 +955,6 @@ where
     let llvm_i32 = ctx.i32;
     let llvm_pi8 = ctx.ptr;
 
-    let loop_stackptr = call_stacksave(ctx, None)?;
     let ptr_slot =
         ctx.alloc_at(AllocationScope::StackCurrentLoc, llvm_pi8, Some("rpc.ptr.slot"))?;
     let size_slot =
@@ -987,7 +989,7 @@ where
         |(), _ctx| Ok(()),
     )?;
 
-    call_stackrestore(ctx, loop_stackptr)
+    Ok(())
 }
 
 /// Formats an RPC return value to conform to the expected format required by NAC3.
@@ -1142,8 +1144,8 @@ fn format_rpc_ret<'ctx>(
                 )?;
                 ctx.make_assert(
                     cmp,
-                    "0:AssertionError", 
-                    "Unexpected allocation size request for ndarray data - Expected up to {0} bytes, got {1} bytes", 
+                    "0:AssertionError",
+                    "Unexpected allocation size request for ndarray data - Expected up to {0} bytes, got {1} bytes",
                     [Some(expected_u64), Some(actual_u64), None]
                 )?;
             }
@@ -1157,15 +1159,24 @@ fn format_rpc_ret<'ctx>(
                 .cast(ctx, ctx.i8, None, None)?
                 .ptr_offset_unchecked(ctx, &ndarray_offset, None)?;
 
+            let stackptr = call_stacksave(ctx, Some("rpc.wire.stack"))?;
+
             gen_rpc_recv_loop(ctx, &rpc_recv, ndarray_data, |ctx, alloc_size| {
                 // Align the allocation to sizeof(T)
                 let alloc_size = round_up(ctx, alloc_size, itemsize)?;
                 let size = ctx.builder.build_int_unsigned_div(alloc_size, itemsize, "")?;
                 Ok(ctx
-                    .alloc_dyn_array(AllocationScope::Default, dtype_llvm, size, Some("rpc.alloc"))?
+                    .alloc_dyn_array(
+                        AllocationScope::StackCurrentLoc,
+                        dtype_llvm,
+                        size,
+                        Some("rpc.alloc"),
+                    )?
                     .value
                     .0)
             })?;
+
+            call_stackrestore(ctx, stackptr)?;
 
             ndarray.value.into()
         }
@@ -1177,10 +1188,12 @@ fn format_rpc_ret<'ctx>(
             let slot =
                 ctx.alloc_at(AllocationScope::StackStartOfFunc, wire_ret_ty, Some("rpc.ret.slot"))?;
 
+            let stackptr = call_stacksave(ctx, Some("rpc.wire.stack"))?;
+
             gen_rpc_recv_loop(ctx, &rpc_recv, slot, |ctx, alloc_size| {
                 Ok(ctx
                     .alloc_dyn_array(
-                        AllocationScope::Default,
+                        AllocationScope::StackCurrentLoc,
                         llvm_pi8,
                         alloc_size,
                         Some("rpc.alloc"),
@@ -1197,7 +1210,11 @@ fn format_rpc_ret<'ctx>(
             } else {
                 slot
             };
-            demarshal_from_wire(ctx, ret_ty, wire_buf)?
+            let value = demarshal_from_wire(ctx, ret_ty, wire_buf)?;
+
+            call_stackrestore(ctx, stackptr)?;
+
+            value
         }
     };
 

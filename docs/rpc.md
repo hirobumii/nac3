@@ -117,6 +117,11 @@ the wire data. This is the inverse of marshalling: `ObjectHeader`s are re-
 inserted, refcounted objects (lists, ndarrays, tuples) are allocated on the
 heap, and nested types are processed recursively.
 
+Because the wire buffers are stack-allocated, the CTRC mode (see
+[ctrc.md](ctrc.md)) never affects them. Only the demarshalled NAC3 objects
+follow the prevailing allocation mode, so an RPC inside a `with critical(...):`
+block returns slab-allocated values built out of stack-allocated wire data.
+
 A `None` return value short-circuits this process entirely: the kernel calls
 `rpc_recv(null)` exactly once and skips all demarshalling.
 
