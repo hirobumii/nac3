@@ -114,13 +114,13 @@
         srcs = [
           (pkgs.fetchgit {
             url = "https://git.m-labs.hk/M-Labs/sipyco.git";
-            rev = "ab3d738ee302a2a37304e8ee59bb23e30bfb81ae";
-            hash = "sha256-85pe9Y56HhmcdYnyaiHZr56eJesoeTHLoQKcknX/Scw=";
+            rev = "986ef9bb147d32069fa0601cc518cf7b2b1d0072";
+            hash = "sha256-M04PsE0uJegYuhN9DNDnhihcUVD8vOzFSHYcEUi3548=";
           })
           (pkgs.fetchgit {
             url = "https://git.m-labs.hk/M-Labs/artiq.git";
-            rev = "0e69d9e688a90a16cc1eb3e0e8fed836db8864f1";
-            hash = "sha256-31/A33oCsFpMMSc+9YO9YjwQtbxN0HXTVypgD4nfW0k=";
+            rev = "987cdf3a32d4f5386f57b290357fab06fc9437f6";
+            hash = "sha256-+nIuyru59738hzrU6kjURQaZBUsI8YLDuXW26I5u284=";
           })
         ];
         buildInputs = [
