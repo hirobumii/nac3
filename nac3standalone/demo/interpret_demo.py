@@ -2,7 +2,7 @@
 
 import sys
 import dis
-import types
+import inspect
 import importlib.util
 import importlib.machinery
 import math
@@ -111,23 +111,37 @@ def _ceil(x):
     else:
         return math.ceil(x)
 
-def _unborrow_code(code, borrow_opcode, plain_opcode):
+# Hack: Python 3.14 introduces LOAD_FAST_BORROW (and its two-variable
+# form, LOAD_FAST_BORROW_LOAD_FAST_BORROW), which skip an internal
+# refcount operation. Revert them back to LOAD_FAST/LOAD_FAST_LOAD_FAST
+# so output_refcount() observes the expected refcount behavior.
+# See: https://github.com/python/cpython/pull/130708
+_BORROW_TO_PLAIN = {
+    dis.opmap["LOAD_FAST_BORROW"]: dis.opmap["LOAD_FAST"],
+    dis.opmap["LOAD_FAST_BORROW_LOAD_FAST_BORROW"]: dis.opmap["LOAD_FAST_LOAD_FAST"],
+}
+
+def _unborrow_code(code):
     new_bytes = bytearray(code.co_code)
     for i in range(0, len(new_bytes), 2):
-        if new_bytes[i] == borrow_opcode:
-            new_bytes[i] = plain_opcode
+        new_bytes[i] = _BORROW_TO_PLAIN.get(new_bytes[i], new_bytes[i])
     return code.replace(co_code=bytes(new_bytes))
 
-def _unborrow_module(module):
-    # Hack: Python 3.14 introduces the LOAD_FAST_BORROW opcode, which skips
-    # an internal refcount operation. Revert it back to LOAD_FAST so
-    # output_refcount() observes the expected refcount behavior.
-    # See: https://github.com/python/cpython/pull/130708
-    borrow_opcode = dis.opmap["LOAD_FAST_BORROW"]
-    plain_opcode = dis.opmap["LOAD_FAST"]
-    for obj in vars(module).values():
-        if isinstance(obj, types.FunctionType):
-            obj.__code__ = _unborrow_code(obj.__code__, borrow_opcode, plain_opcode)
+def _unborrow_obj(obj, target_module):
+    obj_module = inspect.getmodule(obj)
+    # We also want to patch objects defined in this module and imported in the target module
+    if obj_module is not target_module and obj_module is not THIS_MODULE:
+        return
+
+    if inspect.isfunction(obj):
+        obj.__code__ = _unborrow_code(obj.__code__)
+    elif isinstance(obj, staticmethod):
+        _unborrow_obj(obj.__func__, target_module)
+    elif inspect.isclass(obj):
+        for attr in vars(obj).values():
+            _unborrow_obj(attr, target_module)
+
+THIS_MODULE = inspect.getmodule(_unborrow_obj)
 
 def patch(module):
     def dbl_nan():
@@ -313,9 +327,12 @@ def file_import(filename, prefix="file_import_"):
             importlib.machinery.SourceFileLoader(modname, str(filename)),
         )
         module = importlib.util.module_from_spec(spec)
+        # Needed by inspect.getmodule() (used in _unborrow_obj) to find this module.
+        sys.modules[modname] = module
         patch(module)
         spec.loader.exec_module(module)
-        _unborrow_module(module)
+        for attr in vars(module).values():
+            _unborrow_obj(attr, module)
     finally:
         sys.path.remove(path)
 
