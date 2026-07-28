@@ -2340,6 +2340,9 @@ fn gen_call_expr<'ctx, G: CodeGenerator>(
                         fun_id
                     }
                     TopLevelDef::Module { functions, .. } => {
+                        // A module-level function has no receiver, so it must be called without
+                        // an object argument - the module itself is not a value.
+                        is_static = true;
                         functions.iter().find(|method| method.0 == *attr).unwrap().1
                     }
                     TopLevelDef::Function { .. } => codegen_unreachable!(ctx),

@@ -50,18 +50,22 @@ impl<'ctx> RawClassType<'ctx> {
             panic!("Expected TObj, got {}", ctx.unifier.stringify(ty));
         };
 
+        let name = ctx.unifier.stringify(ty);
+
         let (class_name, fields_list) = {
-            let top_level_defs = ctx.top_level.definitions.read();
-            let TopLevelDef::Class { name, fields: fields_list, .. } =
-                &*top_level_defs[obj_id.0].read()
-            else {
-                unreachable!()
+            let def = ctx.top_level.definitions.read()[obj_id.0].clone();
+            // Functions and modules cannot be treated as a class instance
+            let class_def = match &*def.read() {
+                TopLevelDef::Class { name, fields, .. } => Ok((*name, fields.clone())),
+                TopLevelDef::Function { name, .. } => Err(format!("function `{name}`")),
+                TopLevelDef::Module { name, .. } => Err(format!("module `{name}`")),
             };
-            (*name, fields_list.clone())
+            class_def.unwrap_or_else(|kind| {
+                panic!("Expected type `{name}` to refer to a class, but definition is a {kind}")
+            })
         };
 
         // Build the LLVM struct type and compute refcounted mask
-        let name = ctx.unifier.stringify(ty);
         let struct_type = ctx.module.get_struct_type(&name).unwrap_or_else(|| {
             let struct_type = ctx.ctx.opaque_struct_type(&name);
             let llvm_fields =
