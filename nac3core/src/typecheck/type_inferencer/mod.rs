@@ -12,12 +12,13 @@ use nac3parser::ast::{
     self, Arguments, Comprehension, Expr, ExprContext, ExprKind, Located, Location, StrRef,
     fold::{self, Fold},
 };
+use parking_lot::RwLock;
 
 use crate::{
     symbol_resolver::{SymbolResolver, SymbolValue},
     toplevel::{
-        FunAttribute, TopLevelContext, TopLevelDef,
-        composer::promote_expr_type,
+        FunAttribute, TopLevelDef,
+        composer::{BuiltinRegistry, promote_expr_type},
         helper::{PrimDef, arraylike_flatten_element_type, arraylike_get_ndims, extract_ndims},
         numpy::{make_ndarray_ty, unpack_ndarray_var_tys},
         type_annotation::TypeAnnotation,
@@ -99,7 +100,8 @@ pub struct FunctionData {
 }
 
 pub struct Inferencer<'a> {
-    pub top_level: &'a TopLevelContext,
+    pub builtin_registry: &'a dyn BuiltinRegistry,
+    pub top_level_defs: &'a [Arc<RwLock<TopLevelDef>>],
     pub defined_identifiers: HashSet<StrRef>,
     pub function_data: &'a mut FunctionData,
     pub unifier: &'a mut Unifier,
@@ -180,13 +182,13 @@ impl Fold<()> for Inferencer<'_> {
                         node.location,
                     );
                 };
-                let builtin_registry = self.top_level.builtin_registry.clone();
+                let builtin_registry = self.builtin_registry;
                 let annotation_type = self.function_data.resolver.parse_type_annotation(
-                    self.top_level.definitions.read().as_slice(),
+                    self.top_level_defs,
                     self.unifier,
                     self.primitives,
                     annotation.as_ref(),
-                    &builtin_registry,
+                    builtin_registry,
                 )?;
                 self.unify(annotation_type, target.custom.unwrap(), &node.location)?;
                 let annotation = Box::new(NaiveFolder().fold_expr(*annotation)?);
@@ -211,18 +213,18 @@ impl Fold<()> for Inferencer<'_> {
                 let mut exception_handlers = Vec::with_capacity(handlers.len());
                 self.in_handler = true;
                 {
-                    let builtin_registry = self.top_level.builtin_registry.clone();
+                    let builtin_registry = self.builtin_registry;
                     let mut naive_folder = NaiveFolder();
                     for handler in handlers {
                         let ast::ExcepthandlerKind::ExceptHandler { type_, name, body } =
                             handler.node;
                         let type_ = if let Some(type_) = type_ {
                             let typ = self.function_data.resolver.parse_type_annotation(
-                                self.top_level.definitions.read().as_slice(),
+                                self.top_level_defs,
                                 self.unifier,
                                 self.primitives,
                                 &type_,
-                                &builtin_registry,
+                                builtin_registry,
                             )?;
                             self.virtual_checks.push((
                                 typ,
@@ -547,7 +549,7 @@ impl Fold<()> for Inferencer<'_> {
                     if self.defined_identifiers.insert(*id) {
                         let value = self.function_data.resolver.get_symbol_type(
                             self.unifier,
-                            &self.top_level.definitions.read(),
+                            self.top_level_defs,
                             self.primitives,
                             *id,
                         );
@@ -818,12 +820,13 @@ impl Inferencer<'_> {
         let ret = self.unifier.get_dummy_var().ty;
 
         let mut new_context = Inferencer {
+            top_level_defs: self.top_level_defs,
+            builtin_registry: self.builtin_registry,
             function_data: self.function_data,
             unifier: self.unifier,
             primitives: self.primitives,
             virtual_checks: self.virtual_checks,
             calls: self.calls,
-            top_level: self.top_level,
             defined_identifiers,
             variable_mapping,
             // lambda should not be considered in exception handler
@@ -876,10 +879,11 @@ impl Inferencer<'_> {
         let variable_mapping = self.variable_mapping.clone();
         let defined_identifiers = self.defined_identifiers.clone();
         let mut new_context = Inferencer {
+            builtin_registry: self.builtin_registry,
+            top_level_defs: self.top_level_defs,
             function_data: self.function_data,
             unifier: self.unifier,
             virtual_checks: self.virtual_checks,
-            top_level: self.top_level,
             variable_mapping,
             primitives: self.primitives,
             calls: self.calls,
@@ -1095,7 +1099,7 @@ impl Inferencer<'_> {
         args: &mut Vec<ast::Expr<()>>,
         keywords: &[Located<ast::KeywordData>],
     ) -> Result<Option<ast::Expr<Option<Type>>>, InferenceError> {
-        let Some(builtin) = self.top_level.builtin_registry.match_builtin(func) else {
+        let Some(builtin) = self.builtin_registry.match_builtin(func) else {
             return Ok(None);
         };
         let id = match &func.node {
@@ -1118,14 +1122,14 @@ impl Inferencer<'_> {
                 }
                 let arg0 = self.fold_expr(args.remove(0))?;
                 let ty = if let Some(arg) = args.pop() {
-                    let top_level_defs = self.top_level.definitions.read();
-                    let builtin_registry = self.top_level.builtin_registry.clone();
+                    let top_level_defs = self.top_level_defs;
+                    let builtin_registry = self.builtin_registry;
                     self.function_data.resolver.parse_type_annotation(
-                        top_level_defs.as_slice(),
+                        top_level_defs,
                         self.unifier,
                         self.primitives,
                         &arg,
-                        &builtin_registry,
+                        builtin_registry,
                     )?
                 } else {
                     self.unifier.get_dummy_var().ty
@@ -1810,7 +1814,7 @@ impl Inferencer<'_> {
                 }))
             }
             _ => {
-                let def = &self.top_level.definitions.read()[builtin.id().0];
+                let def = &self.top_level_defs[builtin.id().0];
                 let func_ty = match &*def.read() {
                     TopLevelDef::Function { signature, .. } => *signature,
                     TopLevelDef::Class { constructor, .. } => constructor.unwrap(),
@@ -1886,7 +1890,7 @@ impl Inferencer<'_> {
         // Check whether the method belongs to class ancestors
         let def_id = self.unifier.get_ty(zelf.custom.unwrap());
         let TypeEnum::TObj { obj_id, .. } = def_id.as_ref() else { unreachable!() };
-        let defs = self.top_level.definitions.read();
+        let defs = self.top_level_defs;
         let res = {
             if let TopLevelDef::Class { ancestors, .. } = &*defs[obj_id.0].read() {
                 ancestors.iter().find_map(|f| {
@@ -1991,7 +1995,7 @@ impl Inferencer<'_> {
             let unifier: &mut Unifier = self.unifier;
             self.function_data
                 .resolver
-                .get_symbol_type(unifier, &self.top_level.definitions.read(), self.primitives, id)
+                .get_symbol_type(unifier, self.top_level_defs, self.primitives, id)
                 .unwrap_or_else(|_| {
                     let ty = unifier.get_dummy_var().ty;
                     variable_mapping.insert(id, ty);
@@ -2080,10 +2084,7 @@ impl Inferencer<'_> {
         let ty = value.custom.unwrap();
         match &*self.unifier.get_ty(ty) {
             TypeEnum::TObj { obj_id, fields, .. }
-                if matches!(
-                    &*self.top_level.definitions.read()[obj_id.0].read(),
-                    TopLevelDef::Module { .. }
-                ) =>
+                if matches!(&*self.top_level_defs[obj_id.0].read(), TopLevelDef::Module { .. }) =>
             {
                 match (fields.get(&attr), ctx == ExprContext::Load) {
                     (Some((ty, AttrKind::Field { mutable: true })), _) | (Some((ty, _)), true) => {
@@ -2101,8 +2102,7 @@ impl Inferencer<'_> {
                         // not annotated `Kernel`. Try to fallback to the module symbol resolver
                         // to lookup the symbol type.
 
-                        let top_level_defs =
-                            self.top_level.definitions.read().iter().cloned().collect_vec();
+                        let top_level_defs = self.top_level_defs.iter().cloned().collect_vec();
 
                         let tld = &top_level_defs[obj_id.0];
                         let TopLevelDef::Module { resolver, .. } = &*tld.read() else {
@@ -2148,7 +2148,7 @@ impl Inferencer<'_> {
                     ),
                     (None, mutable) => {
                         // Check whether it is a class attribute or a static method
-                        let defs = self.top_level.definitions.read();
+                        let defs = self.top_level_defs;
                         let result = {
                             if let TopLevelDef::Class { attributes, methods, .. } =
                                 &*defs[obj_id.0].read()
@@ -2190,7 +2190,7 @@ impl Inferencer<'_> {
             TypeEnum::TFunc(sign) => {
                 // Access Class Attributes of classes with __init__ function using Class names e.g. Foo.ATTR1
                 let result = {
-                    let defs = self.top_level.definitions.read();
+                    let defs = self.top_level_defs;
                     defs.iter().find_map(|def| {
                         let TopLevelDef::Class { name, attributes, methods, .. } =
                             &*def.try_read()?
@@ -2519,7 +2519,7 @@ impl Inferencer<'_> {
             }
             TypeEnum::TObj { obj_id, params, .. } => {
                 // If the RHS is a list, we can fold the targets as well.
-                let obj = &self.top_level.definitions.read()[obj_id.0];
+                let obj = &self.top_level_defs[obj_id.0];
                 if let TopLevelDef::Class { object_id, .. } = *obj.read()
                     && object_id == PrimDef::List.id()
                 {

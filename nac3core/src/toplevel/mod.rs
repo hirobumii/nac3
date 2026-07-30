@@ -184,8 +184,8 @@ pub enum TopLevelDef {
 /// Contains the full list of top-level definitions, per-module unifiers, and the builtin
 /// registry. Created by `TopLevelComposer::make_top_level_context()` after type analysis.
 pub struct TopLevelContext {
-    pub definitions: Arc<RwLock<Vec<Arc<RwLock<TopLevelDef>>>>>,
-    pub unifiers: Arc<RwLock<Vec<(SharedUnifier, PrimitiveStore)>>>,
+    pub definitions: Vec<Arc<RwLock<TopLevelDef>>>,
+    pub unifiers: (SharedUnifier, PrimitiveStore),
     pub personality_symbol: Option<String>,
     pub builtin_registry: Arc<dyn BuiltinRegistry>,
 }

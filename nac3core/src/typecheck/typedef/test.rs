@@ -5,7 +5,7 @@ use itertools::Itertools as _;
 use test_case::test_case;
 
 use super::*;
-use crate::typecheck::magic_methods::with_fields;
+use crate::{toplevel::composer::TopLevelComposer, typecheck::magic_methods::with_fields};
 
 impl Unifier {
     /// Check whether two types are equal.
@@ -85,7 +85,7 @@ struct TestEnvironment {
 
 impl TestEnvironment {
     fn new() -> Self {
-        let mut unifier = Unifier::new();
+        let (_, mut unifier) = TopLevelComposer::make_unifier(64);
         let mut type_mapping = HashMap::new();
 
         type_mapping.insert(
@@ -333,7 +333,7 @@ fn test_unify(
         ("v1", "Record[a=float,b=int]"),
         ("v2", "Foo[v3]"),
     ],
-    (("v1", "v2"), "`40[typevar5]::b` field/method does not exist")
+    (("v1", "v2"), "`40[typevar118]::b` field/method does not exist")
     ; "record obj merge"
 )]
 /// Test cases for invalid unifications.
@@ -523,7 +523,7 @@ fn test_typevar_range() {
     println!("float_list: {}, v: {}", env.unifier.stringify(float_list), env.unifier.stringify(v));
     assert_eq!(
         env.unify(float_list, v),
-        Err("Expected any one of these types: 35, 3[typevar6], but got 3[0]\n\nNotes:\n    typevar6 ∈ {35, 1}".to_string())
+        Err("Expected any one of these types: 35, 3[typevar119], but got 3[0]\n\nNotes:\n    typevar119 ∈ {35, 1}".to_string())
     );
 
     let a = env.unifier.get_fresh_var_with_range(&[int, float], None, None).ty;
@@ -580,8 +580,8 @@ fn test_typevar_range() {
     });
     assert_eq!(
         env.unify(a_list, int_list),
-        Err("Incompatible types: 3[typevar23] and 3[35]\
-            \n\nNotes:\n    typevar23 ∈ {0}"
+        Err("Incompatible types: 3[typevar136] and 3[35]\
+            \n\nNotes:\n    typevar136 ∈ {0}"
             .into())
     );
 
@@ -625,11 +625,11 @@ fn test_rigid_var() {
     let int = env.parse("int", &HashMap::new());
     let list_int = env.parse("list[int]", &HashMap::new());
 
-    assert_eq!(env.unify(a, b), Err("Incompatible types: typevar4 and typevar3".to_string()));
+    assert_eq!(env.unify(a, b), Err("Incompatible types: typevar117 and typevar116".to_string()));
     env.unifier.unify(list_a, list_x).unwrap();
     assert_eq!(
         env.unify(list_x, list_int),
-        Err("Incompatible types: 3[typevar3] and 3[35]".to_string())
+        Err("Incompatible types: 3[typevar116] and 3[35]".to_string())
     );
 
     env.unifier.replace_rigid_var(a, int);
@@ -691,7 +691,7 @@ fn test_instantiation() {
         tuple[int, list[bool], list[int]]
         tuple[int, list[int], float]
         tuple[int, list[int], list[int]]
-        v6"
+        v119"
     }
     .split('\n')
     .collect_vec();

@@ -108,14 +108,14 @@ impl Inferencer<'_> {
         }
         match &expr.node {
             ExprKind::Name { id, .. } => {
-                if self.top_level.builtin_registry.match_builtin(&erase_expr_type(expr)).is_some() {
+                if self.builtin_registry.match_builtin(&erase_expr_type(expr)).is_some() {
                     return Ok(());
                 }
                 self.should_have_value(expr)?;
                 if defined_identifiers.insert(*id) {
                     let value = self.function_data.resolver.get_symbol_type(
                         self.unifier,
-                        &self.top_level.definitions.read(),
+                        self.top_level_defs,
                         self.primitives,
                         *id,
                     );

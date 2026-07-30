@@ -153,7 +153,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
             // we cannot have other types, virtual type should be handled by function calls
             _ => codegen_unreachable!(self),
         };
-        let def = &self.top_level.definitions.read()[obj_id.0];
+        let def = &self.top_level.definitions[obj_id.0];
         let (index, value) = if let TopLevelDef::Class { fields, attributes, .. } = &*def.read() {
             fields.iter().find_position(|x| x.0 == attr).map_or_else(
                 || {
@@ -745,7 +745,7 @@ pub fn gen_call<'ctx, G: CodeGenerator>(
     fun: (&FunSignature, DefinitionId),
     params: Vec<(Option<StrRef>, ValueEnum<'ctx>)>,
 ) -> anyhow::Result<Option<BasicValueEnum<'ctx>>> {
-    let definition = ctx.top_level.definitions.read().get(fun.1.0).cloned().unwrap();
+    let definition = ctx.top_level.definitions.get(fun.1.0).cloned().unwrap();
     let id;
     let key;
     let is_extern;
@@ -1428,7 +1428,7 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
             sig.clone()
         };
         let fun_id = {
-            let defs = ctx.top_level.definitions.read();
+            let defs = &ctx.top_level.definitions;
             let TopLevelDef::Class { methods, .. } = &*defs[id.0].read() else {
                 codegen_unreachable!(ctx)
             };
@@ -2052,7 +2052,7 @@ fn gen_attr_expr<'ctx, G: CodeGenerator>(
     // Change Class attribute access requests to accessing constants from Class Definition
     if let Some(c) = value.custom {
         if let TypeEnum::TFunc(_) = &*ctx.unifier.get_ty(c) {
-            let result = ctx.top_level.definitions.read().iter().find_map(|def| {
+            let result = ctx.top_level.definitions.iter().find_map(|def| {
                 if let Some(rear_guard) = def.try_read()
                     && let TopLevelDef::Class { constructor: Some(constructor), attributes, .. } =
                         &*rear_guard
@@ -2077,7 +2077,7 @@ fn gen_attr_expr<'ctx, G: CodeGenerator>(
             && fields.is_empty()
             && params.is_empty()
         {
-            let defs = ctx.top_level.definitions.read();
+            let defs = &ctx.top_level.definitions;
             let TopLevelDef::Class { attributes, .. } = &*defs[obj_id.0].read() else {
                 codegen_unreachable!(ctx);
             };
@@ -2323,14 +2323,14 @@ fn gen_call_expr<'ctx, G: CodeGenerator>(
             let fun_id = if let Ok(func_id) = func_id {
                 DefinitionId(func_id)
             } else {
-                match &*ctx.top_level.definitions.read()[id.0].read() {
+                match &*ctx.top_level.definitions[id.0].read() {
                     TopLevelDef::Class { methods, .. } => {
                         let fun_id = methods.iter().find(|method| method.0 == *attr).unwrap().2;
 
                         // A method call on a class instance could still be to a static method
                         // so we check if the function has been annotated as static
                         let is_static_method = if let TopLevelDef::Function { attributes, .. } =
-                            &*ctx.top_level.definitions.read()[fun_id.0].read()
+                            &*ctx.top_level.definitions[fun_id.0].read()
                         {
                             attributes.contains(&FunAttribute::StaticMethod)
                         } else {

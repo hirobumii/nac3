@@ -527,8 +527,8 @@ impl TopLevelDef {
 
 impl TopLevelComposer {
     #[must_use]
-    pub fn make_primitives(size_t: u32) -> (PrimitiveStore, Unifier) {
-        let mut unifier = Unifier::new();
+    pub fn make_unifier(size_t: u32) -> (PrimitiveStore, Unifier) {
+        let mut unifier = Unifier::new_without_primitives();
         let int32 = unifier.add_ty(TypeEnum::TObj {
             obj_id: PrimDef::Int32.id(),
             fields: HashMap::new(),
@@ -1055,7 +1055,7 @@ impl TopLevelComposer {
     pub fn parse_parameter_default_value(
         default: &ast::Expr,
         resolver: &(dyn SymbolResolver + Send + Sync),
-        builtin_registry: &Arc<dyn BuiltinRegistry>,
+        builtin_registry: &dyn BuiltinRegistry,
     ) -> Result<SymbolValue, Vec<anyhow::Error>> {
         parse_parameter_default_value(default, resolver, builtin_registry)
     }
@@ -1117,7 +1117,7 @@ impl TopLevelComposer {
         temp_def_list: &[Arc<RwLock<TopLevelDef>>],
         unifier: &mut Unifier,
         primitives_store: &PrimitiveStore,
-        builtin_registry: &Arc<dyn BuiltinRegistry>,
+        builtin_registry: &dyn BuiltinRegistry,
     ) -> Result<(), Vec<anyhow::Error>> {
         let TopLevelDef::Class {
             object_id: class_def_id,
@@ -1254,7 +1254,7 @@ impl TopLevelComposer {
 pub fn parse_parameter_default_value(
     default: &ast::Expr,
     resolver: &(dyn SymbolResolver + Send + Sync),
-    builtin_registry: &Arc<dyn BuiltinRegistry>,
+    builtin_registry: &dyn BuiltinRegistry,
 ) -> Result<SymbolValue, Vec<anyhow::Error>> {
     fn handle_constant(val: &Constant, loc: &Location) -> Result<SymbolValue, Vec<anyhow::Error>> {
         match val {

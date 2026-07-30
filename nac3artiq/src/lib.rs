@@ -1,7 +1,6 @@
 #![allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 
 use std::{
-    cell::OnceCell,
     collections::{HashMap, HashSet},
     env, fmt, fs,
     io::Write,
@@ -1205,7 +1204,7 @@ impl Nac3 {
         let top_level = Arc::new(composer.make_top_level_context());
 
         {
-            let defs = top_level.definitions.read();
+            let defs = &top_level.definitions;
             for (class_data, id, is_async) in &rpc_ids {
                 match &mut *defs[id.0].write() {
                     TopLevelDef::Function { codegen_callback, .. } => {
@@ -1239,7 +1238,7 @@ impl Nac3 {
         }
 
         let (instance, location) = {
-            let defs = top_level.definitions.read();
+            let defs = &top_level.definitions;
             let TopLevelDef::Function { instance_to_stmt, instance_to_symbol, loc, .. } =
                 &mut *defs[def_id.0].write()
             else {
@@ -1303,14 +1302,13 @@ impl Nac3 {
 
             context_ref!(context);
             let mut context = ModuleContext::new(context, "main", &self.codegen_options.target);
-            let mut unifier_cache = vec![OnceCell::new(); top_level.unifiers.read().len()];
 
             gen_func_impl(
                 &mut context,
                 &mut generator,
                 &registry,
                 task,
-                &mut unifier_cache,
+                &mut None,
                 |generator, ctx| {
                     assert_eq!(instance.body.len(), 1, "toplevel module should have 1 statement");
                     let StmtKind::Expr { value: ref expr, .. } = instance.body[0].node else {
@@ -1619,7 +1617,7 @@ impl Nac3 {
             target_options.create_target_machine().get_target_data().get_pointer_byte_size(None)
                 * 8;
 
-        let (primitive, _) = TopLevelComposer::make_primitives(size_t_bits);
+        let (primitive, _) = TopLevelComposer::make_unifier(size_t_bits);
         let builtins = vec![
             (
                 "now_mu".into(),

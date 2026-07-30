@@ -107,13 +107,12 @@ fn test_primitives() {
         return d
         "};
     let statements = parse_program(source, FileName::default()).unwrap();
-    let builtin_registry = Arc::new(DefaultBuiltinRegistry);
 
-    let composer = TopLevelComposer::new(Vec::new(), Vec::new(), builtin_registry.clone(), 64).0;
+    let composer =
+        TopLevelComposer::new(Vec::new(), Vec::new(), Arc::new(DefaultBuiltinRegistry), 64).0;
     let mut unifier = composer.unifier.clone();
     let primitives = composer.primitives_ty;
-    let top_level = Arc::new(composer.make_top_level_context());
-    unifier.top_level = Some(top_level.clone());
+    let top_level = composer.make_top_level_context();
 
     let resolver =
         Arc::new(Resolver { id_to_type: HashMap::new(), id_to_def: RwLock::new(HashMap::new()) })
@@ -153,7 +152,8 @@ fn test_primitives() {
     let mut calls = HashMap::new();
     let mut identifiers: HashSet<_, _> = ["a".into(), "b".into()].into();
     let mut inferencer = Inferencer {
-        top_level: &top_level,
+        builtin_registry: &*top_level.builtin_registry,
+        top_level_defs: &top_level.definitions,
         function_data: &mut function_data,
         unifier: &mut unifier,
         variable_mapping: HashMap::default(),
@@ -174,10 +174,10 @@ fn test_primitives() {
 
     inferencer.check_block(&statements, &mut identifiers).unwrap();
     let top_level = Arc::new(TopLevelContext {
-        definitions: Arc::new(RwLock::new(std::mem::take(&mut *top_level.definitions.write()))),
-        unifiers: Arc::new(RwLock::new(vec![(unifier.get_shared_unifier(), primitives)])),
+        definitions: top_level.definitions,
+        unifiers: (unifier.get_shared_unifier(), primitives),
         personality_symbol: None,
-        builtin_registry,
+        builtin_registry: top_level.builtin_registry,
     });
 
     let task = CodeGenTask {
@@ -224,8 +224,7 @@ fn test_simple_call() {
     let composer = TopLevelComposer::new(Vec::new(), Vec::new(), builtin_registry.clone(), 64).0;
     let mut unifier = composer.unifier.clone();
     let primitives = composer.primitives_ty;
-    let top_level = Arc::new(composer.make_top_level_context());
-    unifier.top_level = Some(top_level.clone());
+    let mut top_level = composer.make_top_level_context();
 
     let signature = FunSignature {
         args: vec![FuncArg {
@@ -243,8 +242,8 @@ fn test_simple_call() {
     let signature = store.from_signature(&mut unifier, &primitives, &signature, &mut cache);
     let signature = store.add_cty(signature);
 
-    let foo_id = top_level.definitions.read().len();
-    top_level.definitions.write().push(Arc::new(RwLock::new(TopLevelDef::Function {
+    let foo_id = top_level.definitions.len();
+    top_level.definitions.push(Arc::new(RwLock::new(TopLevelDef::Function {
         name: "foo".to_string(),
         simple_name: "foo".into(),
         signature: fun_ty,
@@ -261,9 +260,7 @@ fn test_simple_call() {
     resolver.add_id_def("foo".into(), DefinitionId(foo_id));
     let resolver = Arc::new(resolver) as Arc<dyn SymbolResolver + Send + Sync>;
 
-    if let TopLevelDef::Function { resolver: r, .. } =
-        &mut *top_level.definitions.read()[foo_id].write()
-    {
+    if let TopLevelDef::Function { resolver: r, .. } = &mut *top_level.definitions[foo_id].write() {
         *r = Some(resolver.clone());
     } else {
         unreachable!()
@@ -279,7 +276,8 @@ fn test_simple_call() {
     let mut calls = HashMap::new();
     let mut identifiers: HashSet<_, _> = ["a".into(), "foo".into()].into();
     let mut inferencer = Inferencer {
-        top_level: &top_level,
+        builtin_registry: &*top_level.builtin_registry,
+        top_level_defs: &top_level.definitions,
         function_data: &mut function_data,
         unifier: &mut unifier,
         variable_mapping: HashMap::default(),
@@ -308,7 +306,7 @@ fn test_simple_call() {
         .unwrap();
 
     if let TopLevelDef::Function { instance_to_stmt, .. } =
-        &mut *top_level.definitions.read()[foo_id].write()
+        &mut *top_level.definitions[foo_id].write()
     {
         instance_to_stmt.insert(
             String::new(),
@@ -325,8 +323,8 @@ fn test_simple_call() {
 
     inferencer.check_block(&statements_1, &mut identifiers).unwrap();
     let top_level = Arc::new(TopLevelContext {
-        definitions: Arc::new(RwLock::new(std::mem::take(&mut *top_level.definitions.write()))),
-        unifiers: Arc::new(RwLock::new(vec![(unifier.get_shared_unifier(), primitives)])),
+        definitions: top_level.definitions,
+        unifiers: (unifier.get_shared_unifier(), primitives),
         personality_symbol: None,
         builtin_registry,
     });
@@ -378,8 +376,7 @@ fn test_list_mul_refcount() {
     let composer = TopLevelComposer::new(Vec::new(), Vec::new(), builtin_registry.clone(), 64).0;
     let mut unifier = composer.unifier.clone();
     let primitives = composer.primitives_ty;
-    let top_level = Arc::new(composer.make_top_level_context());
-    unifier.top_level = Some(top_level.clone());
+    let top_level = composer.make_top_level_context();
 
     let resolver =
         Arc::new(Resolver { id_to_type: HashMap::new(), id_to_def: RwLock::new(HashMap::new()) })
@@ -402,7 +399,8 @@ fn test_list_mul_refcount() {
     let mut calls = HashMap::new();
     let mut identifiers: HashSet<_, _> = HashSet::new();
     let mut inferencer = Inferencer {
-        top_level: &top_level,
+        builtin_registry: &*top_level.builtin_registry,
+        top_level_defs: &top_level.definitions,
         function_data: &mut function_data,
         unifier: &mut unifier,
         variable_mapping: HashMap::default(),
@@ -421,8 +419,8 @@ fn test_list_mul_refcount() {
 
     inferencer.check_block(&statements, &mut identifiers).unwrap();
     let top_level = Arc::new(TopLevelContext {
-        definitions: Arc::new(RwLock::new(std::mem::take(&mut *top_level.definitions.write()))),
-        unifiers: Arc::new(RwLock::new(vec![(unifier.get_shared_unifier(), primitives)])),
+        definitions: top_level.definitions,
+        unifiers: (unifier.get_shared_unifier(), primitives),
         personality_symbol: None,
         builtin_registry,
     });

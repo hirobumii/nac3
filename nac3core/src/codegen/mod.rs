@@ -5,7 +5,6 @@
 #![allow(clippy::large_types_passed_by_value, clippy::large_enum_variant)]
 
 use std::{
-    cell::OnceCell,
     collections::HashMap,
     ops::ControlFlow,
     sync::{
@@ -460,8 +459,7 @@ impl WorkerRegistry {
         context_ref!(ctx);
         let options = &self.codegen_options.target;
         let mut context = ModuleContext::new(ctx, generator.get_name(), options);
-        let mut unifier_cache = vec![OnceCell::new(); self.top_level_ctx.unifiers.read().len()];
-
+        let mut unifier_cache = None;
         let mut errors = Vec::new();
         while let Some(task) = self.receiver.recv().unwrap() {
             let result = gen_func(&mut context, generator, self, task, &mut unifier_cache);
@@ -675,26 +673,18 @@ pub fn gen_func_impl<
     generator: &mut G,
     registry: &WorkerRegistry,
     task: CodeGenTask,
-    unifier_cache: &mut [OnceCell<Unifier>],
+    unifier_cache: &mut Option<Unifier>,
     codegen_function: F,
 ) -> anyhow::Result<FunctionValue<'ctx>> {
     let top_level_ctx = registry.top_level_ctx.clone();
     let static_value_store = registry.static_value_store.clone();
-    let (mut unifier, primitives) = {
-        let (shared_unifier, primitives) = &top_level_ctx.unifiers.read()[task.unifier_index];
-
-        (
-            unifier_cache[task.unifier_index]
-                .get_or_init(|| {
-                    let mut unifier = Unifier::from_shared_unifier(shared_unifier);
-                    unifier.put_primitive_store(primitives);
-                    unifier.top_level = Some(top_level_ctx.clone());
-                    unifier
-                })
-                .clone(),
-            *primitives,
-        )
-    };
+    let (ref shared_unifier, primitives) = top_level_ctx.unifiers;
+    let unifier = unifier_cache.get_or_insert_with(|| {
+        let mut unifier = Unifier::from_shared_unifier(shared_unifier, primitives);
+        unifier.top_level = Some(top_level_ctx.clone());
+        unifier
+    });
+    let mut unifier = unifier.clone();
 
     let mut cache = HashMap::new();
     for (a, b) in &task.subst {
@@ -989,7 +979,7 @@ pub fn gen_func<'ctx, G: CodeGenerator>(
     generator: &mut G,
     registry: &WorkerRegistry,
     task: CodeGenTask,
-    unifier_cache: &mut [OnceCell<Unifier>],
+    unifier_cache: &mut Option<Unifier>,
 ) -> anyhow::Result<FunctionValue<'ctx>> {
     let body = task.body.clone();
     gen_func_impl(context, generator, registry, task, unifier_cache, |generator, ctx| {

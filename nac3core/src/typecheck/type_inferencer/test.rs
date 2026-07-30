@@ -11,11 +11,12 @@ use super::*;
 use crate::{
     codegen::CodeGenContext,
     symbol_resolver::ValueEnum,
-    toplevel::{DefinitionId, TopLevelDef, composer::DefaultBuiltinRegistry, helper::PrimDef},
-    typecheck::{
-        magic_methods::{set_primitives_magic_methods, with_fields},
-        typedef::AttrKind,
+    toplevel::{
+        DefinitionId, TopLevelDef,
+        composer::{DefaultBuiltinRegistry, TopLevelComposer},
+        helper::PrimDef,
     },
+    typecheck::{magic_methods::with_fields, typedef::AttrKind},
 };
 
 struct Resolver {
@@ -70,262 +71,28 @@ struct TestEnvironment {
     pub identifier_mapping: HashMap<StrRef, Type>,
     pub virtual_checks: Vec<(Type, Type, Location)>,
     pub calls: HashMap<CodeLocation, CallId>,
-    pub top_level: TopLevelContext,
+    pub top_level_defs: Vec<Arc<RwLock<TopLevelDef>>>,
 }
 
 impl TestEnvironment {
-    pub fn basic_test_env() -> Self {
-        let mut unifier = Unifier::new();
-
-        let int32 = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PrimDef::Int32.id(),
-            fields: HashMap::new(),
-            params: VarMap::new(),
-        });
-        with_fields(&mut unifier, int32, |unifier, fields| {
-            let add_ty = unifier.add_ty(TypeEnum::TFunc(FunSignature {
-                args: vec![FuncArg {
-                    name: "other".into(),
-                    ty: int32,
-                    default_value: None,
-                    is_vararg: false,
-                }],
-                ret: int32,
-                vars: VarMap::new(),
-            }));
-            fields.insert("__add__".into(), (add_ty, AttrKind::Method));
-        });
-        let int64 = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PrimDef::Int64.id(),
-            fields: HashMap::new(),
-            params: VarMap::new(),
-        });
-        let float = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PrimDef::Float.id(),
-            fields: HashMap::new(),
-            params: VarMap::new(),
-        });
-        let bool = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PrimDef::Bool.id(),
-            fields: HashMap::new(),
-            params: VarMap::new(),
-        });
-        let none = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PrimDef::None.id(),
-            fields: HashMap::new(),
-            params: VarMap::new(),
-        });
-        let range = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PrimDef::Range.id(),
-            fields: HashMap::new(),
-            params: VarMap::new(),
-        });
-        let enumerate = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PrimDef::Enumerate.id(),
-            fields: HashMap::new(),
-            params: VarMap::new(),
-        });
-        let critical = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PrimDef::Critical.id(),
-            fields: HashMap::new(),
-            params: VarMap::new(),
-        });
-        let str = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PrimDef::Str.id(),
-            fields: HashMap::new(),
-            params: VarMap::new(),
-        });
-        let exception = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PrimDef::Exception.id(),
-            fields: HashMap::new(),
-            params: VarMap::new(),
-        });
-        let uint32 = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PrimDef::UInt32.id(),
-            fields: HashMap::new(),
-            params: VarMap::new(),
-        });
-        let uint64 = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PrimDef::UInt64.id(),
-            fields: HashMap::new(),
-            params: VarMap::new(),
-        });
-        let option = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PrimDef::Option.id(),
-            fields: HashMap::new(),
-            params: VarMap::new(),
-        });
-        let list_elem_tvar = unifier.get_fresh_var(Some("list_elem".into()), None);
-        let list = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PrimDef::List.id(),
-            fields: HashMap::new(),
-            params: into_var_map([list_elem_tvar]),
-        });
-        let ndarray_dtype_tvar = unifier.get_fresh_var(Some("ndarray_dtype".into()), None);
-        let ndarray_ndims_tvar =
-            unifier.get_fresh_const_generic_var(uint64, Some("ndarray_ndims".into()), None);
-        let ndarray = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PrimDef::NDArray.id(),
-            fields: HashMap::new(),
-            params: into_var_map([ndarray_dtype_tvar, ndarray_ndims_tvar]),
-        });
-        let primitives = PrimitiveStore {
-            int32,
-            int64,
-            float,
-            bool,
-            none,
-            range,
-            enumerate,
-            critical,
-            str,
-            exception,
-            uint32,
-            uint64,
-            option,
-            list,
-            ndarray,
-            size_t: 64,
-        };
-        unifier.put_primitive_store(&primitives);
-        set_primitives_magic_methods(&primitives, &mut unifier);
-
-        let id_to_name: HashMap<_, _> = [
-            (PrimDef::Int32.id().0, "int32".into()),
-            (PrimDef::Int64.id().0, "int64".into()),
-            (PrimDef::Float.id().0, "float".into()),
-            (PrimDef::Bool.id().0, "bool".into()),
-            (PrimDef::None.id().0, "none".into()),
-            (PrimDef::Range.id().0, "range".into()),
-            (PrimDef::Enumerate.id().0, "enumerate".into()),
-            (PrimDef::Str.id().0, "str".into()),
-            (PrimDef::Exception.id().0, "exception".into()),
-        ]
-        .into();
-
-        let mut identifier_mapping = HashMap::new();
-        identifier_mapping.insert("None".into(), none);
-
-        let resolver = Arc::new(Resolver {
-            id_to_type: identifier_mapping.clone(),
-            id_to_def: HashMap::default(),
-        }) as Arc<dyn SymbolResolver + Send + Sync>;
-
-        Self {
-            top_level: TopLevelContext {
-                definitions: Arc::default(),
-                unifiers: Arc::default(),
-                personality_symbol: None,
-                builtin_registry: Arc::new(DefaultBuiltinRegistry),
-            },
-            unifier,
-            function_data: FunctionData {
-                resolver,
-                bound_variables: Vec::new(),
-                return_type: None,
-            },
-            primitives,
-            id_to_name,
-            identifier_mapping,
-            virtual_checks: Vec::new(),
-            calls: HashMap::new(),
-        }
-    }
-
     fn new() -> Self {
-        let mut unifier = Unifier::new();
         let mut identifier_mapping = HashMap::new();
+        let (primitives, mut unifier) = TopLevelComposer::make_unifier(64);
         let mut top_level_defs: Vec<Arc<RwLock<TopLevelDef>>> = Vec::new();
-        let int32 = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PrimDef::Int32.id(),
-            fields: HashMap::new(),
-            params: VarMap::new(),
-        });
-        with_fields(&mut unifier, int32, |unifier, fields| {
+        with_fields(&mut unifier, primitives.int32, |unifier, fields| {
             let add_ty = unifier.add_ty(TypeEnum::TFunc(FunSignature {
                 args: vec![FuncArg {
                     name: "other".into(),
-                    ty: int32,
+                    ty: primitives.int32,
                     default_value: None,
                     is_vararg: false,
                 }],
-                ret: int32,
+                ret: primitives.int32,
                 vars: VarMap::new(),
             }));
             fields.insert("__add__".into(), (add_ty, AttrKind::Method));
         });
-        let int64 = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PrimDef::Int64.id(),
-            fields: HashMap::new(),
-            params: VarMap::new(),
-        });
-        let float = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PrimDef::Float.id(),
-            fields: HashMap::new(),
-            params: VarMap::new(),
-        });
-        let bool = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PrimDef::Bool.id(),
-            fields: HashMap::new(),
-            params: VarMap::new(),
-        });
-        let none = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PrimDef::None.id(),
-            fields: HashMap::new(),
-            params: VarMap::new(),
-        });
-        let range = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PrimDef::Range.id(),
-            fields: HashMap::new(),
-            params: VarMap::new(),
-        });
-        let enumerate = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PrimDef::Enumerate.id(),
-            fields: HashMap::new(),
-            params: VarMap::new(),
-        });
-        let critical = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PrimDef::Critical.id(),
-            fields: HashMap::new(),
-            params: VarMap::new(),
-        });
-        let str = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PrimDef::Str.id(),
-            fields: HashMap::new(),
-            params: VarMap::new(),
-        });
-        let exception = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PrimDef::Exception.id(),
-            fields: HashMap::new(),
-            params: VarMap::new(),
-        });
-        let uint32 = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PrimDef::UInt32.id(),
-            fields: HashMap::new(),
-            params: VarMap::new(),
-        });
-        let uint64 = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PrimDef::UInt64.id(),
-            fields: HashMap::new(),
-            params: VarMap::new(),
-        });
-        let option = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PrimDef::Option.id(),
-            fields: HashMap::new(),
-            params: VarMap::new(),
-        });
-        let list_elem_tvar = unifier.get_fresh_var(Some("list_elem".into()), None);
-        let list = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PrimDef::List.id(),
-            fields: HashMap::new(),
-            params: into_var_map([list_elem_tvar]),
-        });
-        let ndarray = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PrimDef::NDArray.id(),
-            fields: HashMap::new(),
-            params: VarMap::new(),
-        });
-        identifier_mapping.insert("None".into(), none);
+        identifier_mapping.insert("None".into(), primitives.none);
         let primitive_names = [
             "int32",
             "int64",
@@ -362,27 +129,6 @@ impl TestEnvironment {
         }
         let defs = primitive_names.len();
 
-        let primitives = PrimitiveStore {
-            int32,
-            int64,
-            float,
-            bool,
-            none,
-            range,
-            enumerate,
-            critical,
-            str,
-            exception,
-            uint32,
-            uint64,
-            option,
-            list,
-            ndarray,
-            size_t: 64,
-        };
-
-        unifier.put_primitive_store(&primitives);
-
         let tvar = unifier.get_dummy_var();
 
         let foo_ty = unifier.add_ty(TypeEnum::TObj {
@@ -418,13 +164,13 @@ impl TestEnvironment {
 
         let fun = unifier.add_ty(TypeEnum::TFunc(FunSignature {
             args: vec![],
-            ret: int32,
+            ret: primitives.int32,
             vars: IndexMap::default(),
         }));
         let bar = unifier.add_ty(TypeEnum::TObj {
             obj_id: DefinitionId(defs + 1),
             fields: [
-                ("a".into(), (int32, AttrKind::Field { mutable: true })),
+                ("a".into(), (primitives.int32, AttrKind::Field { mutable: true })),
                 ("b".into(), (fun, AttrKind::Method)),
             ]
             .into(),
@@ -436,7 +182,7 @@ impl TestEnvironment {
                 simple_name: "Bar".to_string(),
                 object_id: DefinitionId(defs + 1),
                 type_vars: Vec::default(),
-                fields: [("a".into(), int32, true), ("b".into(), fun, true)].into(),
+                fields: [("a".into(), primitives.int32, true), ("b".into(), fun, true)].into(),
                 attributes: Vec::default(),
                 methods: Vec::default(),
                 ancestors: Vec::default(),
@@ -458,7 +204,7 @@ impl TestEnvironment {
         let bar2 = unifier.add_ty(TypeEnum::TObj {
             obj_id: DefinitionId(defs + 2),
             fields: [
-                ("a".into(), (bool, AttrKind::Field { mutable: true })),
+                ("a".into(), (primitives.bool, AttrKind::Field { mutable: true })),
                 ("b".into(), (fun, AttrKind::Method)),
             ]
             .into(),
@@ -470,7 +216,7 @@ impl TestEnvironment {
                 simple_name: "Bar2".to_string(),
                 object_id: DefinitionId(defs + 2),
                 type_vars: Vec::default(),
-                fields: [("a".into(), bool, true), ("b".into(), fun, false)].into(),
+                fields: [("a".into(), primitives.bool, true), ("b".into(), fun, false)].into(),
                 attributes: Vec::default(),
                 methods: Vec::default(),
                 ancestors: Vec::default(),
@@ -510,13 +256,6 @@ impl TestEnvironment {
         ]
         .into();
 
-        let top_level = TopLevelContext {
-            definitions: Arc::new(top_level_defs.into()),
-            unifiers: Arc::default(),
-            personality_symbol: None,
-            builtin_registry: Arc::new(DefaultBuiltinRegistry),
-        };
-
         let resolver = Arc::new(Resolver {
             id_to_type: identifier_mapping.clone(),
             id_to_def: [
@@ -528,8 +267,8 @@ impl TestEnvironment {
         }) as Arc<dyn SymbolResolver + Send + Sync>;
 
         Self {
+            top_level_defs,
             unifier,
-            top_level,
             function_data: FunctionData {
                 resolver,
                 bound_variables: Vec::new(),
@@ -545,7 +284,8 @@ impl TestEnvironment {
 
     fn get_inferencer(&mut self) -> Inferencer<'_> {
         Inferencer {
-            top_level: &self.top_level,
+            top_level_defs: &self.top_level_defs,
+            builtin_registry: &DefaultBuiltinRegistry,
             function_data: &mut self.function_data,
             unifier: &mut self.unifier,
             variable_mapping: HashMap::default(),
@@ -772,7 +512,7 @@ fn test_basic(source: &str, mapping: &HashMap<&str, &str>, virtuals: &[(&str, &s
 )]
 fn test_primitive_magic_methods(source: &str, mapping: &HashMap<&str, &str>) {
     println!("source:\n{source}");
-    let mut env = TestEnvironment::basic_test_env();
+    let mut env = TestEnvironment::new();
     let id_to_name = std::mem::take(&mut env.id_to_name);
     let mut defined_identifiers: HashSet<_, _> = env.identifier_mapping.keys().copied().collect();
     defined_identifiers.insert("virtual".into());

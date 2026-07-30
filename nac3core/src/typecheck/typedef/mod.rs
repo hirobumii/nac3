@@ -334,16 +334,12 @@ pub struct Unifier {
     primitive_store: Option<PrimitiveStore>,
 }
 
-impl Default for Unifier {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl Unifier {
-    /// Get an empty unifier
+    /// Returns an empty unifier.
+    ///
+    /// This is an internal detail. You should probably use `TopLevelComposer::make_unifier` instead.
     #[must_use]
-    pub fn new() -> Self {
+    pub(crate) fn new_without_primitives() -> Self {
         Self {
             unification_table: UnificationTable::new(),
             var_id_counter: 0,
@@ -361,8 +357,7 @@ impl Unifier {
     /// This function can only be invoked once. Any subsequent invocations will result in an
     /// assertion error.
     pub fn put_primitive_store(&mut self, primitives: &PrimitiveStore) {
-        assert!(self.primitive_store.is_none());
-        self.primitive_store.replace(*primitives);
+        assert!(self.primitive_store.replace(*primitives).is_none());
     }
 
     /// Determine if the two types are the same
@@ -370,7 +365,7 @@ impl Unifier {
         self.unification_table.unioned(a, b)
     }
 
-    pub fn from_shared_unifier(unifier: &SharedUnifier) -> Self {
+    pub fn from_shared_unifier(unifier: &SharedUnifier, primitives: PrimitiveStore) -> Self {
         let lock = unifier.lock().unwrap();
         Self {
             unification_table: UnificationTable::from_send(&lock.0),
@@ -380,7 +375,7 @@ impl Unifier {
             unify_cache: HashSet::new(),
             subst_cache: Vec::new(),
             snapshot: None,
-            primitive_store: None,
+            primitive_store: Some(primitives),
         }
     }
 
@@ -1403,7 +1398,7 @@ impl Unifier {
                 top_level.as_ref().map_or_else(
                     || format!("{id}"),
                     |top_level| {
-                        let top_level_def = &top_level.definitions.read()[id];
+                        let top_level_def = &top_level.definitions[id];
                         let (TopLevelDef::Class { name, .. } | TopLevelDef::Module { name, .. }) =
                             &*top_level_def.read()
                         else {

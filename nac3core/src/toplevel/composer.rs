@@ -395,7 +395,7 @@ impl TopLevelComposer {
         builtin_registry: Arc<dyn BuiltinRegistry>,
         size_t: u32,
     ) -> (Self, HashMap<StrRef, DefinitionId>, HashMap<StrRef, Type>) {
-        let (primitives_ty, mut unifier) = Self::make_primitives(size_t);
+        let (primitives_ty, mut unifier) = Self::make_unifier(size_t);
         let mut definition_ast_list = builtins::get_builtins(&mut unifier, &primitives_ty);
         let defined_names = HashSet::default();
         let method_class = HashMap::default();
@@ -449,15 +449,8 @@ impl TopLevelComposer {
     #[must_use]
     pub fn make_top_level_context(&self) -> TopLevelContext {
         TopLevelContext {
-            definitions: RwLock::new(
-                self.definition_ast_list.iter().map(|(x, ..)| x.clone()).collect_vec(),
-            )
-            .into(),
-            // NOTE: only one for now
-            unifiers: Arc::new(RwLock::new(vec![(
-                self.unifier.get_shared_unifier(),
-                self.primitives_ty,
-            )])),
+            definitions: self.definition_ast_list.iter().map(|(x, ..)| x.clone()).collect_vec(),
+            unifiers: (self.unifier.get_shared_unifier(), self.primitives_ty),
             personality_symbol: Some("__nac3_personality".into()),
             builtin_registry: self.builtin_registry.clone(),
         }
@@ -717,7 +710,7 @@ impl TopLevelComposer {
     /// Checks for class type variables and ancestors adding them to the `TopLevelDef` list
     fn analyze_top_level_class_definition(&mut self) -> Result<(), Vec<anyhow::Error>> {
         let def_list = &self.definition_ast_list;
-        let builtin_registry = &self.builtin_registry;
+        let builtin_registry = &*self.builtin_registry;
         let unifier = &mut self.unifier;
         let primitives_store = &self.primitives_ty;
         let mut errors = Vec::new();
@@ -816,7 +809,7 @@ impl TopLevelComposer {
                     unifier,
                     primitives_store,
                     &mut new_entries,
-                    &self.builtin_registry,
+                    &*self.builtin_registry,
                 ) {
                     errors.extend(e);
                 }
@@ -1012,7 +1005,7 @@ impl TopLevelComposer {
                     let type_annotation = parse_ast_to_type_annotation_kinds(
                         resolver,
                         temp_def_list.as_slice(),
-                        &self.builtin_registry,
+                        &*self.builtin_registry,
                         unifier,
                         primitives_store,
                         annotation,
@@ -1103,7 +1096,7 @@ impl TopLevelComposer {
                         let type_annotation = parse_ast_to_type_annotation_kinds(
                             resolver,
                             temp_def_list.as_slice(),
-                            &self.builtin_registry,
+                            &*self.builtin_registry,
                             unifier,
                             primitives_store,
                             annotation,
@@ -1148,7 +1141,7 @@ impl TopLevelComposer {
                                     let v = Self::parse_parameter_default_value(
                                         default,
                                         resolver,
-                                        &self.builtin_registry,
+                                        &*self.builtin_registry,
                                     )?;
                                     Self::check_default_param_type(
                                         &v,
@@ -1179,7 +1172,7 @@ impl TopLevelComposer {
                         parse_ast_to_type_annotation_kinds(
                             resolver,
                             &temp_def_list,
-                            &self.builtin_registry,
+                            &*self.builtin_registry,
                             unifier,
                             primitives_store,
                             return_annotation,
@@ -1264,7 +1257,7 @@ impl TopLevelComposer {
         unifier: &mut Unifier,
         primitives: &PrimitiveStore,
         type_var_to_concrete_def: &mut HashMap<Type, TypeAnnotation>,
-        builtin_registry: &Arc<dyn BuiltinRegistry>,
+        builtin_registry: &dyn BuiltinRegistry,
     ) -> Result<(), Vec<anyhow::Error>> {
         let TopLevelDef::Class {
             object_id,
@@ -2128,7 +2121,8 @@ impl TopLevelComposer {
                 };
                 let mut calls: HashMap<CodeLocation, CallId> = HashMap::new();
                 let mut inferencer = Inferencer {
-                    top_level: ctx.as_ref(),
+                    builtin_registry: &*ctx.builtin_registry,
+                    top_level_defs: &ctx.definitions,
                     defined_identifiers: identifiers.clone(),
                     function_data: &mut FunctionData {
                         resolver: resolver.clone().unwrap(),
@@ -2182,7 +2176,7 @@ impl TopLevelComposer {
                 let returned = inferencer.check_block(fun_body.as_slice(), &mut identifiers)?;
                 {
                     // check virtuals
-                    let defs = ctx.definitions.read();
+                    let defs = &ctx.definitions;
                     for (subtype, base, loc) in &*inferencer.virtual_checks {
                         let base_id = {
                             let base = inferencer.unifier.get_ty(*base);

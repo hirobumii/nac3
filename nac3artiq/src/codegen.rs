@@ -1373,7 +1373,7 @@ pub fn attributes_writeback<'ctx>(
                     py,
                     val,
                     &mut ctx.unifier,
-                    &ctx.top_level.definitions.read(),
+                    &ctx.top_level.definitions,
                     &primitives,
                     None,
                 )?
@@ -1403,7 +1403,7 @@ pub fn attributes_writeback<'ctx>(
                     // compiles (the unifier's `fields` map is a HashMap and would otherwise
                     // randomize the order each run).
                     let source_field_names: Vec<StrRef> = {
-                        let top_level_defs = ctx.top_level.definitions.read();
+                        let top_level_defs = &ctx.top_level.definitions;
                         let TopLevelDef::Class { fields: source_fields, .. } =
                             &*top_level_defs[obj_id.0].read()
                         else {

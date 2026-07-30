@@ -80,7 +80,7 @@ fn handle_typevar_definition(
     var: &Expr,
     resolver: &(dyn SymbolResolver + Send + Sync),
     def_list: &[Arc<RwLock<TopLevelDef>>],
-    builtin_registry: &Arc<dyn BuiltinRegistry>,
+    builtin_registry: &dyn BuiltinRegistry,
     unifier: &mut Unifier,
     primitives: &PrimitiveStore,
 ) -> Result<Type, Vec<anyhow::Error>> {
@@ -180,7 +180,7 @@ fn handle_assignment_pattern(
                 let def_list = composer.extract_def_list();
                 let unifier = &mut composer.unifier;
                 let primitives = &composer.primitives_ty;
-                let builtin_registry = &composer.builtin_registry;
+                let builtin_registry = &*composer.builtin_registry;
 
                 handle_typevar_definition(
                     value,
@@ -392,7 +392,7 @@ fn main() {
     let top_level = Arc::new(composer.make_top_level_context());
 
     let (instance, location) = {
-        let defs = top_level.definitions.read();
+        let defs = &top_level.definitions;
         let TopLevelDef::Function { instance_to_stmt, instance_to_symbol, loc, .. } = &mut *defs
             [resolver
                 .get_identifier_def("run".into())

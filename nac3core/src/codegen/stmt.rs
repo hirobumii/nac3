@@ -1999,7 +1999,7 @@ pub fn exn_constructor<'ctx>(
     } else {
         codegen_unreachable!(ctx)
     };
-    let defs = ctx.top_level.definitions.read();
+    let defs = &ctx.top_level.definitions;
     let TopLevelDef::Class { name: zelf_name, .. } = &*defs[zelf_id].read() else {
         codegen_unreachable!(ctx)
     };
@@ -2135,7 +2135,7 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
 
         let type_ = type_.as_ref().unwrap();
         let exn_name = ctx.resolver.get_type_name(
-            &ctx.top_level.definitions.read(),
+            &ctx.top_level.definitions,
             &mut ctx.unifier,
             type_.custom.unwrap(),
         );
@@ -2512,7 +2512,7 @@ pub fn gen_with<'ctx, 'a, G: CodeGenerator>(
         let TypeEnum::TObj { obj_id, fields, .. } = &*ctx.unifier.get_ty(expr_ty) else {
             codegen_unreachable!(ctx)
         };
-        let top_level_defs = ctx.top_level.definitions.read();
+        let top_level_defs = &ctx.top_level.definitions;
         let TopLevelDef::Class { methods, .. } = &*top_level_defs[obj_id.0].read() else {
             codegen_unreachable!(ctx)
         };
@@ -2876,7 +2876,7 @@ pub fn gen_stmt<G: CodeGenerator>(
                             .resolver
                             .get_identifier_def(*id)
                             .map_err(|e| anyhow!("{} (at {})", e.first().unwrap(), exc.location))?;
-                        let def = ctx.top_level.definitions.read();
+                        let def = &ctx.top_level.definitions;
                         let TopLevelDef::Class { constructor, .. } = *def[def_id.0].read() else {
                             bail!("Failed to resolve symbol {id} (at {})", exc.location);
                         };

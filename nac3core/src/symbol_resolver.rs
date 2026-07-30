@@ -405,7 +405,7 @@ pub fn parse_type_annotation<T>(
     unifier: &mut Unifier,
     primitives: &PrimitiveStore,
     expr: &Expr<T>,
-    builtin_registry: &Arc<dyn BuiltinRegistry>,
+    builtin_registry: &dyn BuiltinRegistry,
 ) -> Result<Type, Vec<anyhow::Error>> {
     let name_handling = |name_expr: &Expr<T>, id: &StrRef, unifier: &mut Unifier| {
         if let Some(builtin) = builtin_registry.match_builtin(&erase_expr_type(name_expr))
@@ -607,7 +607,7 @@ impl dyn SymbolResolver + Send + Sync {
         unifier: &mut Unifier,
         primitives: &PrimitiveStore,
         expr: &Expr<T>,
-        builtin_registry: &Arc<dyn BuiltinRegistry>,
+        builtin_registry: &dyn BuiltinRegistry,
     ) -> Result<Type, Vec<anyhow::Error>> {
         parse_type_annotation(self, top_level_defs, unifier, primitives, expr, builtin_registry)
     }

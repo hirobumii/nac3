@@ -44,9 +44,7 @@ impl TypeAnnotation {
                 let class_name = unifier.top_level.as_ref().map_or_else(
                     || format!("class_def_{}", id.0),
                     |top| {
-                        if let TopLevelDef::Class { name, .. } =
-                            &*top.definitions.read()[id.0].read()
-                        {
+                        if let TopLevelDef::Class { name, .. } = &*top.definitions[id.0].read() {
                             (*name).into()
                         } else {
                             unreachable!()
@@ -79,7 +77,7 @@ impl TypeAnnotation {
 fn class_def_id_to_type_annotation<T, S: std::hash::BuildHasher + Clone>(
     resolver: &(dyn SymbolResolver + Send + Sync),
     top_level_defs: &[Arc<RwLock<TopLevelDef>>],
-    builtin_registry: &Arc<dyn BuiltinRegistry>,
+    builtin_registry: &dyn BuiltinRegistry,
     unifier: &mut Unifier,
     primitives: &PrimitiveStore,
     mut locked: HashMap<DefinitionId, Vec<Type>, S>,
@@ -186,7 +184,7 @@ fn class_def_id_to_type_annotation<T, S: std::hash::BuildHasher + Clone>(
 fn parse_name_as_type_annotation<T, S: std::hash::BuildHasher + Clone>(
     resolver: &(dyn SymbolResolver + Send + Sync),
     top_level_defs: &[Arc<RwLock<TopLevelDef>>],
-    builtin_registry: &Arc<dyn BuiltinRegistry>,
+    builtin_registry: &dyn BuiltinRegistry,
     unifier: &mut Unifier,
     primitives: &PrimitiveStore,
     locked: HashMap<DefinitionId, Vec<Type>, S>,
@@ -243,7 +241,7 @@ fn parse_name_as_type_annotation<T, S: std::hash::BuildHasher + Clone>(
 fn parse_class_id_as_type_annotation<T, S: std::hash::BuildHasher + Clone>(
     resolver: &(dyn SymbolResolver + Send + Sync),
     top_level_defs: &[Arc<RwLock<TopLevelDef>>],
-    builtin_registry: &Arc<dyn BuiltinRegistry>,
+    builtin_registry: &dyn BuiltinRegistry,
     unifier: &mut Unifier,
     primitives: &PrimitiveStore,
     locked: HashMap<DefinitionId, Vec<Type>, S>,
@@ -369,7 +367,7 @@ fn resolve_class_to_id<T>(
 pub fn parse_ast_to_type_annotation_kinds<T, S: std::hash::BuildHasher + Clone>(
     resolver: &(dyn SymbolResolver + Send + Sync),
     top_level_defs: &[Arc<RwLock<TopLevelDef>>],
-    builtin_registry: &Arc<dyn BuiltinRegistry>,
+    builtin_registry: &dyn BuiltinRegistry,
     unifier: &mut Unifier,
     primitives: &PrimitiveStore,
     expr: &ast::Expr<T>,

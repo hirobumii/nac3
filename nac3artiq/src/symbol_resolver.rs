@@ -246,7 +246,7 @@ impl StaticValue for PythonValue {
                     let pyid_to_def = self.resolver.pyid_to_def.read();
                     if let Some(def_id) = pyid_to_def.get(&ty_id).copied() {
                         let mut mutable = true;
-                        let defs = ctx.top_level.definitions.read();
+                        let defs = &ctx.top_level.definitions;
                         if let TopLevelDef::Class { fields, .. } = &*defs[def_id.0].read() {
                             for (field_name, _, is_mutable) in fields {
                                 if field_name == &name {
@@ -267,7 +267,7 @@ impl StaticValue for PythonValue {
                     } else if let Some(def_id) = pyid_to_def.get(&id).copied() {
                         // Check if self.value is a module
                         let in_mod_ctx =
-                            ctx.top_level.definitions.read().get(def_id.0).is_some_and(|def| {
+                            ctx.top_level.definitions.get(def_id.0).is_some_and(|def| {
                                 matches!(&*def.read(), TopLevelDef::Module { .. })
                             });
 
@@ -1389,13 +1389,13 @@ impl InnerResolver {
             let start: i32 = start_obj.extract()?;
 
             // Get element and iterable types using the helper function
-            let top_level_defs = ctx.top_level.definitions.read();
+            let top_level_defs = &ctx.top_level.definitions;
             let (_, iterable_ty) = self
                 .get_enumerate_elem_and_iterable_type(
                     py,
                     obj,
                     &mut ctx.unifier,
-                    &top_level_defs,
+                    top_level_defs,
                     &ctx.primitives,
                 )
                 .map_err(|e| super::CompileError::new_err(format!("{e}")))?;
@@ -1797,7 +1797,7 @@ impl InnerResolver {
                 py,
                 obj,
                 &mut ctx.unifier,
-                &ctx.top_level.definitions.read(),
+                &ctx.top_level.definitions,
                 &ctx.primitives,
                 None,
             )?;
@@ -1826,7 +1826,7 @@ impl InnerResolver {
                 self.global_value_ids.write().insert(id, typed);
             }
             // should be classes
-            let top_level_defs = ctx.top_level.definitions.read();
+            let top_level_defs = &ctx.top_level.definitions;
             let TopLevelDef::Class { fields: fields_list, .. } =
                 &*top_level_defs[self.pyid_to_def.read()[&ty_id].0].read()
             else {

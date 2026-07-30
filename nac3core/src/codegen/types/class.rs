@@ -53,7 +53,7 @@ impl<'ctx> RawClassType<'ctx> {
         let name = ctx.unifier.stringify(ty);
 
         let (class_name, fields_list) = {
-            let def = ctx.top_level.definitions.read()[obj_id.0].clone();
+            let def = ctx.top_level.definitions[obj_id.0].clone();
             // Functions and modules cannot be treated as a class instance
             let class_def = match &*def.read() {
                 TopLevelDef::Class { name, fields, .. } => Ok((*name, fields.clone())),
@@ -141,7 +141,7 @@ impl<'ctx> WithTypeinfo<'ctx> for RawClassType<'ctx> {
         };
 
         let fields_list = {
-            let top_level_defs = ctx.top_level.definitions.read();
+            let top_level_defs = &ctx.top_level.definitions;
             let TopLevelDef::Class { fields: fields_list, .. } = &*top_level_defs[obj_id.0].read()
             else {
                 unreachable!()
