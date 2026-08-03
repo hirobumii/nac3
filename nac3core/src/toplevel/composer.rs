@@ -395,7 +395,7 @@ impl TopLevelComposer {
         builtin_registry: Arc<dyn BuiltinRegistry>,
         size_t: u32,
     ) -> (Self, HashMap<StrRef, DefinitionId>, HashMap<StrRef, Type>) {
-        let (primitives_ty, mut unifier) = Self::make_unifier(size_t);
+        let (mut unifier, primitives_ty) = Self::make_unifier(size_t);
         let mut definition_ast_list = builtins::get_builtins(&mut unifier, &primitives_ty);
         let defined_names = HashSet::default();
         let method_class = HashMap::default();

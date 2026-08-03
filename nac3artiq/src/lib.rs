@@ -1617,7 +1617,7 @@ impl Nac3 {
             target_options.create_target_machine().get_target_data().get_pointer_byte_size(None)
                 * 8;
 
-        let (primitive, _) = TopLevelComposer::make_unifier(size_t_bits);
+        let (_, primitive) = TopLevelComposer::make_unifier(size_t_bits);
         let builtins = vec![
             (
                 "now_mu".into(),

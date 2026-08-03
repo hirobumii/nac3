@@ -85,7 +85,7 @@ struct TestEnvironment {
 
 impl TestEnvironment {
     fn new() -> Self {
-        let (_, mut unifier) = TopLevelComposer::make_unifier(64);
+        let (mut unifier, _) = TopLevelComposer::make_unifier(64);
         let mut type_mapping = HashMap::new();
 
         type_mapping.insert(

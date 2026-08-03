@@ -357,7 +357,8 @@ impl Unifier {
     /// This function can only be invoked once. Any subsequent invocations will result in an
     /// assertion error.
     pub fn put_primitive_store(&mut self, primitives: &PrimitiveStore) {
-        assert!(self.primitive_store.replace(*primitives).is_none());
+        assert!(self.primitive_store.is_none());
+        self.primitive_store.replace(*primitives);
     }
 
     /// Determine if the two types are the same

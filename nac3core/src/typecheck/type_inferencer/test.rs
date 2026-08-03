@@ -77,7 +77,7 @@ struct TestEnvironment {
 impl TestEnvironment {
     fn new() -> Self {
         let mut identifier_mapping = HashMap::new();
-        let (primitives, mut unifier) = TopLevelComposer::make_unifier(64);
+        let (mut unifier, primitives) = TopLevelComposer::make_unifier(64);
         let mut top_level_defs: Vec<Arc<RwLock<TopLevelDef>>> = Vec::new();
         with_fields(&mut unifier, primitives.int32, |unifier, fields| {
             let add_ty = unifier.add_ty(TypeEnum::TFunc(FunSignature {

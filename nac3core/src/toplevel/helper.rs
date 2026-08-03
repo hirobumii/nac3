@@ -527,7 +527,7 @@ impl TopLevelDef {
 
 impl TopLevelComposer {
     #[must_use]
-    pub fn make_unifier(size_t: u32) -> (PrimitiveStore, Unifier) {
+    pub fn make_unifier(size_t: u32) -> (Unifier, PrimitiveStore) {
         let mut unifier = Unifier::new_without_primitives();
         let int32 = unifier.add_ty(TypeEnum::TObj {
             obj_id: PrimDef::Int32.id(),
@@ -720,7 +720,7 @@ impl TopLevelComposer {
         };
         unifier.put_primitive_store(&primitives);
         crate::typecheck::magic_methods::set_primitives_magic_methods(&primitives, &mut unifier);
-        (primitives, unifier)
+        (unifier, primitives)
     }
 
     /// already include the `definition_id` of itself inside the ancestors vector
@@ -825,21 +825,22 @@ impl TopLevelComposer {
         };
 
         // check args
-        let args_ok =
-            this_args
-                .iter()
-                .map(|FuncArg { name, ty, .. }| (name, &type_var_to_concrete_def[ty]))
-                .zip(other_args.iter().map(|FuncArg { name, ty, .. }| {
-                    (name, &type_var_to_concrete_def[ty])
-                }))
-                .all(|(this, other)| {
-                    if this.0 == &"self".into() && this.0 == other.0 {
-                        true
-                    } else {
-                        this.0 == other.0
-                            && check_overload_type_annotation_compatible(this.1, other.1, unifier)
-                    }
-                });
+        let args_ok = this_args
+            .iter()
+            .map(|FuncArg { name, ty, .. }| (name, &type_var_to_concrete_def[ty]))
+            .zip(
+                other_args
+                    .iter()
+                    .map(|FuncArg { name, ty, .. }| (name, &type_var_to_concrete_def[ty])),
+            )
+            .all(|(this, other)| {
+                if this.0 == &"self".into() && this.0 == other.0 {
+                    true
+                } else {
+                    this.0 == other.0
+                        && check_overload_type_annotation_compatible(this.1, other.1, unifier)
+                }
+            });
 
         // check rets
         let ret_ok = check_overload_type_annotation_compatible(

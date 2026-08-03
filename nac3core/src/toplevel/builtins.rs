@@ -263,10 +263,8 @@ impl<'a> BuiltinBuilder<'a> {
         };
         let ndarray_dtype_tvar = iter_type_vars(ndarray_params).next().unwrap();
         let ndarray_ndims_tvar = iter_type_vars(ndarray_params).nth(1).unwrap();
-        let (ndarray_copy_ty, _) =
-            ndarray_fields[&PrimDef::FunNDArrayCopy.simple_name().into()];
-        let (ndarray_fill_ty, _) =
-            ndarray_fields[&PrimDef::FunNDArrayFill.simple_name().into()];
+        let (ndarray_copy_ty, _) = ndarray_fields[&PrimDef::FunNDArrayCopy.simple_name().into()];
+        let (ndarray_fill_ty, _) = ndarray_fields[&PrimDef::FunNDArrayFill.simple_name().into()];
 
         let num_ty = unifier.get_fresh_var_with_range(
             &[int32, int64, float, boolean, uint32, uint64],

@@ -2102,9 +2102,7 @@ impl Inferencer<'_> {
                         // not annotated `Kernel`. Try to fallback to the module symbol resolver
                         // to lookup the symbol type.
 
-                        let top_level_defs = self.top_level_defs.iter().cloned().collect_vec();
-
-                        let tld = &top_level_defs[obj_id.0];
+                        let tld = &self.top_level_defs[obj_id.0];
                         let TopLevelDef::Module { resolver, .. } = &*tld.read() else {
                             unreachable!(
                                 "Expected TopLevelDef[{}] to be a TModule, but got {tld:?}",
@@ -2116,7 +2114,7 @@ impl Inferencer<'_> {
                             resolver
                                 .get_symbol_type(
                                     self.unifier,
-                                    &top_level_defs,
+                                    self.top_level_defs,
                                     self.primitives,
                                     attr,
                                 )
