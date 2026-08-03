@@ -384,17 +384,17 @@ fn test_basic(source: &str, mapping: &HashMap<&str, &str>, virtuals: &[(&str, &s
     for (k, v) in &inferencer.variable_mapping {
         let name = inferencer.unifier.internal_stringify(
             *v,
-            &mut |v| (*id_to_name.get(&v).unwrap()).into(),
+            &mut |v| id_to_name[&v].into(),
             &mut |v| format!("v{v}"),
             &mut None,
         );
         println!("{k}: {name}");
     }
     for (k, v) in mapping {
-        let ty = inferencer.variable_mapping.get(&(*k).into()).unwrap();
+        let ty = inferencer.variable_mapping[&(*k).into()];
         let name = inferencer.unifier.internal_stringify(
-            *ty,
-            &mut |v| (*id_to_name.get(&v).unwrap()).into(),
+            ty,
+            &mut |v| id_to_name[&v].into(),
             &mut |v| format!("v{v}"),
             &mut None,
         );
@@ -404,13 +404,13 @@ fn test_basic(source: &str, mapping: &HashMap<&str, &str>, virtuals: &[(&str, &s
     for ((a, b, _), (x, y)) in zip(inferencer.virtual_checks.iter(), virtuals) {
         let a = inferencer.unifier.internal_stringify(
             *a,
-            &mut |v| (*id_to_name.get(&v).unwrap()).into(),
+            &mut |v| id_to_name[&v].into(),
             &mut |v| format!("v{v}"),
             &mut None,
         );
         let b = inferencer.unifier.internal_stringify(
             *b,
-            &mut |v| (*id_to_name.get(&v).unwrap()).into(),
+            &mut |v| id_to_name[&v].into(),
             &mut |v| format!("v{v}"),
             &mut None,
         );
@@ -530,17 +530,17 @@ fn test_primitive_magic_methods(source: &str, mapping: &HashMap<&str, &str>) {
     for (k, v) in &inferencer.variable_mapping {
         let name = inferencer.unifier.internal_stringify(
             *v,
-            &mut |v| (*id_to_name.get(&v).unwrap()).into(),
+            &mut |v| (id_to_name[&v]).into(),
             &mut |v| format!("v{v}"),
             &mut None,
         );
         println!("{k}: {name}");
     }
     for (k, v) in mapping {
-        let ty = inferencer.variable_mapping.get(&(*k).into()).unwrap();
+        let ty = inferencer.variable_mapping[&(*k).into()];
         let name = inferencer.unifier.internal_stringify(
-            *ty,
-            &mut |v| (*id_to_name.get(&v).unwrap()).into(),
+            ty,
+            &mut |v| (id_to_name[&v]).into(),
             &mut |v| format!("v{v}"),
             &mut None,
         );

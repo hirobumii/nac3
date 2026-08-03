@@ -413,13 +413,13 @@ impl Unifier {
     }
 
     pub fn get_call_signature(&mut self, id: CallId) -> Option<FunSignature> {
-        let fun = self.calls.get(id.0).unwrap().fun;
+        let fun = self.calls[id.0].fun;
         if let TypeEnum::TFunc(sign) = &*self.get_ty(fun) { Some(sign.clone()) } else { None }
     }
 
     #[must_use]
     pub fn get_call_signature_immutable(&self, id: CallId) -> Option<FunSignature> {
-        let fun = self.calls.get(id.0).unwrap().fun;
+        let fun = self.calls[id.0].fun;
         if let TypeEnum::TFunc(sign) = &*self.get_ty_immutable(fun) {
             Some(sign.clone())
         } else {
@@ -1677,8 +1677,8 @@ impl Unifier {
                     let fields =
                         self.subst_map2(fields, mapping, cache).unwrap_or_else(|| fields.clone());
                     let new_ty = self.add_ty(TypeEnum::TObj { obj_id, params, fields });
-                    if let Some(var) = cache.get(&a).unwrap() {
-                        self.unify_impl(new_ty, *var, false).unwrap();
+                    if let Some(var) = cache[&a] {
+                        self.unify_impl(new_ty, var, false).unwrap();
                     } else {
                         cache.insert(a, Some(new_ty));
                     }

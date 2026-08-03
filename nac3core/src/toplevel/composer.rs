@@ -1445,7 +1445,7 @@ impl TopLevelComposer {
                     };
 
                     let TopLevelDef::Function { var_id, .. } =
-                        &mut *temp_def_list.get(method_id.0).unwrap().write() else {
+                        &mut *temp_def_list[method_id.0].write() else {
                         unreachable!()
                     };
                     var_id.extend_from_slice(method_var_map
@@ -1671,12 +1671,12 @@ impl TopLevelComposer {
 
         // since when this function is called, the ancestors of the direct parent
         // are supposed to be already handled, so we only need to deal with the direct parent
-        let base = class_ancestor_def.get(1).unwrap();
+        let base = &class_ancestor_def[1];
         let TypeAnnotation::CustomClass { id, params: _ } = base else {
             unreachable!("must be class type annotation")
         };
         let TopLevelDef::Class { methods, fields, attributes, .. } =
-            &*temp_def_list.get(id.0).unwrap().read()
+            &*temp_def_list[id.0].read()
         else {
             unreachable!("must be top level class def")
         };
@@ -1996,7 +1996,7 @@ impl TopLevelComposer {
             let uninst_self_type = {
                 if let Some(class_id) = method_class.get(&DefinitionId(id)) {
                     let TopLevelDef::Class { type_vars, fields, .. } =
-                        &*definition_ast_list.get(class_id.0).unwrap().0.read()
+                        &*definition_ast_list[class_id.0].0.read()
                     else {
                         unreachable!("must be class def")
                     };

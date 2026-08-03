@@ -217,9 +217,9 @@ impl ConcreteTypeStore {
                 }
                 _ => unreachable!("{:?}", ty_enum.get_type_name()),
             };
-            let index = if let Some(ConcreteType(index)) = cache.get(&ty).unwrap() {
-                self.store[*index] = result;
-                *index
+            let index = if let Some(ConcreteType(index)) = cache[&ty] {
+                self.store[index] = result;
+                index
             } else {
                 self.store.push(result);
                 self.store.len() - 1
@@ -320,8 +320,8 @@ impl ConcreteTypeStore {
             }
         };
         let result = unifier.add_ty(result);
-        if let Some(ty) = cache.get(&cty).unwrap() {
-            unifier.unify(*ty, result).map_err(|e| anyhow!("{}", e.to_display(unifier)))?;
+        if let Some(ty) = cache[&cty] {
+            unifier.unify(ty, result).map_err(|e| anyhow!("{}", e.to_display(unifier)))?;
         }
         cache.insert(cty, Some(result));
         Ok(result)

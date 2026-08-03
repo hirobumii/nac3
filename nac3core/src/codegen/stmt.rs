@@ -2521,7 +2521,7 @@ pub fn gen_with<'ctx, 'a, G: CodeGenerator>(
             .find(|method| method.0 == "__enter__".into())
             .map(|method| method.2)
             .unwrap();
-        let enter = fields.get(&"__enter__".into()).copied().unwrap();
+        let enter = fields[&"__enter__".into()];
         let TypeEnum::TFunc(enter_signature) = &*ctx.unifier.get_ty(enter.0) else {
             codegen_unreachable!(ctx)
         };
@@ -2532,7 +2532,7 @@ pub fn gen_with<'ctx, 'a, G: CodeGenerator>(
             .find(|method| method.0 == "__exit__".into())
             .map(|method| method.2)
             .unwrap();
-        let exit = fields.get(&"__exit__".into()).copied().unwrap();
+        let exit = fields[&"__exit__".into()];
         let TypeEnum::TFunc(exit_signature) = &*ctx.unifier.get_ty(exit.0) else {
             codegen_unreachable!(ctx)
         };

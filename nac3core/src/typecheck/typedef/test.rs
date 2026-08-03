@@ -203,7 +203,7 @@ impl TestEnvironment {
                 let ty = mapping.get(x).copied().unwrap_or_else(|| {
                     // mapping should be type variables, type_mapping should be concrete types
                     // we should not resolve the type of type variables.
-                    let mut ty = *self.type_mapping.get(x).unwrap();
+                    let mut ty = self.type_mapping[x];
                     let te = self.unifier.get_ty(ty);
                     if let TypeEnum::TObj { params, .. } = &*te
                         && !params.is_empty()
@@ -367,8 +367,8 @@ fn test_invalid_unification(
 #[test]
 fn test_recursive_subst() {
     let mut env = TestEnvironment::new();
-    let int = *env.type_mapping.get("int").unwrap();
-    let foo_id = *env.type_mapping.get("Foo").unwrap();
+    let int = env.type_mapping["int"];
+    let foo_id = env.type_mapping["Foo"];
     let foo_ty = env.unifier.get_ty(foo_id);
     with_fields(&mut env.unifier, foo_id, |_unifier, fields| {
         fields.insert("rec".into(), (foo_id, AttrKind::Field { mutable: true }));
@@ -386,10 +386,10 @@ fn test_recursive_subst() {
 #[test]
 fn test_distributive_subst() {
     let mut env = TestEnvironment::new();
-    let int = *env.type_mapping.get("int").unwrap();
+    let int = env.type_mapping["int"];
 
     // type Foo[U]
-    let foo_u = *env.type_mapping.get("Foo").unwrap();
+    let foo_u = env.type_mapping["Foo"];
     let foo_u_ty = env.unifier.get_ty(foo_u);
 
     // refinement [U |-> int]
@@ -700,7 +700,7 @@ fn test_instantiation() {
         .map(|ty| {
             env.unifier.internal_stringify(
                 *ty,
-                &mut |i| (*obj_map.get(&i).unwrap()).to_string(),
+                &mut |i| (obj_map[&i]).to_string(),
                 &mut |i| format!("v{i}"),
                 &mut None,
             )

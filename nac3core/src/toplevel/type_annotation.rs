@@ -101,7 +101,7 @@ fn class_def_id_to_type_annotation<T, S: std::hash::BuildHasher + Clone>(
             return Err(vec![anyhow!("function cannot be used as a type (at {location})",)]);
         }
     } else {
-        locked.get(&obj_id).unwrap().clone()
+        locked[&obj_id].clone()
     };
 
     let param_type_infos = if let Some(slice) = type_args {

@@ -1089,7 +1089,7 @@ impl Nac3 {
                 _ => (),
             }
 
-            let id = *name_to_pyid.get(&name).unwrap();
+            let id = name_to_pyid[&name];
             self.pyid_to_def.write().insert(id, def_id);
             {
                 let mut pyid_to_ty = pyid_to_type.write();
@@ -1308,7 +1308,8 @@ impl Nac3 {
                 &mut generator,
                 &registry,
                 task,
-                &mut None,
+                // no cached unifier to use
+                &mut None::<Unifier>,
                 |generator, ctx| {
                     assert_eq!(instance.body.len(), 1, "toplevel module should have 1 statement");
                     let StmtKind::Expr { value: ref expr, .. } = instance.body[0].node else {

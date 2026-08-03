@@ -828,9 +828,9 @@ impl TopLevelComposer {
         let args_ok =
             this_args
                 .iter()
-                .map(|FuncArg { name, ty, .. }| (name, type_var_to_concrete_def.get(ty).unwrap()))
+                .map(|FuncArg { name, ty, .. }| (name, &type_var_to_concrete_def[ty]))
                 .zip(other_args.iter().map(|FuncArg { name, ty, .. }| {
-                    (name, type_var_to_concrete_def.get(ty).unwrap())
+                    (name, &type_var_to_concrete_def[ty])
                 }))
                 .all(|(this, other)| {
                     if this.0 == &"self".into() && this.0 == other.0 {
@@ -843,8 +843,8 @@ impl TopLevelComposer {
 
         // check rets
         let ret_ok = check_overload_type_annotation_compatible(
-            type_var_to_concrete_def.get(this_ret).unwrap(),
-            type_var_to_concrete_def.get(other_ret).unwrap(),
+            &type_var_to_concrete_def[this_ret],
+            &type_var_to_concrete_def[other_ret],
             unifier,
         );
 
@@ -859,8 +859,8 @@ impl TopLevelComposer {
         type_var_to_concrete_def: &HashMap<Type, TypeAnnotation>,
     ) -> bool {
         check_overload_type_annotation_compatible(
-            type_var_to_concrete_def.get(&this).unwrap(),
-            type_var_to_concrete_def.get(&other).unwrap(),
+            &type_var_to_concrete_def[&this],
+            &type_var_to_concrete_def[&other],
             unifier,
         )
     }

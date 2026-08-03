@@ -248,8 +248,8 @@ impl<'a> BuiltinBuilder<'a> {
         let ((is_some_ty, _), (unwrap_ty, _), option_tvar) =
             if let TypeEnum::TObj { fields, params, .. } = unifier.get_ty(option).as_ref() {
                 (
-                    *fields.get(&PrimDef::FunOptionIsSome.simple_name().into()).unwrap(),
-                    *fields.get(&PrimDef::FunOptionUnwrap.simple_name().into()).unwrap(),
+                    fields[&PrimDef::FunOptionIsSome.simple_name().into()],
+                    fields[&PrimDef::FunOptionUnwrap.simple_name().into()],
                     iter_type_vars(params).next().unwrap(),
                 )
             } else {
@@ -264,9 +264,9 @@ impl<'a> BuiltinBuilder<'a> {
         let ndarray_dtype_tvar = iter_type_vars(ndarray_params).next().unwrap();
         let ndarray_ndims_tvar = iter_type_vars(ndarray_params).nth(1).unwrap();
         let (ndarray_copy_ty, _) =
-            *ndarray_fields.get(&PrimDef::FunNDArrayCopy.simple_name().into()).unwrap();
+            ndarray_fields[&PrimDef::FunNDArrayCopy.simple_name().into()];
         let (ndarray_fill_ty, _) =
-            *ndarray_fields.get(&PrimDef::FunNDArrayFill.simple_name().into()).unwrap();
+            ndarray_fields[&PrimDef::FunNDArrayFill.simple_name().into()];
 
         let num_ty = unifier.get_fresh_var_with_range(
             &[int32, int64, float, boolean, uint32, uint64],

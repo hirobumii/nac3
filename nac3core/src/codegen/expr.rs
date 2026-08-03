@@ -686,7 +686,7 @@ pub fn gen_func_instance(
         filter.extend(params.keys());
     }
     let key = ctx.get_subst_key(obj, sign, Some(&filter));
-    let instance = instance_to_stmt.get(&key).unwrap();
+    let instance = &instance_to_stmt[&key];
 
     let mut store = ConcreteTypeStore::new();
     let mut cache = HashMap::new();
@@ -696,7 +696,7 @@ pub fn gen_func_instance(
         .iter()
         .map(|(id, ty)| {
             (
-                *instance.subst.get(id).unwrap(),
+                instance.subst[id],
                 store.from_unifier_type(&mut ctx.unifier, &ctx.primitives, *ty, &mut cache),
             )
         })
@@ -745,7 +745,7 @@ pub fn gen_call<'ctx, G: CodeGenerator>(
     fun: (&FunSignature, DefinitionId),
     params: Vec<(Option<StrRef>, ValueEnum<'ctx>)>,
 ) -> anyhow::Result<Option<BasicValueEnum<'ctx>>> {
-    let definition = ctx.top_level.definitions.get(fun.1.0).cloned().unwrap();
+    let definition = ctx.top_level.definitions[fun.1.0].clone();
     let id;
     let key;
     let is_extern;
@@ -1421,7 +1421,7 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
                 codegen_unreachable!(ctx, "must be tobj")
             };
 
-            let fn_ty = fields.get(&op_name).unwrap().0;
+            let fn_ty = fields[&op_name].0;
             let fn_ty_enum = ctx.unifier.get_ty_immutable(fn_ty);
             let TypeEnum::TFunc(sig) = fn_ty_enum.as_ref() else { codegen_unreachable!(ctx) };
 
