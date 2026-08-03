@@ -266,7 +266,9 @@ fn parse_class_id_as_type_annotation<T, S: std::hash::BuildHasher + Clone>(
             _ => builtin.id(),
         }
     } else {
-        resolver.get_identifier_def(id)?
+        resolver.get_identifier_def(id).map_err(|errs| {
+            errs.into_iter().map(|e| anyhow!("{e} (at {})", value.location)).collect_vec()
+        })?
     };
 
     class_def_id_to_type_annotation(
@@ -298,7 +300,9 @@ fn resolve_class_to_id<T>(
     ) -> Result<DefinitionId, Vec<anyhow::Error>> {
         // If the path is unqualified, directly resolve using the provided `resolver`
         let Some(parent) = parent else {
-            return resolver.get_identifier_def(*attr);
+            return resolver.get_identifier_def(*attr).map_err(|errs| {
+                errs.into_iter().map(|e| anyhow!("{e} (at {location})")).collect_vec()
+            });
         };
 
         // Unpack the parent expression into its qualified parent and attribute

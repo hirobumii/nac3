@@ -542,7 +542,9 @@ pub fn parse_type_annotation<T>(
             let obj_id = if let Some(builtin) = builtin {
                 builtin.id()
             } else {
-                resolver.get_identifier_def(*id)?
+                resolver.get_identifier_def(*id).map_err(|errs| {
+                    errs.into_iter().map(|e| anyhow!("{e} (at {})", value.location)).collect_vec()
+                })?
             };
 
             let def = top_level_defs[obj_id.0].read();
