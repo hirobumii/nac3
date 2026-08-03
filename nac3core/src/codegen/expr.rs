@@ -10,6 +10,8 @@ use anyhow::{anyhow, bail};
 use inkwell::{
     IntPredicate,
     basic_block::BasicBlock,
+    builder::Builder,
+    context::ContextRef,
     debug_info::DILocation,
     types::BasicTypeEnum,
     values::{BasicValueEnum, IntValue, PointerValue, StructValue},
@@ -38,9 +40,7 @@ use crate::{
         },
         macros::codegen_unreachable,
         opt,
-        stmt::{
-            gen_for_callback_incrementing, gen_if_callback, gen_if_else_expr_callback, gen_raise,
-        },
+        stmt::gen_raise,
         types::{
             ArrayLikeIndexer, ClassType, ExceptionType, ListType, ListValue, NDArrayOut,
             NDArrayType, OpaqueRefCountedType, OptionType, ProxyTypeBase, RangeField, RangeType,
@@ -89,6 +89,13 @@ impl<'ctx> RtValue<'ctx> {
         ctx: &mut CodeGenContext<'ctx, '_>,
     ) -> anyhow::Result<BasicValueEnum<'ctx>> {
         self.val.as_ref().unwrap().to_basic_value_enum(ctx, self.ty)
+    }
+
+    /// Convert this value into an `i1` boolean.
+    pub fn to_i1(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> anyhow::Result<IntValue<'ctx>> {
+        let value = self.to_basic_value_enum(ctx)?;
+        assert!(ctx.unifier.unioned(self.ty, ctx.primitives.bool), "condition must be boolean");
+        bool_to_i1(ctx, value.into_int_value())
     }
 }
 
@@ -572,14 +579,10 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
         // even if this assumption is violated, it does not matter as exception unwinding is
         // slow anyway...
         let cond = call_expect(self, cond, i1_true, Some("expect"))?;
-        let current_bb = self.builder.get_insert_block().unwrap();
-        let current_fun = current_bb.get_parent().unwrap();
-        let then_block = self.ctx.insert_basic_block_after(current_bb, "succ");
-        let exn_block = self.ctx.append_basic_block(current_fun, "fail");
-        self.builder.build_conditional_branch(cond, then_block, exn_block)?;
-        self.builder.position_at_end(exn_block);
-        self.raise_exn(err_name, err_msg, params)?;
-        self.builder.position_at_end(then_block);
+        let exn_block = self.branch(cond)?;
+        exn_block.set_name("fail");
+        self.in_block(exn_block, |ctx| ctx.raise_exn(err_name, err_msg, params))?;
+        self.builder.get_insert_block().unwrap().set_name("succ");
         Ok(())
     }
 
@@ -601,17 +604,51 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
             this.builder.set_current_debug_location(loc);
             old
         }
-        fn unset_loc<'ctx>(this: &CodeGenContext<'ctx, '_>, old: Option<DILocation<'ctx>>) {
-            if let Some(old) = old {
-                this.builder.set_current_debug_location(old);
-            } else {
-                this.builder.unset_current_debug_location();
-            }
-        }
 
         let old = set_loc(self, location);
         let result = f(self);
-        unset_loc(self, old);
+        Self::set_builder_loc(&self.builder, old);
+        result
+    }
+
+    /// Performs a branch, creating two new BBs. Jumps to the `then` case and returns the `else` block.
+    pub fn branch(&mut self, value: IntValue<'ctx>) -> anyhow::Result<BasicBlock<'ctx>> {
+        assert!(value.get_type() == self.i1, "branch condition must be 'i1' type");
+        let curr = self.builder.get_insert_block().expect("missing insert block");
+        let then_bb = self.ctx.insert_basic_block_after(curr, "then");
+        let else_bb = self.ctx.insert_basic_block_after(then_bb, "else");
+        self.builder.build_conditional_branch(value, then_bb, else_bb)?;
+        self.builder.position_at_end(then_bb);
+        Ok(else_bb)
+    }
+
+    fn set_builder_loc(builder: &Builder<'ctx>, loc: Option<DILocation<'ctx>>) {
+        if let Some(loc) = loc {
+            builder.set_current_debug_location(loc);
+        } else {
+            builder.unset_current_debug_location();
+        }
+    }
+
+    /// Creates a scope where the builder starts building at the end of `block`.
+    ///
+    /// The current builder position is restored at the end of the scope.
+    pub fn in_block<T>(&mut self, block: BasicBlock<'ctx>, f: impl FnOnce(&mut Self) -> T) -> T {
+        fn copy_builder<'ctx>(
+            ctx: ContextRef<'ctx>,
+            builder: &Builder<'ctx>,
+            block: BasicBlock<'ctx>,
+        ) -> Builder<'ctx> {
+            let new = ctx.create_builder();
+            CodeGenContext::set_builder_loc(&new, builder.get_current_debug_location());
+            new.position_at_end(block);
+            new
+        }
+
+        let new = copy_builder(self.ctx, &self.builder, block);
+        let old = core::mem::replace(&mut self.builder, new);
+        let result = f(self);
+        self.builder = old;
         result
     }
 }
@@ -1049,8 +1086,7 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
     };
 
     for cond in ifs {
-        let result = generator.gen_expr(ctx, cond)?.to_basic_value_enum(ctx)?.into_int_value();
-        let result = bool_to_i1(ctx, result)?;
+        let result = generator.gen_expr(ctx, cond)?.to_i1(ctx)?;
         let succ = ctx.ctx.append_basic_block(current, "then");
         ctx.builder.build_conditional_branch(result, succ, test_bb)?;
 
@@ -1154,24 +1190,15 @@ pub fn gen_prim_binop_expr<'ctx>(
                 // from the new list)
                 if is_refcounted_type(&mut ctx.unifier, list_ty.object.item_ty) {
                     let new_list_data_inner = new_list_data.inner_value(ctx, Some(new_len))?;
-                    gen_for_callback_incrementing(
-                        &mut (),
-                        ctx,
-                        None,
-                        llvm_usize.const_zero(),
-                        (new_len, false),
-                        |(), ctx, _, i| {
-                            let elem: PointerValue<'ctx> =
-                                new_list_data_inner.get_unchecked(ctx, &i, None)?;
-                            OpaqueRefCountedType::new(ctx)
-                                .map_value(elem, None)
-                                .header(ctx)
-                                .safe_increment_refcount(ctx)?;
-                            Ok(())
-                        },
-                        llvm_usize.const_int(1, false),
-                        |(), _| Ok(()),
-                    )?;
+                    ctx.build_repeat(None, new_len, |ctx, _, i| {
+                        let elem: PointerValue<'ctx> =
+                            new_list_data_inner.get_unchecked(ctx, &i, None)?;
+                        OpaqueRefCountedType::new(ctx)
+                            .map_value(elem, None)
+                            .header(ctx)
+                            .safe_increment_refcount(ctx)?;
+                        Ok(())
+                    })?;
                 }
 
                 Ok(new_list.value.into())
@@ -1251,27 +1278,18 @@ pub fn gen_prim_binop_expr<'ctx>(
                 let new_list = list_ty.construct(ctx, total_len, None)?;
                 let new_list_data = new_list.inner_value(ctx)?.data(ctx)?;
 
-                gen_for_callback_incrementing(
-                    &mut (),
-                    ctx,
-                    None,
-                    llvm_usize.const_zero(),
-                    (int_val, false),
-                    |(), ctx, _, i| {
-                        let offset = ctx.builder.build_int_mul(i, size, "")?;
-                        let ptr = new_list_data
-                            .inner_value(ctx, Some(total_len))?
-                            .ptr_offset_unchecked(ctx, &offset, None)?;
-                        let dest = new_list_data
-                            .inner_value(ctx, Some(total_len))?
-                            .ty
-                            .map_value((ptr, size), None);
-                        dest.memcpy_from(ctx, old_list_ptr)?;
-                        Ok(())
-                    },
-                    llvm_usize.const_int(1, false),
-                    |(), _| Ok(()),
-                )?;
+                ctx.build_repeat(None, int_val, |ctx, _, i| {
+                    let offset = ctx.builder.build_int_mul(i, size, "")?;
+                    let ptr = new_list_data
+                        .inner_value(ctx, Some(total_len))?
+                        .ptr_offset_unchecked(ctx, &offset, None)?;
+                    let dest = new_list_data
+                        .inner_value(ctx, Some(total_len))?
+                        .ty
+                        .map_value((ptr, size), None);
+                    dest.memcpy_from(ctx, old_list_ptr)?;
+                    Ok(())
+                })?;
 
                 // For refcounted elements, since the new list shallow copies the source elements,
                 // it is easier and more efficient to increment the refcount of each source element
@@ -1280,24 +1298,15 @@ pub fn gen_prim_binop_expr<'ctx>(
                 if is_refcounted_type(&mut ctx.unifier, list_ty.object.item_ty) {
                     let src_list_data_inner =
                         list_val.inner_value(ctx)?.data(ctx)?.inner_value(ctx, Some(size))?;
-                    gen_for_callback_incrementing(
-                        &mut (),
-                        ctx,
-                        None,
-                        llvm_usize.const_zero(),
-                        (size, false),
-                        |(), ctx, _, i| {
-                            let elem: PointerValue<'ctx> =
-                                src_list_data_inner.get_unchecked(ctx, &i, None)?;
-                            OpaqueRefCountedType::new(ctx)
-                                .map_value(elem, None)
-                                .header(ctx)
-                                .safe_increment_refcount_by(ctx, int_val)?;
-                            Ok(())
-                        },
-                        llvm_usize.const_int(1, false),
-                        |(), _| Ok(()),
-                    )?;
+                    ctx.build_repeat(None, size, |ctx, _, i| {
+                        let elem: PointerValue<'ctx> =
+                            src_list_data_inner.get_unchecked(ctx, &i, None)?;
+                        OpaqueRefCountedType::new(ctx)
+                            .map_value(elem, None)
+                            .header(ctx)
+                            .safe_increment_refcount_by(ctx, int_val)?;
+                        Ok(())
+                    })?;
                 }
 
                 Ok(new_list.value.into())
@@ -1748,7 +1757,6 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                 .iter()
                 .any(|ty| ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::List.id()))
             {
-                let llvm_usize = ctx.size_t;
                 let false_ = ctx.i8.const_zero();
 
                 let is_eq = |generator: &mut G,
@@ -1773,71 +1781,49 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                         .builder
                         .build_int_compare(IntPredicate::EQ, left_size, right_size, "")?;
 
-                    Ok(gen_if_else_expr_callback(
-                        generator,
-                        ctx,
-                        |_, _ctx| Ok(eq_len),
-                        |generator, ctx| {
-                            let acc_addr = ctx.alloc(ctx.i8, None)?;
-                            ctx.builder.build_store(acc_addr, ctx.i8.const_all_ones())?;
+                    ctx.build_ternary(eq_len,
+                    |ctx| {
+                        let acc_addr = ctx.alloc(ctx.i8, None)?;
+                        ctx.builder.build_store(acc_addr, ctx.i8.const_all_ones())?;
 
-                            gen_for_callback_incrementing(
-                                &mut (),
+                        ctx.build_repeat(None, left_size, |ctx, hooks, i| {
+                            let left_v = left.inner_value(ctx)?.data(ctx)?.inner_value(ctx, Some(left_size))?.get_unchecked(ctx, &i, None)?;
+                            let right_v = right.inner_value(ctx)?.data(ctx)?.inner_value(ctx, Some(right_size))?.get_unchecked(ctx, &i, None)?;
+
+                            let res = gen_cmpop_expr_with_values(
+                                generator,
                                 ctx,
-                                None,
-                                llvm_usize.const_zero(),
-                                (left_size, false),
-                                |(), ctx, hooks, i| {
-                                    let left_v = left.inner_value(ctx)?.data(ctx)?.inner_value(ctx, Some(left_size))?.get_unchecked(ctx, &i, None)?;
-                                    let right_v = right.inner_value(ctx)?.data(ctx)?.inner_value(ctx, Some(right_size))?.get_unchecked(ctx, &i, None)?;
-
-                                    let res = gen_cmpop_expr_with_values(
-                                        generator,
-                                        ctx,
-                                        (Some(left_list_ty.item_ty), left_v),
-                                        &[Cmpop::Eq],
-                                        &[(Some(right_list_ty.item_ty), right_v)],
-                                    )?
-                                    .into_int_value();
-                                    let bool_res = ctx.builder.build_int_compare(
-                                        IntPredicate::EQ,
-                                        res,
-                                        res.get_type().const_zero(),
-                                        "",
-                                    )?;
-
-                                    gen_if_callback(
-                                        &mut (),
-                                        ctx,
-                                        |(), _ctx| Ok(bool_res),
-                                        |(), ctx| {
-                                            ctx.builder.build_store(acc_addr, false_)?;
-                                            hooks.build_break_branch(&ctx.builder)?;
-
-                                            Ok(())
-                                        },
-                                        |(), _| Ok(()),
-                                    )?;
-
-                                    Ok(())
-                                },
-                                llvm_usize.const_int(1, false),
-                                |(), _| Ok(()),
+                                (Some(left_list_ty.item_ty), left_v),
+                                &[Cmpop::Eq],
+                                &[(Some(right_list_ty.item_ty), right_v)],
+                            )?
+                            .into_int_value();
+                            let bool_res = ctx.builder.build_int_compare(
+                                IntPredicate::EQ,
+                                res,
+                                res.get_type().const_zero(),
+                                "",
                             )?;
 
-                            let acc = ctx
-                                .builder
-                                .build_load(ctx.i8, acc_addr, "")?
-                                .into_int_value();
+                            ctx.build_if(bool_res, |ctx| {
+                                ctx.builder.build_store(acc_addr, false_)?;
+                                hooks.build_break(&ctx.builder)
+                            })?;
 
-                            Ok(Some(acc))
-                        },
-                        |_generator, _ctx| {
-                            // different lengths
-                            Ok(Some(false_))
-                        },
-                    )?
-                    .unwrap())
+                            Ok(())
+                        })?;
+
+                        let acc = ctx
+                            .builder
+                            .build_load(ctx.i8, acc_addr, "")?
+                            .into_int_value();
+
+                        Ok(acc)
+                    },
+                    |_ctx| {
+                        // different lengths
+                        Ok(false_)
+                    })
                 };
 
                 let mut result = is_eq(generator, ctx)?;
@@ -1887,35 +1873,28 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                     let right_ty = right_tys[i];
                     let right_elem = rhs.extract(ctx, i as u32)?;
 
-                    gen_if_callback(
+                    // Defer the `not` operation until the end - a != b <=> !(a == b)
+                    let op = if *op == Cmpop::NotEq { Cmpop::Eq } else { *op };
+
+                    let cmp = gen_cmpop_expr_with_values(
                         generator,
                         ctx,
-                        |generator, ctx| {
-                            // Defer the `not` operation until the end - a != b <=> !(a == b)
-                            let op = if *op == Cmpop::NotEq { Cmpop::Eq } else { *op };
+                        (Some(left_ty), left_elem),
+                        &[op],
+                        &[(Some(right_ty), right_elem)],
+                    )?.into_int_value();
 
-                            let cmp = gen_cmpop_expr_with_values(
-                                generator,
-                                ctx,
-                                (Some(left_ty), left_elem),
-                                &[op],
-                                &[(Some(right_ty), right_elem)],
-                            )?.into_int_value();
-
-                            Ok(ctx.builder.build_not(
-                                bool_to_i1(ctx, cmp)?,
-                                "",
-                            )?)
-                        },
-                        |_, ctx| {
-                            let bb = ctx.builder.get_insert_block().unwrap();
-                            cmp_phi.add_incoming(&[(&llvm_i8.const_zero(), bb)]);
-                            ctx.builder.build_unconditional_branch(post_foreach_cmp)?;
-
-                            Ok(())
-                        },
-                        |_, _| Ok(()),
+                    let cond = ctx.builder.build_not(
+                        bool_to_i1(ctx, cmp)?,
+                        "",
                     )?;
+
+                    ctx.build_if(cond, |ctx| {
+                        let bb = ctx.builder.get_insert_block().unwrap();
+                        cmp_phi.add_incoming(&[(&llvm_i8.const_zero(), bb)]);
+                        ctx.builder.build_unconditional_branch(post_foreach_cmp)?;
+                        Ok(())
+                    })?;
                 }
 
                 // Length of tuples is checked last as operators do not short-circuit by tuple
@@ -2204,8 +2183,7 @@ fn gen_ifexp_expr<'ctx, G: CodeGenerator>(
     body: &Expr<Option<Type>>,
     orelse: &Expr<Option<Type>>,
 ) -> anyhow::Result<RtValue<'ctx>> {
-    let test = generator.gen_expr(ctx, test)?.to_basic_value_enum(ctx)?.into_int_value();
-    let test = bool_to_i1(ctx, test)?;
+    let test = generator.gen_expr(ctx, test)?.to_i1(ctx)?;
     let body_ty = body.custom.unwrap();
     let is_none = ctx.unifier.get_representative(body_ty) == ctx.primitives.none;
     let result = if is_none {
@@ -2214,35 +2192,30 @@ fn gen_ifexp_expr<'ctx, G: CodeGenerator>(
         let llvm_ty = ctx.get_llvm_type(body_ty);
         Some(ctx.alloc(llvm_ty, Some("if_exp_result"))?)
     };
-    let current = ctx.builder.get_insert_block().and_then(BasicBlock::get_parent).unwrap();
-    let then_bb = ctx.ctx.append_basic_block(current, "then");
-    let else_bb = ctx.ctx.append_basic_block(current, "else");
-    let cont_bb = ctx.ctx.append_basic_block(current, "cont");
-    ctx.builder.build_conditional_branch(test, then_bb, else_bb)?;
 
-    ctx.builder.position_at_end(then_bb);
-    let a = generator.gen_expr(ctx, body)?;
-    match result {
-        None => None,
-        Some(v) => {
-            let a = a.to_basic_value_enum(ctx)?;
-            Some(ctx.builder.build_store(v, a))
-        }
+    let write_result = |ctx: &mut CodeGenContext<'ctx, '_>, val: &RtValue<'ctx>| {
+        anyhow::Ok(match result {
+            None => None,
+            Some(v) => {
+                let a = val.to_basic_value_enum(ctx)?;
+                Some(ctx.builder.build_store(v, a))
+            }
+        })
     };
-    ctx.builder.build_unconditional_branch(cont_bb)?;
+    ctx.build_if_else(
+        test,
+        |ctx| {
+            let a = generator.gen_expr(ctx, body)?;
+            write_result(ctx, &a)?;
+            Ok(generator)
+        },
+        |ctx, generator| {
+            let a = generator.gen_expr(ctx, orelse)?;
+            write_result(ctx, &a)?;
+            Ok(())
+        },
+    )?;
 
-    ctx.builder.position_at_end(else_bb);
-    let b = generator.gen_expr(ctx, orelse)?;
-    match result {
-        None => None,
-        Some(v) => {
-            let b = b.to_basic_value_enum(ctx)?;
-            Some(ctx.builder.build_store(v, b)?)
-        }
-    };
-    ctx.builder.build_unconditional_branch(cont_bb)?;
-
-    ctx.builder.position_at_end(cont_bb);
     Ok(if let Some(v) = result {
         let body_ty = ctx.get_llvm_type(body_ty);
         let val = ctx.builder.build_load(body_ty, v, "if_exp_val_load")?;

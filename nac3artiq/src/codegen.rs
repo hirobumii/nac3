@@ -14,9 +14,7 @@ use nac3core::{
         basic_type_all, bool_to_i1,
         expr::{call_extern, destructure_range, gen_call},
         llvm_intrinsics::{call_int_smax, call_memcpy, call_stackrestore, call_stacksave},
-        stmt::{
-            gen_block, gen_for_callback_incrementing, gen_if_callback, gen_while_callback, gen_with,
-        },
+        stmt::{gen_block, gen_with},
         type_aligned_allocate,
         types::{
             ArrayLikeIndexer, ClassType, ExceptionType, ListType, NDArrayType, ProxyTypeBase,
@@ -512,24 +510,15 @@ fn marshal_to_wire<'ctx>(
                         total_bytes,
                         Some("rpc.arr.wire"),
                     )?;
-                    gen_for_callback_incrementing(
-                        &mut (),
-                        ctx,
-                        None,
-                        ctx.size_t.const_zero(),
-                        (length, false),
-                        |(), ctx, _hooks, i| {
-                            let nac3_elem = list
-                                .data(ctx)?
-                                .inner_value(ctx, Some(length))?
-                                .get_unchecked(ctx, &i, None)?;
-                            let offset = ctx.builder.build_int_mul(i, descriptor_size, "")?;
-                            let dest = wire_array.ptr_offset_unchecked(ctx, &offset, None)?;
-                            write_ndarray_wire_descriptor(ctx, dtype, ndims, nac3_elem, dest)
-                        },
-                        ctx.size_t.const_int(1, false),
-                        |(), _| Ok(()),
-                    )?;
+                    ctx.build_repeat(None, length, |ctx, _hooks, i| {
+                        let nac3_elem = list
+                            .data(ctx)?
+                            .inner_value(ctx, Some(length))?
+                            .get_unchecked(ctx, &i, None)?;
+                        let offset = ctx.builder.build_int_mul(i, descriptor_size, "")?;
+                        let dest = wire_array.ptr_offset_unchecked(ctx, &offset, None)?;
+                        write_ndarray_wire_descriptor(ctx, dtype, ndims, nac3_elem, dest)
+                    })?;
                     wire_array
                 } else {
                     // element type of list is a composite type - build a runtime array of wire pointers
@@ -540,25 +529,16 @@ fn marshal_to_wire<'ctx>(
                         length,
                         Some("rpc.list.wire"),
                     )?;
-                    gen_for_callback_incrementing(
-                        &mut (),
-                        ctx,
-                        None,
-                        ctx.size_t.const_zero(),
-                        (length, false),
-                        |(), ctx, _hooks, i| {
-                            let nac3_elem = list
-                                .data(ctx)?
-                                .inner_value(ctx, Some(length))?
-                                .get_unchecked(ctx, &i, None)?;
-                            let wire_elem = marshal_to_wire(ctx, elem_ty, nac3_elem, "")?;
-                            let wire_slot = wire_array.ptr_offset_unchecked(ctx, &i, None)?;
-                            ctx.builder.build_store(wire_slot, wire_elem)?;
-                            Ok(())
-                        },
-                        ctx.size_t.const_int(1, false),
-                        |(), _| Ok(()),
-                    )?;
+                    ctx.build_repeat(None, length, |ctx, _hooks, i| {
+                        let nac3_elem = list
+                            .data(ctx)?
+                            .inner_value(ctx, Some(length))?
+                            .get_unchecked(ctx, &i, None)?;
+                        let wire_elem = marshal_to_wire(ctx, elem_ty, nac3_elem, "")?;
+                        let wire_slot = wire_array.ptr_offset_unchecked(ctx, &i, None)?;
+                        ctx.builder.build_store(wire_slot, wire_elem)?;
+                        Ok(())
+                    })?;
                     wire_array
                 };
 
@@ -714,24 +694,15 @@ fn demarshal_from_wire<'ctx>(
                 // NAC3 ndarrays
                 let descriptor_size = ctx.sizeof(ctx.ptr) + ctx.sizeof(ctx.size_t) * ndims;
                 let descriptor_size = ctx.size_t.const_int(descriptor_size, false);
-                gen_for_callback_incrementing(
-                    &mut (),
-                    ctx,
-                    None,
-                    ctx.size_t.const_zero(),
-                    (length, false),
-                    |(), ctx, _hooks, i| {
-                        let offset = ctx.builder.build_int_mul(i, descriptor_size, "")?;
-                        let descriptor =
-                            unsafe { ctx.builder.build_gep(ctx.i8, elements_ptr, &[offset], "")? };
-                        let nac3_ndarray = demarshal_from_wire(ctx, elem_ty, descriptor)?;
-                        let nac3_elem_slot = nac3_data.ptr_offset_unchecked(ctx, &i, None)?;
-                        ctx.builder.build_store(nac3_elem_slot, nac3_ndarray)?;
-                        Ok(())
-                    },
-                    ctx.size_t.const_int(1, false),
-                    |(), _| Ok(()),
-                )?;
+                ctx.build_repeat(None, length, |ctx, _hooks, i| {
+                    let offset = ctx.builder.build_int_mul(i, descriptor_size, "")?;
+                    let descriptor =
+                        unsafe { ctx.builder.build_gep(ctx.i8, elements_ptr, &[offset], "")? };
+                    let nac3_ndarray = demarshal_from_wire(ctx, elem_ty, descriptor)?;
+                    let nac3_elem_slot = nac3_data.ptr_offset_unchecked(ctx, &i, None)?;
+                    ctx.builder.build_store(nac3_elem_slot, nac3_ndarray)?;
+                    Ok(())
+                })?;
             } else {
                 // element type of list is a composite type - demarshal each element recursively.
                 //
@@ -743,30 +714,19 @@ fn demarshal_from_wire<'ctx>(
                 let is_indirect = is_refcounted_type(&mut ctx.unifier, elem_ty);
                 let stride_ty: BasicTypeEnum<'ctx> =
                     if is_indirect { ctx.ptr.into() } else { wire_type_of(ctx, elem_ty) };
-                gen_for_callback_incrementing(
-                    &mut (),
-                    ctx,
-                    None,
-                    ctx.size_t.const_zero(),
-                    (length, false),
-                    |(), ctx, _hooks, i| {
-                        let wire_elem_slot =
-                            unsafe { ctx.builder.build_gep(stride_ty, elements_ptr, &[i], "")? };
-                        let nac3_elem_slot = nac3_data.ptr_offset_unchecked(ctx, &i, None)?;
-                        let inner_wire = if is_indirect {
-                            ctx.builder
-                                .build_load(ctx.ptr, wire_elem_slot, "")?
-                                .into_pointer_value()
-                        } else {
-                            wire_elem_slot
-                        };
-                        let nac3_val = demarshal_from_wire(ctx, elem_ty, inner_wire)?;
-                        ctx.builder.build_store(nac3_elem_slot, nac3_val)?;
-                        Ok(())
-                    },
-                    ctx.size_t.const_int(1, false),
-                    |(), _| Ok(()),
-                )?;
+                ctx.build_repeat(None, length, |ctx, _hooks, i| {
+                    let wire_elem_slot =
+                        unsafe { ctx.builder.build_gep(stride_ty, elements_ptr, &[i], "")? };
+                    let nac3_elem_slot = nac3_data.ptr_offset_unchecked(ctx, &i, None)?;
+                    let inner_wire = if is_indirect {
+                        ctx.builder.build_load(ctx.ptr, wire_elem_slot, "")?.into_pointer_value()
+                    } else {
+                        wire_elem_slot
+                    };
+                    let nac3_val = demarshal_from_wire(ctx, elem_ty, inner_wire)?;
+                    ctx.builder.build_store(nac3_elem_slot, nac3_val)?;
+                    Ok(())
+                })?;
             }
 
             list.value.into()
@@ -961,32 +921,31 @@ where
         ctx.alloc_at(AllocationScope::StackCurrentLoc, llvm_i32, Some("rpc.size.slot"))?;
     ctx.builder.build_store(ptr_slot, initial_ptr)?;
 
-    gen_while_callback(
-        &mut (),
-        ctx,
+    ctx.build_loop(
         Some("rpc"),
-        |(), ctx| {
+        |ctx, hooks| {
             let ptr = ctx.builder.build_load(llvm_pi8, ptr_slot, "rpc.ptr")?.into_pointer_value();
             let alloc_size = ctx
                 .build_call_or_invoke(rpc_recv, &[ptr.into()], "rpc.size.next")?
                 .map(BasicValueEnum::into_int_value)
                 .unwrap();
             ctx.builder.build_store(size_slot, alloc_size)?;
-            Ok(ctx.builder.build_int_compare(
+            let cond = ctx.builder.build_int_compare(
                 IntPredicate::NE,
                 alloc_size,
                 llvm_i32.const_zero(),
                 "rpc.continue",
-            )?)
-        },
-        |(), ctx| {
+            )?;
+            let finish = ctx.branch(cond)?;
+            ctx.in_block(finish, |ctx| hooks.build_break(&ctx.builder))?;
+
             let alloc_size =
                 ctx.builder.build_load(llvm_i32, size_slot, "rpc.size")?.into_int_value();
             let alloc_ptr = alloc_fn(ctx, alloc_size)?;
             ctx.builder.build_store(ptr_slot, alloc_ptr)?;
             Ok(())
         },
-        |(), _ctx| Ok(()),
+        |_, ()| Ok(()),
     )?;
 
     Ok(())
@@ -1690,40 +1649,20 @@ fn polymorphic_print<'ctx>(
                 let len = val.inner_value(ctx)?.load(ctx, field!(len))?;
                 let last = ctx.builder.build_int_sub(len, llvm_usize.const_int(1, false), "")?;
 
-                gen_for_callback_incrementing(
-                    &mut (),
-                    ctx,
-                    None,
-                    llvm_usize.const_zero(),
-                    (len, false),
-                    |(), ctx, _, i| {
-                        let elem = val
-                            .inner_value(ctx)?
-                            .data(ctx)?
-                            .inner_value(ctx, Some(len))?
-                            .get_unchecked(ctx, &i, None)?;
+                ctx.build_repeat(None, len, |ctx, _, i| {
+                    let elem = val
+                        .inner_value(ctx)?
+                        .data(ctx)?
+                        .inner_value(ctx, Some(len))?
+                        .get_unchecked(ctx, &i, None)?;
 
-                        polymorphic_print(ctx, &[(elem_ty, elem)], "", None, true, as_rtio)?;
+                    polymorphic_print(ctx, &[(elem_ty, elem)], "", None, true, as_rtio)?;
 
-                        gen_if_callback(
-                            &mut (),
-                            ctx,
-                            |(), ctx| {
-                                Ok(ctx.builder.build_int_compare(IntPredicate::ULT, i, last, "")?)
-                            },
-                            |(), ctx| {
-                                printf(ctx, ", \0".into(), Vec::default())?;
+                    let cmp = ctx.builder.build_int_compare(IntPredicate::ULT, i, last, "")?;
+                    ctx.build_if(cmp, |ctx| printf(ctx, ", \0".into(), Vec::default()))?;
 
-                                Ok(())
-                            },
-                            |(), _| Ok(()),
-                        )?;
-
-                        Ok(())
-                    },
-                    llvm_usize.const_int(1, false),
-                    |(), _| Ok(()),
-                )?;
+                    Ok(())
+                })?;
 
                 fmt.push(']');
                 flush(ctx, &mut fmt, &mut args)?;
@@ -1743,22 +1682,10 @@ fn polymorphic_print<'ctx>(
                 ndarray.foreach(ctx, |ctx, _, hdl| {
                     let i = hdl.inner_value(ctx)?.get_index(ctx)?;
                     let scalar = hdl.inner_value(ctx)?.get_scalar(ctx)?;
-
                     // if (i != 0) puts(", ");
-                    gen_if_callback(
-                        &mut (),
-                        ctx,
-                        |(), ctx| {
-                            let not_first =
-                                ctx.builder.build_int_compare(IntPredicate::NE, i, num_0, "")?;
-                            Ok(not_first)
-                        },
-                        |(), ctx| {
-                            printf(ctx, ", \0".into(), Vec::default())?;
-                            Ok(())
-                        },
-                        |(), _| Ok(()),
-                    )?;
+                    let not_first =
+                        ctx.builder.build_int_compare(IntPredicate::NE, i, num_0, "")?;
+                    ctx.build_if(not_first, |ctx| printf(ctx, ", \0".into(), Vec::default()))?;
 
                     // Print element
                     polymorphic_print(ctx, &[(dtype, scalar.into())], "", None, true, as_rtio)?;

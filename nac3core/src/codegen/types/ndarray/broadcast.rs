@@ -9,7 +9,6 @@ use nac3core_derive::{ProxyType, StructFields};
 use crate::codegen::{
     CodeGenContext, ModuleContext,
     expr::call_extern,
-    stmt::gen_for_callback,
     types::{
         NDArrayValue, ProxyTypeBase, RefCountedArrayType, RefCountedArrayValue,
         TypedRefCountedValue, WithTypeinfo,
@@ -168,27 +167,24 @@ where
     let out_ndarray =
         out.resolve(ctx, broadcast_result.ndims, broadcast_result.shape.inner_value(ctx, None)?)?;
 
+    // Create NDIters for all broadcasted input ndarrays.
+    let in_nditers = broadcast_result
+        .ndarrays
+        .iter()
+        .map(|ndarray| NDIterValue::new(ctx, *ndarray))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+
     // Map element-wise and store results into `mapped_ndarray`.
-    let nditer = NDIterValue::new(ctx, out_ndarray)?;
-    gen_for_callback(
-        &mut (),
-        ctx,
+    let out_nditer = NDIterValue::new(ctx, out_ndarray)?;
+    ctx.build_loop(
         Some("broadcast_starmap"),
-        |(), ctx| {
-            // Create NDIters for all broadcasted input ndarrays.
-            let other_nditers = broadcast_result
-                .ndarrays
-                .iter()
-                .map(|ndarray| NDIterValue::new(ctx, *ndarray))
-                .collect::<anyhow::Result<Vec<_>>>()?;
-            Ok((nditer, other_nditers))
-        },
-        |(), ctx, (out_nditer, _in_nditers)| {
+        |ctx, hooks| {
             // We can simply use `out_nditer`'s `has_element()`.
             // `in_nditers`' `has_element()`s should return the same value.
-            out_nditer.inner_value(ctx)?.has_element(ctx)
-        },
-        |(), ctx, _hooks, (out_nditer, in_nditers)| {
+            let cond = out_nditer.inner_value(ctx)?.has_element(ctx)?;
+            let finish = ctx.branch(cond)?;
+            ctx.in_block(finish, |ctx| hooks.build_break(&ctx.builder))?;
+
             // Get all the scalars from the broadcasted input ndarrays, pass them to `mapping`,
             // and write to `out_ndarray`.
             let in_scalars = in_nditers
@@ -200,10 +196,9 @@ where
 
             let p = out_nditer.inner_value(ctx)?.curr_ptr(ctx)?;
             ctx.builder.build_store(p, result)?;
-
             Ok(())
         },
-        |(), ctx, (out_nditer, in_nditers)| {
+        |ctx, ()| {
             // Advance all iterators
             out_nditer.inner_value(ctx)?.next(ctx)?;
             for nditer in &in_nditers {
@@ -211,7 +206,6 @@ where
             }
             Ok(())
         },
-        |(), _| Ok(()),
     )?;
 
     Ok(out_ndarray)

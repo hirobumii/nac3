@@ -3,7 +3,7 @@ use inkwell::{
     context::ContextRef,
     memory_buffer::MemoryBuffer,
     module::Module,
-    values::{BasicValue, BasicValueEnum, IntValue},
+    values::{BasicValue, IntValue},
 };
 use nac3parser::ast::Expr;
 
@@ -192,13 +192,10 @@ pub fn handle_slice_indices<'ctx, G: CodeGenerator>(
                                 ctx.builder.build_int_sub(s, one, "s_min")?,
                                 s,
                                 "final_start",
-                            )
-                            .map(BasicValueEnum::into_int_value)?
+                            )?
+                            .into_int_value()
                     }
-                    None => ctx
-                        .builder
-                        .build_select(neg, len_id, zero, "stt")
-                        .map(BasicValueEnum::into_int_value)?,
+                    None => ctx.builder.build_select(neg, len_id, zero, "stt")?.into_int_value(),
                 },
                 match e {
                     Some(e) => {
@@ -211,13 +208,10 @@ pub fn handle_slice_indices<'ctx, G: CodeGenerator>(
                                 ctx.builder.build_int_add(e, one, "end_add_one")?,
                                 ctx.builder.build_int_sub(e, one, "end_sub_one")?,
                                 "final_end",
-                            )
-                            .map(BasicValueEnum::into_int_value)?
+                            )?
+                            .into_int_value()
                     }
-                    None => ctx
-                        .builder
-                        .build_select(neg, zero, len_id, "end")
-                        .map(BasicValueEnum::into_int_value)?,
+                    None => ctx.builder.build_select(neg, zero, len_id, "end")?.into_int_value(),
                 },
                 step,
             )

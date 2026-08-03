@@ -12,9 +12,7 @@ use crate::{
         CodeGenContext, ModuleContext,
         allocator::AllocationScope,
         expr::call_extern,
-        llvm_intrinsics,
-        stmt::gen_if_callback,
-        type_aligned_allocate,
+        llvm_intrinsics, type_aligned_allocate,
         types::{
             ArraySliceValue, BuiltinStruct, ProxyType, ProxyTypeBase, RefType, TypeinfoValue,
             Value, WithTypeinfo, structure::StructField,
@@ -154,16 +152,8 @@ impl<'ctx> ObjectHeaderValue<'ctx> {
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
     ) -> anyhow::Result<()> {
-        gen_if_callback(
-            &mut (),
-            ctx,
-            |(), ctx| Ok(ctx.builder.build_is_not_null(self.value, "")?),
-            |(), ctx| {
-                self.increment_refcount(ctx)?;
-                Ok(())
-            },
-            |(), _| Ok(()),
-        )
+        let not_null = ctx.builder.build_is_not_null(self.value, "")?;
+        ctx.build_if(not_null, |ctx| self.increment_refcount(ctx))
     }
 
     /// Increments the reference count of this object by `count`.
@@ -188,16 +178,8 @@ impl<'ctx> ObjectHeaderValue<'ctx> {
         ctx: &mut CodeGenContext<'ctx, '_>,
         count: IntValue<'ctx>,
     ) -> anyhow::Result<()> {
-        gen_if_callback(
-            &mut (),
-            ctx,
-            |(), ctx| Ok(ctx.builder.build_is_not_null(self.value, "")?),
-            |(), ctx| {
-                self.increment_refcount_by(ctx, count)?;
-                Ok(())
-            },
-            |(), _| Ok(()),
-        )
+        let non_null = ctx.builder.build_is_not_null(self.value, "")?;
+        ctx.build_if(non_null, |ctx| self.increment_refcount_by(ctx, count))
     }
 
     /// Decrements the reference count of this object by one.
@@ -216,16 +198,8 @@ impl<'ctx> ObjectHeaderValue<'ctx> {
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
     ) -> anyhow::Result<()> {
-        gen_if_callback(
-            &mut (),
-            ctx,
-            |(), ctx| Ok(ctx.builder.build_is_not_null(self.value, "")?),
-            |(), ctx| {
-                self.decrement_refcount(ctx)?;
-                Ok(())
-            },
-            |(), _| Ok(()),
-        )
+        let non_null = ctx.builder.build_is_not_null(self.value, "")?;
+        ctx.build_if(non_null, |ctx| self.decrement_refcount(ctx))
     }
 
     /// Returns the reference count of this object.

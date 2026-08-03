@@ -13,7 +13,6 @@ use crate::{
         allocator::AllocationScope,
         expr::call_extern,
         llvm_intrinsics::call_int_umin,
-        stmt::gen_for_callback_incrementing,
         types::{
             ProxyTypeBase, RefCountedArrayType, RefCountedArrayValue, RefType, TypedRefCountedType,
             TypedRefCountedValue, Value, WithTypeinfo,
@@ -628,8 +627,6 @@ impl<'ctx> ArrayLikeIndexer<'ctx, ArraySliceValue<'ctx, IntType<'ctx>>> for NDAr
         idx: &ArraySliceValue<'ctx, IntType<'ctx>>,
         name: Option<&str>,
     ) -> anyhow::Result<PointerValue<'ctx>> {
-        let llvm_usize = ctx.size_t;
-
         let indices_len = idx.value.1;
         let ndims = self.inner_value(ctx)?.ty.ndims_val(ctx);
         let nidx_leq_ndims =
@@ -642,42 +639,30 @@ impl<'ctx> ArrayLikeIndexer<'ctx, ArraySliceValue<'ctx, IntType<'ctx>>> for NDAr
         )?;
 
         let len = call_int_umin(ctx, indices_len, ndims, None)?;
-        gen_for_callback_incrementing(
-            &mut (),
-            ctx,
-            None,
-            llvm_usize.const_zero(),
-            (len, false),
-            |(), ctx, _, i| {
-                let (dim_idx, dim_sz) = (
-                    idx.get_unchecked::<IntValue<'ctx>>(ctx, &i, None)?,
-                    self.inner_value(ctx)?
-                        .shape(ctx)?
-                        .inner_value(ctx, None)?
-                        .get_unchecked::<IntValue<'ctx>>(ctx, &i, None)?,
-                );
-                let dim_idx =
-                    ctx.builder.build_int_z_extend_or_bit_cast(dim_idx, dim_sz.get_type(), "")?;
+        ctx.build_repeat(None, len, |ctx, _, i| {
+            let (dim_idx, dim_sz) = (
+                idx.get_unchecked::<IntValue<'ctx>>(ctx, &i, None)?,
+                self.inner_value(ctx)?
+                    .shape(ctx)?
+                    .inner_value(ctx, None)?
+                    .get_unchecked::<IntValue<'ctx>>(ctx, &i, None)?,
+            );
+            let dim_idx =
+                ctx.builder.build_int_z_extend_or_bit_cast(dim_idx, dim_sz.get_type(), "")?;
 
-                let dim_lt =
-                    ctx.builder.build_int_compare(IntPredicate::SLT, dim_idx, dim_sz, "")?;
+            let dim_lt = ctx.builder.build_int_compare(IntPredicate::SLT, dim_idx, dim_sz, "")?;
 
-                let dim_idx_zext =
-                    ctx.builder.build_int_z_extend_or_bit_cast(dim_idx, ctx.i64, "")?;
-                let dim_sz_zext =
-                    ctx.builder.build_int_z_extend_or_bit_cast(dim_sz, ctx.i64, "")?;
-                ctx.make_assert(
-                    dim_lt,
-                    "0:IndexError",
-                    "index {0} is out of bounds for axis 0 with size {1}",
-                    [Some(dim_idx_zext), Some(dim_sz_zext), None],
-                )?;
+            let dim_idx_zext = ctx.builder.build_int_z_extend_or_bit_cast(dim_idx, ctx.i64, "")?;
+            let dim_sz_zext = ctx.builder.build_int_z_extend_or_bit_cast(dim_sz, ctx.i64, "")?;
+            ctx.make_assert(
+                dim_lt,
+                "0:IndexError",
+                "index {0} is out of bounds for axis 0 with size {1}",
+                [Some(dim_idx_zext), Some(dim_sz_zext), None],
+            )?;
 
-                Ok(())
-            },
-            llvm_usize.const_int(1, false),
-            |(), _| Ok(()),
-        )?;
+            Ok(())
+        })?;
 
         self.ptr_offset_unchecked(ctx, idx, name)
     }

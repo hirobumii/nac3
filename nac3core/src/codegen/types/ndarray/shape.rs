@@ -6,7 +6,6 @@ use inkwell::{
 use crate::{
     codegen::{
         CodeGenContext,
-        stmt::gen_for_callback_incrementing,
         types::{
             ArrayLikeIndexer, ListType, ProxyTypeBase, RefCountedArrayType, RefCountedArrayValue,
             TupleType, field,
@@ -33,7 +32,6 @@ pub fn parse_numpy_int_sequence<'ctx>(
 ) -> anyhow::Result<RefCountedArrayValue<'ctx, IntType<'ctx>>> {
     let llvm_usize = ctx.size_t;
     let zero = llvm_usize.const_zero();
-    let one = llvm_usize.const_int(1, false);
 
     // The result `list` to return.
     Ok(match &*ctx.unifier.get_ty_immutable(input_seq_ty) {
@@ -50,31 +48,22 @@ pub fn parse_numpy_int_sequence<'ctx>(
             let result = RefCountedArrayType::new(ctx, llvm_usize, None).alloca(ctx, len, None)?;
 
             // Load all the `int32`s from the input_sequence, cast them to `SizeT`, and store them into `result`
-            gen_for_callback_incrementing(
-                &mut (),
-                ctx,
-                None,
-                zero,
-                (len, false),
-                |(), ctx, _, i| {
-                    // Load the i-th int32 in the input sequence
-                    let int: IntValue<'ctx> = input_seq
-                        .inner_value(ctx)?
-                        .data(ctx)?
-                        .inner_value(ctx, Some(len))?
-                        .get_unchecked(ctx, &i, None)?;
+            ctx.build_repeat(None, len, |ctx, _, i| {
+                // Load the i-th int32 in the input sequence
+                let int: IntValue<'ctx> = input_seq
+                    .inner_value(ctx)?
+                    .data(ctx)?
+                    .inner_value(ctx, Some(len))?
+                    .get_unchecked(ctx, &i, None)?;
 
-                    // Cast to SizeT
-                    let int = ctx.builder.build_int_s_extend_or_bit_cast(int, llvm_usize, "")?;
+                // Cast to SizeT
+                let int = ctx.builder.build_int_s_extend_or_bit_cast(int, llvm_usize, "")?;
 
-                    // Store
-                    result.inner_value(ctx, Some(len))?.set_unchecked(ctx, &i, int, None)?;
+                // Store
+                result.inner_value(ctx, Some(len))?.set_unchecked(ctx, &i, int, None)?;
 
-                    Ok(())
-                },
-                one,
-                |(), _| Ok(()),
-            )?;
+                Ok(())
+            })?;
 
             result
         }

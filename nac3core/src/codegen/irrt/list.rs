@@ -5,7 +5,6 @@ use crate::codegen::{
     expr::call_extern,
     irrt::calculate_len_for_slice_range,
     macros::codegen_unreachable,
-    stmt::gen_if_callback,
     types::{ListValue, field},
 };
 
@@ -126,20 +125,13 @@ pub fn list_slice_assignment<'ctx>(
     ))?;
 
     // update length
-    gen_if_callback(
-        &mut (),
-        ctx,
-        |(), ctx| {
-            Ok(ctx.builder.build_int_compare(IntPredicate::NE, new_len, dest_len, "need_update")?)
-        },
-        |(), ctx| {
-            let new_len =
-                ctx.builder.build_int_z_extend_or_bit_cast(new_len, llvm_usize, "new_len")?;
-            dest_arr.inner_value(ctx)?.store(ctx, field!(len), new_len)?;
-            Ok(())
-        },
-        |(), _| Ok(()),
-    )?;
+    let need_update =
+        ctx.builder.build_int_compare(IntPredicate::NE, new_len, dest_len, "need_update")?;
+    ctx.build_if(need_update, |ctx| {
+        let new_len = ctx.builder.build_int_z_extend_or_bit_cast(new_len, llvm_usize, "new_len")?;
+        dest_arr.inner_value(ctx)?.store(ctx, field!(len), new_len)?;
+        Ok(())
+    })?;
 
     Ok(())
 }

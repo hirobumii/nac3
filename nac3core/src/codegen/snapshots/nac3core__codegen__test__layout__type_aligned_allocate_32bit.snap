@@ -17,18 +17,18 @@ succ:                                             ; preds = %init
   %6 = xor i1 %5, true
   %7 = zext i32 %2 to i64
   %expect1 = call i1 @llvm.expect.i1(i1 %6, i1 true)
-  br i1 %expect1, label %succ2, label %fail3
+  br i1 %expect1, label %succ3, label %fail2
 
-succ2:                                            ; preds = %succ
+succ3:                                            ; preds = %succ
   %8 = call ptr @__nac3_alloc(i32 %4, i32 4)
   store ptr %8, ptr @keep_alloc, align 4
   ret void
 
-fail:                                             ; preds = %init
+fail2:                                            ; preds = %succ
   store i32 0, ptr null, align 4
-  store %str { ptr @const, i32 103 }, ptr getelementptr inbounds nuw (%exception, ptr null, i32 0, i32 5), align 4
-  store i64 4112, ptr getelementptr inbounds nuw (%exception, ptr null, i32 0, i32 7), align 4
-  store i64 %1, ptr getelementptr inbounds nuw (%exception, ptr null, i32 0, i32 8), align 4
+  store %str { ptr @const.3, i32 81 }, ptr getelementptr inbounds nuw (%exception, ptr null, i32 0, i32 5), align 4
+  store i64 %7, ptr getelementptr inbounds nuw (%exception, ptr null, i32 0, i32 7), align 4
+  store i64 16, ptr getelementptr inbounds nuw (%exception, ptr null, i32 0, i32 8), align 4
   store i64 0, ptr getelementptr inbounds nuw (%exception, ptr null, i32 0, i32 9), align 4
   store %str { ptr @const.1, i32 7 }, ptr getelementptr inbounds nuw (%exception, ptr null, i32 0, i32 1), align 4
   store i32 0, ptr getelementptr inbounds nuw (%exception, ptr null, i32 0, i32 2), align 4
@@ -37,11 +37,11 @@ fail:                                             ; preds = %init
   call void @__nac3_raise(ptr null)
   unreachable
 
-fail3:                                            ; preds = %succ
+fail:                                             ; preds = %init
   store i32 0, ptr null, align 4
-  store %str { ptr @const.3, i32 81 }, ptr getelementptr inbounds nuw (%exception, ptr null, i32 0, i32 5), align 4
-  store i64 %7, ptr getelementptr inbounds nuw (%exception, ptr null, i32 0, i32 7), align 4
-  store i64 16, ptr getelementptr inbounds nuw (%exception, ptr null, i32 0, i32 8), align 4
+  store %str { ptr @const, i32 103 }, ptr getelementptr inbounds nuw (%exception, ptr null, i32 0, i32 5), align 4
+  store i64 4112, ptr getelementptr inbounds nuw (%exception, ptr null, i32 0, i32 7), align 4
+  store i64 %1, ptr getelementptr inbounds nuw (%exception, ptr null, i32 0, i32 8), align 4
   store i64 0, ptr getelementptr inbounds nuw (%exception, ptr null, i32 0, i32 9), align 4
   store %str { ptr @const.1, i32 7 }, ptr getelementptr inbounds nuw (%exception, ptr null, i32 0, i32 1), align 4
   store i32 0, ptr getelementptr inbounds nuw (%exception, ptr null, i32 0, i32 2), align 4

@@ -8,7 +8,6 @@ use crate::{
     codegen::{
         CodeGenContext, bool_to_i1,
         macros::codegen_unreachable,
-        stmt::gen_for_callback,
         types::{NDArrayType, NDArrayValue, NDIterValue, ProxyTypeBase, parse_numpy_int_sequence},
     },
     symbol_resolver::ValueEnum,
@@ -323,21 +322,18 @@ pub fn ndarray_dot<'ctx>(
             let result = ctx.alloc(dtype_llvm, Some("np_dot_result"))?;
             ctx.builder.build_store(result, dtype_llvm.const_zero())?;
 
+            let a_iter = NDIterValue::new(ctx, a)?;
+            let b_iter = NDIterValue::new(ctx, b)?;
+
             // Do dot product.
-            gen_for_callback(
-                &mut (),
-                ctx,
+            ctx.build_loop(
                 Some("np_dot"),
-                |(), ctx| {
-                    let a_iter = NDIterValue::new(ctx, a)?;
-                    let b_iter = NDIterValue::new(ctx, b)?;
-                    Ok((a_iter, b_iter))
-                },
-                |(), ctx, (a_iter, _b_iter)| {
+                |ctx, hooks| {
                     // Only a_iter drives the condition, b_iter should have the same status.
-                    a_iter.inner_value(ctx)?.has_element(ctx)
-                },
-                |(), ctx, _hooks, (a_iter, b_iter)| {
+                    let has_elem = a_iter.inner_value(ctx)?.has_element(ctx)?;
+                    let finish = ctx.branch(has_elem)?;
+                    ctx.in_block(finish, |ctx| hooks.build_break(&ctx.builder))?;
+
                     let a_scalar = a_iter.inner_value(ctx)?.get_scalar(ctx)?;
                     let b_scalar = b_iter.inner_value(ctx)?.get_scalar(ctx)?;
 
@@ -365,12 +361,11 @@ pub fn ndarray_dot<'ctx>(
                     ctx.builder.build_store(result, new_result)?;
                     Ok(())
                 },
-                |(), ctx, (a_iter, b_iter)| {
+                |ctx, ()| {
                     a_iter.inner_value(ctx)?.next(ctx)?;
                     b_iter.inner_value(ctx)?.next(ctx)?;
                     Ok(())
                 },
-                |(), _| Ok(()),
             )?;
 
             Ok(ctx.builder.build_load(dtype_llvm, result, "")?)

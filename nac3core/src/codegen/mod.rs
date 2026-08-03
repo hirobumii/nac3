@@ -309,11 +309,25 @@ impl std::ops::DerefMut for CodeGenContext<'_, '_> {
     }
 }
 
+fn builder_is_terminated(builder: &Builder<'_>) -> bool {
+    builder.get_insert_block().and_then(BasicBlock::get_terminator).is_some()
+}
+
 impl CodeGenContext<'_, '_> {
     /// Whether the [current basic block][Builder::get_insert_block] referenced by `builder`
     /// contains a [terminator statement][BasicBlock::get_terminator].
     pub fn is_terminated(&self) -> bool {
-        self.builder.get_insert_block().and_then(BasicBlock::get_terminator).is_some()
+        builder_is_terminated(&self.builder)
+    }
+
+    /// Emits an unconditional branch to `target_block`.
+    ///
+    /// If the current block is terminated, this is a no-op.
+    pub fn jump_if_not_terminated(&self, target_block: BasicBlock<'_>) -> anyhow::Result<()> {
+        if !self.is_terminated() {
+            self.builder.build_unconditional_branch(target_block)?;
+        }
+        Ok(())
     }
 }
 
@@ -538,7 +552,6 @@ fn get_alloca_type<'ctx>(ctx: &mut CodeGenContext<'ctx, '_>, ty: Type) -> BasicT
 }
 
 /// See [`CodeGenContext::get_llvm_type`].
-#[allow(clippy::too_many_arguments)]
 fn get_llvm_type<'ctx>(
     ctx: &ModuleContext<'ctx>,
     unifier: &mut Unifier,
@@ -575,7 +588,6 @@ fn get_llvm_type<'ctx>(
 }
 
 /// See [`CodeGenContext::get_llvm_abi_type`].
-#[allow(clippy::too_many_arguments)]
 fn get_llvm_abi_type<'ctx>(
     ctx: &ModuleContext<'ctx>,
     unifier: &mut Unifier,
@@ -659,10 +671,6 @@ fn emit_local_refcount_decrements(ctx: &mut CodeGenContext<'_, '_>) -> anyhow::R
 /// Implementation for generating LLVM IR for a function.
 ///
 /// Ignores the function body and instead runs the given `codegen_function`.
-#[allow(
-    clippy::too_many_arguments,
-    reason = "inherent complexity before CodeGenContext is available"
-)]
 pub fn gen_func_impl<
     'ctx,
     G: CodeGenerator,
@@ -922,16 +930,14 @@ pub fn gen_func_impl<
 
         let result = codegen_function(generator, ctx).map(|()| fn_val);
         // If the function body is not terminated, jump to `finalize_bb` to decrement refcounts
-        if !ctx.is_terminated() {
-            ctx.builder.build_unconditional_branch(finalize_bb)?;
-        }
+        ctx.jump_if_not_terminated(finalize_bb)?;
+        ctx.builder.position_at_end(finalize_bb);
 
         // Decrementing refcounts involves inlined calls to IRRT, and LLVM dictates
         // that all inlined calls must have a debug location. Keep the following
         // within the `with_loc` scope.
 
         // Decrement refcounts of all locals in `finalize_bb`, and emit the final `ret`
-        ctx.builder.position_at_end(finalize_bb);
         emit_local_refcount_decrements(ctx)?;
         if let Some((return_buffer, return_buffer_type)) =
             ctx.return_buffer.zip(ctx.return_buffer_type)
@@ -1052,8 +1058,8 @@ fn gen_in_range_check<'ctx>(
     step: IntValue<'ctx>,
 ) -> anyhow::Result<IntValue<'ctx>> {
     let sign = ctx.builder.build_int_compare(IntPredicate::SGT, step, ctx.i32.const_zero(), "")?;
-    let lo = ctx.builder.build_select(sign, value, stop, "").map(BasicValueEnum::into_int_value)?;
-    let hi = ctx.builder.build_select(sign, stop, value, "").map(BasicValueEnum::into_int_value)?;
+    let lo = ctx.builder.build_select(sign, value, stop, "")?.into_int_value();
+    let hi = ctx.builder.build_select(sign, stop, value, "")?.into_int_value();
 
     Ok(ctx.builder.build_int_compare(IntPredicate::SLT, lo, hi, "cmp")?)
 }

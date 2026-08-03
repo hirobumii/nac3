@@ -6,7 +6,6 @@ use itertools::Itertools as _;
 use crate::codegen::{
     CodeGenContext,
     expr::call_extern,
-    stmt::gen_if_callback,
     types::{
         NDArrayType, NDArrayValue, RefCountedValue, array::ArraySliceValue, field,
         ndarray::indexing::RustNDIndex,
@@ -69,11 +68,10 @@ impl<'ctx> NDArrayValue<'ctx> {
         let (dst_shape, dst_ndims) = dst_ndarray.shape(ctx)?.inner_value(ctx, None)?.value;
         call_extern!(ctx: void _ = "__nac3_ndarray_reshape_resolve_and_check_new_shape"(size, dst_ndims, dst_shape))?;
 
-        gen_if_callback(
-            &mut (),
-            ctx,
-            |(), ctx| self.is_c_contiguous(ctx),
-            |(), ctx| {
+        let is_c_contiguous = self.is_c_contiguous(ctx)?;
+        ctx.build_if_else(
+            is_c_contiguous,
+            |ctx| {
                 // Reshape is possible without copying
                 dst_ndarray.set_strides_contiguous(ctx)?;
                 let data = self.inner_value(ctx)?.base_data(ctx)?;
@@ -86,7 +84,7 @@ impl<'ctx> NDArrayValue<'ctx> {
                 dst_ndarray.inner_value(ctx)?.store(ctx, field!(offset), offset)?;
                 Ok(())
             },
-            |(), ctx| {
+            |ctx, ()| {
                 // Reshape is impossible without copying
                 dst_ndarray.create_data(ctx)?;
                 dst_ndarray.copy_data_from(ctx, self)?;

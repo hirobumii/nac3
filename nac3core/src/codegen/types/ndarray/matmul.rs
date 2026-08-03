@@ -5,7 +5,6 @@ use crate::{
     codegen::{
         CodeGenContext,
         expr::{call_extern, gen_prim_binop_expr},
-        stmt::gen_for_callback_incrementing,
         types::{
             NDArrayValue, RefCountedArrayValue,
             array::ArrayLikeIndexer,
@@ -89,54 +88,42 @@ fn matmul_at_least_2d<'ctx>(
         let i = indices.get_unchecked::<IntValue<'ctx>>(ctx, &at_row, None)?;
         let j = indices.get_unchecked::<IntValue<'ctx>>(ctx, &at_col, None)?;
 
-        let num_0 = ctx.size_t.const_int(0, false);
-        let num_1 = ctx.size_t.const_int(1, false);
+        ctx.build_repeat(None, len, |ctx, _, k| {
+            // `indices` is modified to index into `a` and `b`, and restored.
+            indices.set_unchecked(ctx, &at_row, i, None)?;
+            indices.set_unchecked(ctx, &at_col, k, None)?;
+            let a_ik = lhs.get_unchecked(ctx, &indices, None)?;
 
-        gen_for_callback_incrementing(
-            &mut (),
-            ctx,
-            None,
-            num_0,
-            (len, false),
-            |(), ctx, _, k| {
-                // `indices` is modified to index into `a` and `b`, and restored.
-                indices.set_unchecked(ctx, &at_row, i, None)?;
-                indices.set_unchecked(ctx, &at_col, k, None)?;
-                let a_ik = lhs.get_unchecked(ctx, &indices, None)?;
+            indices.set_unchecked(ctx, &at_row, k, None)?;
+            indices.set_unchecked(ctx, &at_col, j, None)?;
+            let b_kj = rhs.get_unchecked(ctx, &indices, None)?;
 
-                indices.set_unchecked(ctx, &at_row, k, None)?;
-                indices.set_unchecked(ctx, &at_col, j, None)?;
-                let b_kj = rhs.get_unchecked(ctx, &indices, None)?;
+            // Restore `indices`.
+            indices.set_unchecked(ctx, &at_row, i, None)?;
+            indices.set_unchecked(ctx, &at_col, j, None)?;
 
-                // Restore `indices`.
-                indices.set_unchecked(ctx, &at_row, i, None)?;
-                indices.set_unchecked(ctx, &at_col, j, None)?;
+            // x = a_[...]ik * b_[...]kj
+            let x = gen_prim_binop_expr(
+                ctx,
+                (&Some(lhs_dtype), a_ik),
+                Binop::normal(Operator::Mult),
+                (&Some(rhs_dtype), b_kj),
+            )?
+            .expect("matmul: ndarray should contain primtives only");
 
-                // x = a_[...]ik * b_[...]kj
-                let x = gen_prim_binop_expr(
-                    ctx,
-                    (&Some(lhs_dtype), a_ik),
-                    Binop::normal(Operator::Mult),
-                    (&Some(rhs_dtype), b_kj),
-                )?
-                .expect("matmul: ndarray should contain primtives only");
+            // dst_[...]ij += x
+            let dst_ij = ctx.builder.build_load(dst_dtype_llvm, pdst_ij, "")?;
+            let dst_ij = gen_prim_binop_expr(
+                ctx,
+                (&Some(dst_dtype), dst_ij),
+                Binop::normal(Operator::Add),
+                (&Some(dst_dtype), x),
+            )?
+            .expect("matmul: ndarray should contain primtives only");
+            ctx.builder.build_store(pdst_ij, dst_ij)?;
 
-                // dst_[...]ij += x
-                let dst_ij = ctx.builder.build_load(dst_dtype_llvm, pdst_ij, "")?;
-                let dst_ij = gen_prim_binop_expr(
-                    ctx,
-                    (&Some(dst_dtype), dst_ij),
-                    Binop::normal(Operator::Add),
-                    (&Some(dst_dtype), x),
-                )?
-                .expect("matmul: ndarray should contain primtives only");
-                ctx.builder.build_store(pdst_ij, dst_ij)?;
-
-                Ok(())
-            },
-            num_1,
-            |(), _| Ok(()),
-        )
+            Ok(())
+        })
     })?;
 
     Ok(dst)

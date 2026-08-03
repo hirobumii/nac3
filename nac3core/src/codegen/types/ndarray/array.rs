@@ -7,7 +7,6 @@ use crate::{
     codegen::{
         CodeGenContext,
         expr::call_extern,
-        stmt::gen_if_else_expr_callback,
         types::{
             ListValue, NDArrayType, ProxyTypeBase, RefCountedArrayType, RefCountedValue,
             array::ArrayLikeIndexer,
@@ -117,20 +116,17 @@ impl<'ctx> NDArrayValue<'ctx> {
 
         let (dtype, ndims) = get_list_object_dtype_and_ndims(ctx, list_ty);
 
-        let ndarray = gen_if_else_expr_callback(
-            &mut (),
-            ctx,
-            |(), _ctx| Ok(copy),
-            |(), ctx| {
+        let ndarray = ctx.build_ternary(
+            copy,
+            |ctx| {
                 let ndarray = Self::from_list_must_copy(ctx, (list_ty, list), name)?;
-                Ok(Some(ndarray.value))
+                Ok(ndarray.value)
             },
-            |(), ctx| {
+            |ctx| {
                 let ndarray = Self::from_list_maybe_copy(ctx, (list_ty, list), name)?;
-                Ok(Some(ndarray.value))
+                Ok(ndarray.value)
             },
-        )?
-        .unwrap();
+        )?;
 
         Ok(TypedRefCountedType::new(ctx, RawNDArrayType::new(ctx, dtype, ndims))
             .map_value(ndarray, None))
@@ -145,20 +141,17 @@ impl<'ctx> NDArrayValue<'ctx> {
     ) -> anyhow::Result<Self> {
         assert_eq!(copy.get_type(), ctx.i1);
 
-        let ndarray_val = gen_if_else_expr_callback(
-            &mut (),
-            ctx,
-            |(), _ctx| Ok(copy),
-            |(), ctx| {
+        let ndarray_val = ctx.build_ternary(
+            copy,
+            |ctx| {
                 let ndarray = ndarray.make_copy(ctx)?; // Force copy
-                Ok(Some(ndarray.value))
+                Ok(ndarray.value)
             },
-            |(), _ctx| {
+            |_| {
                 // No need to copy. Return `ndarray` itself.
-                Ok(Some(ndarray.value))
+                Ok(ndarray.value)
             },
-        )?
-        .unwrap();
+        )?;
 
         Ok(ndarray.ty.map_value(ndarray_val, name))
     }

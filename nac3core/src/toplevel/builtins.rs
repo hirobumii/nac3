@@ -20,7 +20,7 @@ use crate::{
             gen_ndarray_fill, gen_ndarray_full, gen_ndarray_identity, gen_ndarray_ones,
             gen_ndarray_zeros, ndarray_dot,
         },
-        stmt::{exn_constructor, gen_if_callback},
+        stmt::exn_constructor,
         types::{
             EnumerateType, NDArrayType, OptionType, ProxyTypeBase, RangeField, RangeType,
             ScalarOrNDArray, field, parse_numpy_int_sequence,
@@ -1969,20 +1969,13 @@ impl<'a> BuiltinBuilder<'a> {
             };
 
             let acc = a.fold(ctx, init, |ctx, hooks, acc, elem| {
-                gen_if_callback(
-                    &mut (),
-                    ctx,
-                    |(), ctx| {
-                        Ok(ctx.builder.build_int_compare(IntPredicate::EQ, acc, sc_val, "")?)
-                    },
-                    |(), ctx| {
-                        if let Some(hooks) = hooks {
-                            hooks.build_break_branch(&ctx.builder)?;
-                        }
-                        Ok(())
-                    },
-                    |(), _| Ok(()),
-                )?;
+                let cond = ctx.builder.build_int_compare(IntPredicate::EQ, acc, sc_val, "")?;
+                ctx.build_if(cond, |ctx| {
+                    if let Some(hooks) = hooks {
+                        hooks.build_break(&ctx.builder)?;
+                    }
+                    Ok(())
+                })?;
 
                 let is_truthy = builtin_fns::call_bool(ctx, (a_elem_ty, elem))?.into_int_value();
 

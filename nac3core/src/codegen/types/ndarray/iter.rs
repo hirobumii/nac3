@@ -11,7 +11,7 @@ use crate::codegen::{
     CodeGenContext,
     allocator::AllocationScope,
     expr::call_extern,
-    stmt::{BreakContinueHooks, gen_for_callback},
+    stmt::BreakContinueHooks,
     types::{
         NDArrayType, NDArrayValue, ProxyTypeBase, RefCountedArrayType, TypedRefCountedType,
         TypedRefCountedValue, Value, WithTypeinfo, array::ArraySliceValue, builtin::BuiltinStruct,
@@ -164,18 +164,17 @@ impl<'ctx> NDArrayValue<'ctx> {
             NDIterValue<'ctx>,
         ) -> anyhow::Result<()>,
     {
-        gen_for_callback(
-            &mut (),
-            ctx,
+        let nditer = NDIterValue::new(ctx, *self)?;
+
+        ctx.build_loop(
             Some("ndarray_foreach"),
-            |(), ctx| NDIterValue::new(ctx, *self),
-            |(), ctx, nditer| nditer.inner_value(ctx)?.has_element(ctx),
-            |(), ctx, hooks, nditer| body(ctx, hooks, nditer),
-            |(), ctx, nditer| {
-                nditer.inner_value(ctx)?.next(ctx)?;
-                Ok(())
+            |ctx, hooks| {
+                let cond = nditer.inner_value(ctx)?.has_element(ctx)?;
+                let finish = ctx.branch(cond)?;
+                ctx.in_block(finish, |ctx| hooks.build_break(&ctx.builder))?;
+                body(ctx, hooks, nditer)
             },
-            |(), _| Ok(()),
+            |ctx, ()| nditer.inner_value(ctx)?.next(ctx),
         )
     }
 
@@ -204,25 +203,21 @@ impl<'ctx> NDArrayValue<'ctx> {
         let acc_ty = init.get_type();
         let acc_ptr = ctx.alloc(acc_ty, None)?;
         ctx.builder.build_store(acc_ptr, init)?;
+        let nditer = NDIterValue::new(ctx, *self)?;
 
-        gen_for_callback(
-            &mut (),
-            ctx,
+        ctx.build_loop(
             Some("ndarray_fold"),
-            |(), ctx| NDIterValue::new(ctx, *self),
-            |(), ctx, nditer| nditer.inner_value(ctx)?.has_element(ctx),
-            |(), ctx, hooks, nditer| {
+            |ctx, hooks| {
+                let cond = nditer.inner_value(ctx)?.has_element(ctx)?;
+                let finish = ctx.branch(cond)?;
+                ctx.in_block(finish, |ctx| hooks.build_break(&ctx.builder))?;
                 let acc = V::try_from(ctx.builder.build_load(acc_ty, acc_ptr, "")?)
                     .map_err(|e| anyhow!("{e:?}"))?;
                 let acc = f(ctx, hooks, acc, nditer)?;
                 ctx.builder.build_store(acc_ptr, acc)?;
                 Ok(())
             },
-            |(), ctx, nditer| {
-                nditer.inner_value(ctx)?.next(ctx)?;
-                Ok(())
-            },
-            |(), _| Ok(()),
+            |ctx, ()| nditer.inner_value(ctx)?.next(ctx),
         )?;
 
         let acc = ctx.builder.build_load(acc_ty, acc_ptr, "")?;

@@ -9,7 +9,6 @@ use nac3core_derive::StructFields;
 use crate::codegen::{
     CodeGenContext, ModuleContext,
     allocator::AllocationScope,
-    stmt::gen_if_callback,
     types::{
         NDArrayType, ProxyTypeBase as _, RefCountedValue as _, RefType, TypedRefCountedType,
         TypedRefCountedValue, Value, WithTypeinfo,
@@ -139,11 +138,10 @@ impl<'ctx> NDArrayValue<'ctx> {
         let shape_data_ptr = shape.inner_value(ctx, Some(ndims))?.value.0;
         result.inner_value(ctx)?.store(ctx, field!(shape), shape_data_ptr)?;
 
-        gen_if_callback(
-            &mut (),
-            ctx,
-            |(), ctx| self.is_c_contiguous(ctx),
-            |(), ctx| {
+        let is_c_contiguous = self.is_c_contiguous(ctx)?;
+        ctx.build_if_else(
+            is_c_contiguous,
+            |ctx| {
                 // This ndarray is contiguous.
                 let data = self.inner_value(ctx)?.data(ctx)?;
                 result.inner_value(ctx)?.store(ctx, field!(data), data.value.0)?;
@@ -151,7 +149,7 @@ impl<'ctx> NDArrayValue<'ctx> {
                 result.inner_value(ctx)?.store(ctx, field!(offset), ctx.size_t.const_zero())?;
                 Ok(())
             },
-            |(), ctx| {
+            |ctx, ()| {
                 // This ndarray is not contiguous. Do a full-copy on `data`. `make_copy` produces an
                 // ndarray with contiguous `data`.
                 let copied_ndarray = self.make_copy(ctx)?;
