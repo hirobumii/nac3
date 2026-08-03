@@ -186,7 +186,6 @@ fn test_primitives() {
         export_symbol: true,
         location: statements.first().unwrap().location,
         body: Arc::new(statements),
-        unifier_index: 0,
         calls: Arc::new(calls),
         resolver,
         store,
@@ -314,7 +313,6 @@ fn test_simple_call() {
                 body: Arc::new(statements_2),
                 calls: Arc::new(inferencer.calls.clone()),
                 subst: IndexMap::default(),
-                unifier_id: 0,
             },
         );
     } else {
@@ -336,7 +334,6 @@ fn test_simple_call() {
         location: statements_1.first().unwrap().location,
         body: Arc::new(statements_1),
         calls: Arc::new(calls1),
-        unifier_index: 0,
         resolver,
         signature,
         store,
@@ -431,7 +428,6 @@ fn test_list_mul_refcount() {
         export_symbol: true,
         location: statements.first().unwrap().location,
         body: Arc::new(statements),
-        unifier_index: 0,
         calls: Arc::new(calls),
         resolver,
         store,

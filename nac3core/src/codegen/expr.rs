@@ -731,7 +731,6 @@ pub fn gen_func_instance(
         subst,
         signature,
         store,
-        unifier_index: instance.unifier_id,
         id,
     });
     Ok(symbol)

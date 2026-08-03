@@ -1675,8 +1675,7 @@ impl TopLevelComposer {
         let TypeAnnotation::CustomClass { id, params: _ } = base else {
             unreachable!("must be class type annotation")
         };
-        let TopLevelDef::Class { methods, fields, attributes, .. } =
-            &*temp_def_list[id.0].read()
+        let TopLevelDef::Class { methods, fields, attributes, .. } = &*temp_def_list[id.0].read()
         else {
             unreachable!("must be top level class def")
         };
@@ -2249,12 +2248,7 @@ impl TopLevelComposer {
                         &subst,
                         Some(&vars.keys().copied().collect()),
                     ),
-                    FunInstance {
-                        body: Arc::new(fun_body),
-                        unifier_id: 0,
-                        calls: Arc::new(calls),
-                        subst,
-                    },
+                    FunInstance { body: Arc::new(fun_body), calls: Arc::new(calls), subst },
                 );
             }
 

@@ -1258,7 +1258,6 @@ impl Nac3 {
             signature,
             resolver,
             store,
-            unifier_index: instance.unifier_id,
             calls: instance.calls,
             id: 0,
         };

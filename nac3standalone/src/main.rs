@@ -416,7 +416,6 @@ fn main() {
         signature,
         resolver,
         store,
-        unifier_index: instance.unifier_id,
         calls: instance.calls,
         id: 0,
     };

@@ -86,7 +86,6 @@ pub struct FunInstance {
     pub body: Arc<Vec<Stmt<Option<Type>>>>,
     pub calls: Arc<HashMap<CodeLocation, CallId>>,
     pub subst: VarMap,
-    pub unifier_id: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

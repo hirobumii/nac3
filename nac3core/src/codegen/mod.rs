@@ -506,7 +506,6 @@ pub struct CodeGenTask {
     pub export_symbol: bool,
     pub body: Arc<Vec<Stmt<Option<Type>>>>,
     pub calls: Arc<HashMap<CodeLocation, CallId>>,
-    pub unifier_index: usize,
     pub resolver: Arc<dyn SymbolResolver + Send + Sync>,
     pub id: usize,
 }
