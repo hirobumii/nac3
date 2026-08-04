@@ -1057,7 +1057,7 @@ fn format_rpc_ret<'ctx>(
             //   - * `shape` - allocated; has uninitialized values.
             //   - * `strides` - allocated; has uninitialized values.
 
-            let stackptr = call_stacksave(ctx, None)?;
+            let stackptr = call_stacksave(ctx, Some("rpc.wire.stack"))?;
 
             let itemsize = ctx.sizeof(ndarray.ty.object.dtype);
             let sizeof_ptr = ctx.sizeof(ctx.ptr);
@@ -1109,8 +1109,8 @@ fn format_rpc_ret<'ctx>(
             )?;
             ndarray.shape(ctx)?.inner_value(ctx, None)?.memcpy_from(ctx, pbuffer_shape)?;
 
-            // Restore stack from before allocation of buffer
-            call_stackrestore(ctx, stackptr)?;
+            // NOTE: The stack must *not* be rewound here - `buffer` has to stay live until the
+            // receive loop below terminates.
 
             // Allocate `ndarray.data`.
             // `ndarray.shape` must be initialized beforehand in this implementation
@@ -1158,8 +1158,6 @@ fn format_rpc_ret<'ctx>(
                 .inner_value(ctx, Some(ndarray_num_elements))?
                 .cast(ctx, ctx.i8, None, None)?
                 .ptr_offset_unchecked(ctx, &ndarray_offset, None)?;
-
-            let stackptr = call_stacksave(ctx, Some("rpc.wire.stack"))?;
 
             gen_rpc_recv_loop(ctx, &rpc_recv, ndarray_data, |ctx, alloc_size| {
                 // Align the allocation to sizeof(T)
