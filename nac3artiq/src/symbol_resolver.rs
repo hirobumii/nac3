@@ -1190,6 +1190,666 @@ impl InnerResolver {
         }
     }
 
+    fn get_list_value<'ctx, 'py>(
+        &self,
+        py: Python<'py>,
+        obj: &Bound<'py, PyAny>,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        expected_ty: Type,
+        id: u64,
+    ) -> anyhow::Result<Option<BasicValueEnum<'ctx>>> {
+        let id_str = id.to_string();
+
+        if let Some(global) = ctx.module.get_global(&id_str) {
+            return Ok(Some(global.as_pointer_value().into()));
+        }
+
+        let len = py_interp::extract_len(obj)?;
+        let elem_ty = match ctx.unifier.get_ty_immutable(expected_ty).as_ref() {
+            TypeEnum::TObj { obj_id, params, .. } if *obj_id == PrimDef::List.id() => {
+                iter_type_vars(params).nth(0).unwrap().ty
+            }
+            _ => unreachable!("must be list"),
+        };
+        let size_t = ctx.size_t;
+        let ty = if len == 0
+            && matches!(&*ctx.unifier.get_ty_immutable(elem_ty), TypeEnum::TVar { .. })
+        {
+            // The default type for zero-length lists of unknown element type is size_t
+            size_t.into()
+        } else {
+            ctx.get_llvm_type(elem_ty)
+        };
+
+        let list_ty = ListType::from_unifier_type(ctx, expected_ty);
+        let list_wrapper_ty = list_ty.alloca_ty(ctx).into_struct_type();
+
+        {
+            if self.global_value_ids.read().contains_key(&id) {
+                let global = ctx.module.get_global(&id_str).unwrap_or_else(|| {
+                    ctx.module.add_global(list_wrapper_ty, Some(AddressSpace::default()), &id_str)
+                });
+                return Ok(Some(global.as_pointer_value().into()));
+            }
+            let typed =
+                Self::make_typed_pyobject(py, obj, &mut ctx.unifier, &ctx.primitives, expected_ty)?;
+            self.global_value_ids.write().insert(id, typed);
+        }
+
+        let arr = (0..len)
+            .map(|i| {
+                let elem = obj.get_item(i)?;
+                Ok(self.get_obj_value(py, &elem, ctx, elem_ty).map_err(|e| {
+                    super::CompileError::new_err(format!("Error getting element {i}: {e}"))
+                })?)
+            })
+            .collect::<anyhow::Result<Option<Vec<_>>>>()?
+            .unwrap();
+
+        let elem_arr: BasicValueEnum = if ty.is_int_type() {
+            let arr: Vec<_> = arr.into_iter().map(BasicValueEnum::into_int_value).collect();
+            ty.into_int_type().const_array(&arr).into()
+        } else if ty.is_float_type() {
+            let arr: Vec<_> = arr.into_iter().map(BasicValueEnum::into_float_value).collect();
+            ty.into_float_type().const_array(&arr).into()
+        } else if ty.is_array_type() {
+            let arr: Vec<_> = arr.into_iter().map(BasicValueEnum::into_array_value).collect();
+            ty.into_array_type().const_array(&arr).into()
+        } else if ty.is_struct_type() {
+            let arr: Vec<_> = arr.into_iter().map(BasicValueEnum::into_struct_value).collect();
+            ty.into_struct_type().const_array(&arr).into()
+        } else if ty.is_pointer_type() {
+            let arr: Vec<_> = arr.into_iter().map(BasicValueEnum::into_pointer_value).collect();
+            ty.into_pointer_type().const_array(&arr).into()
+        } else {
+            unreachable!()
+        };
+
+        // Build the data array global with `RefCountedArrayType` layout.
+        let arr_global =
+            build_refcounted_array_global(ctx, ty, len as u32, elem_arr, &(id_str.clone() + "_"));
+
+        // Build the list global with `ListType` layout.
+        let list_header_ty = list_wrapper_ty.get_field_type_at_index(0).unwrap().into_struct_type();
+        let list_inner_ty = list_wrapper_ty.get_field_type_at_index(1).unwrap().into_struct_type();
+        let list_inner_val = list_inner_ty.const_named_struct(&[
+            arr_global.as_pointer_value().into(),
+            size_t.const_int(len as u64, false).into(),
+        ]);
+        let list_typeinfo_offset = list_ty
+            .object
+            .typeinfo(ctx)
+            .value
+            .const_to_int(ctx.size_t)
+            .const_sub(ctx.global_begin_ptr().const_to_int(ctx.size_t))
+            .const_truncate_or_bit_cast(ctx.i32);
+        let list_header_val = list_header_ty
+            .const_named_struct(&[ctx.i32.const_zero().into(), list_typeinfo_offset.into()]);
+        let val =
+            list_wrapper_ty.const_named_struct(&[list_header_val.into(), list_inner_val.into()]);
+
+        let global = ctx.module.add_global(list_wrapper_ty, Some(AddressSpace::default()), &id_str);
+        global.set_initializer(&val);
+
+        Ok(Some(global.as_pointer_value().into()))
+    }
+
+    fn get_enumerate_value<'ctx, 'py>(
+        &self,
+        py: Python<'py>,
+        obj: &Bound<'py, PyAny>,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        expected_ty: Type,
+        id: u64,
+    ) -> anyhow::Result<Option<BasicValueEnum<'ctx>>> {
+        let id_str = id.to_string();
+
+        if let Some(global) = ctx.module.get_global(&id_str) {
+            return Ok(Some(global.as_pointer_value().into()));
+        }
+
+        {
+            if self.global_value_ids.read().contains_key(&id) {
+                let enum_ty = EnumerateType::new(ctx);
+                let global = ctx.module.get_global(&id_str).unwrap_or_else(|| {
+                    ctx.module.add_global(
+                        enum_ty.inner.llvm_ty,
+                        Some(AddressSpace::default()),
+                        &id_str,
+                    )
+                });
+                return Ok(Some(global.as_pointer_value().into()));
+            }
+            let typed =
+                Self::make_typed_pyobject(py, obj, &mut ctx.unifier, &ctx.primitives, expected_ty)?;
+            self.global_value_ids.write().insert(id, typed);
+        }
+
+        let reduce_tuple = obj.call_method0("__reduce__")?;
+        let reduce_tuple = reduce_tuple.cast::<PyTuple>().map_err(PyErr::from)?;
+        let args_tuple = reduce_tuple.get_item(1)?;
+        let args_tuple = args_tuple.cast::<PyTuple>().map_err(PyErr::from)?;
+        let start_obj = args_tuple.get_item(1)?;
+        let start: i32 = start_obj.extract()?;
+
+        // Get element and iterable types using the helper function
+        let top_level_defs = &ctx.top_level.definitions;
+        let (_, iterable_ty) = self
+            .get_enumerate_elem_and_iterable_type(
+                py,
+                obj,
+                &mut ctx.unifier,
+                top_level_defs,
+                &ctx.primitives,
+            )
+            .map_err(|e| super::CompileError::new_err(format!("{e}")))?;
+
+        // Get the actual iterable object for value generation
+        let iterable_obj = args_tuple.get_item(0)?;
+        let reduce_tuple = iterable_obj.call_method0("__reduce__")?;
+        let reduce_tuple = reduce_tuple.cast::<PyTuple>().map_err(PyErr::from)?;
+        let args = reduce_tuple.get_item(1)?;
+        let args = args.cast::<PyTuple>().map_err(PyErr::from)?;
+        let iterable = &args.get_item(0)?;
+        let list_len = py_interp::extract_len(iterable)?;
+
+        let iterable =
+            if iterable.is_instance_of::<PyList>() || iterable.is_instance_of::<PyTuple>() {
+                let iterable_value = self
+                    .get_obj_value(py, iterable, ctx, iterable_ty)?
+                    .expect("must have iterable value");
+
+                if iterable.is_instance_of::<PyList>() {
+                    iterable_value.into_pointer_value().into()
+                } else {
+                    // Tuples are value types, so the iterable struct's `ptr` slot
+                    // cannot hold the tuple value inline; materialize it into its
+                    // own global and store the pointer instead.
+                    let tuple_global = ctx.module.add_global(
+                        iterable_value.get_type(),
+                        Some(AddressSpace::default()),
+                        &format!("{id_str}.iterable.data"),
+                    );
+                    tuple_global.set_initializer(&iterable_value);
+                    tuple_global.as_pointer_value().into()
+                }
+            } else {
+                unreachable!("unexpected iterable type for enumerate")
+            };
+
+        let iterable_struct_ty = ctx.ctx.struct_type(&[ctx.ptr.into(), ctx.size_t.into()], false);
+
+        let iterable_struct_val = iterable_struct_ty
+            .const_named_struct(&[iterable, ctx.size_t.const_int(list_len as u64, false).into()]);
+
+        let iterable_global_name = format!("{id_str}_iterable");
+        let iterable_global = ctx.module.add_global(
+            iterable_struct_ty,
+            Some(AddressSpace::default()),
+            &iterable_global_name,
+        );
+        iterable_global.set_initializer(&iterable_struct_val);
+
+        // Enumerate struct layout:
+        // struct {
+        //     struct {                        // Inner struct for iterable state
+        //         iterable_struct_ty*,        // Pointer to iterable data
+        //         i32,                        // Len of the iterable
+        //     }*,                             // Pointer to the inner iterable struct
+        //     i32,                            // Start value (initial counter for enumerate)
+        // }
+        // Note: This matches EnumerateType in enumerate.rs where the structure wraps
+        // the iterable pointer and start value.
+        let enum_ty = EnumerateType::new(ctx);
+        let enum_struct_ty = enum_ty.inner.llvm_ty;
+
+        let enum_struct_val = enum_struct_ty.const_named_struct(&[
+            iterable_global.as_pointer_value().into(),
+            ctx.i32.const_int(start as u64, true).into(),
+        ]);
+
+        let enum_global =
+            ctx.module.add_global(enum_struct_ty, Some(AddressSpace::default()), &id_str);
+        enum_global.set_initializer(&enum_struct_val);
+
+        Ok(Some(enum_global.as_pointer_value().into()))
+    }
+
+    fn get_ndarray_value<'ctx, 'py>(
+        &self,
+        py: Python<'py>,
+        obj: &Bound<'py, PyAny>,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        expected_ty: Type,
+        id: u64,
+    ) -> anyhow::Result<Option<BasicValueEnum<'ctx>>> {
+        let id_str = id.to_string();
+
+        if let Some(global) = ctx.module.get_global(&id_str) {
+            return Ok(Some(global.as_pointer_value().into()));
+        }
+
+        let ndarray_ty = if matches!(&*ctx.unifier.get_ty_immutable(expected_ty), TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id())
+        {
+            expected_ty
+        } else {
+            unreachable!("must be ndarray")
+        };
+        let (ndarray_dtype, _) = unpack_ndarray_var_tys(&mut ctx.unifier, ndarray_ty);
+
+        let llvm_usize = ctx.size_t;
+        let llvm_ndarray = NDArrayType::from_unifier_type(ctx, ndarray_ty);
+        let dtype = llvm_ndarray.object.dtype;
+        let ndarray_wrapper_ty = llvm_ndarray.alloca_ty(ctx).into_struct_type();
+
+        {
+            if self.global_value_ids.read().contains_key(&id) {
+                let global = ctx.module.get_global(&id_str).unwrap_or_else(|| {
+                    ctx.module.add_global(
+                        ndarray_wrapper_ty,
+                        Some(AddressSpace::default()),
+                        &id_str,
+                    )
+                });
+                return Ok(Some(global.as_pointer_value().into()));
+            }
+            let typed =
+                Self::make_typed_pyobject(py, obj, &mut ctx.unifier, &ctx.primitives, expected_ty)?;
+            self.global_value_ids.write().insert(id, typed);
+        }
+
+        let ndims = llvm_ndarray.object.ndims;
+
+        // Obtain the shape of the ndarray
+        let shape_tuple = obj.getattr("shape")?;
+        let shape_tuple = shape_tuple.cast::<PyTuple>().map_err(PyErr::from)?;
+        assert_eq!(shape_tuple.len(), ndims as usize);
+
+        let shape_values = shape_tuple
+            .iter()
+            .enumerate()
+            .map(|(i, elem)| {
+                let value = self
+                    .get_obj_value(py, &elem, ctx, ctx.primitives.usize())
+                    .map_err(|e| {
+                        super::CompileError::new_err(format!("Error getting element {i}: {e}"))
+                    })?
+                    .unwrap();
+                let value =
+                    ctx.builder.build_int_z_extend(value.into_int_value(), llvm_usize, "")?;
+                Ok(value)
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+
+        // Also use this opportunity to get the constant values of `shape_values` for calculating strides.
+        let shape_u64s = shape_values
+            .iter()
+            .map(|dim| {
+                assert!(dim.is_const());
+                dim.get_zero_extended_constant().unwrap()
+            })
+            .collect_vec();
+        let shape_values_const = llvm_usize.const_array(&shape_values);
+
+        // create a `RefCountedArrayValue` global for ndarray.shape
+        let shape_global = build_refcounted_array_global(
+            ctx,
+            llvm_usize.into(),
+            ndims as u32,
+            shape_values_const.into(),
+            &(id_str.clone() + ".shape"),
+        );
+
+        // Obtain the (flattened) elements of the ndarray
+        let sz: usize = obj.getattr("size")?.extract()?;
+        let data = (0..sz)
+            .map(|i| {
+                let elem = obj.getattr("flat")?.get_item(i)?;
+                let value = self
+                    .get_obj_value(py, &elem, ctx, ndarray_dtype)
+                    .map_err(|e| {
+                        super::CompileError::new_err(format!("Error getting element {i}: {e}"))
+                    })?
+                    .unwrap();
+
+                assert_eq!(value.get_type(), dtype);
+                anyhow::Ok(value)
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        let data = data.into_iter();
+        let data_const: BasicValueEnum = match dtype {
+            BasicTypeEnum::ArrayType(ty) => {
+                ty.const_array(&data.map(BasicValueEnum::into_array_value).collect_vec()).into()
+            }
+
+            BasicTypeEnum::FloatType(ty) => {
+                ty.const_array(&data.map(BasicValueEnum::into_float_value).collect_vec()).into()
+            }
+
+            BasicTypeEnum::IntType(ty) => {
+                ty.const_array(&data.map(BasicValueEnum::into_int_value).collect_vec()).into()
+            }
+
+            BasicTypeEnum::PointerType(ty) => {
+                ty.const_array(&data.map(BasicValueEnum::into_pointer_value).collect_vec()).into()
+            }
+
+            BasicTypeEnum::StructType(ty) => {
+                ty.const_array(&data.map(BasicValueEnum::into_struct_value).collect_vec()).into()
+            }
+
+            BasicTypeEnum::VectorType(_) | BasicTypeEnum::ScalableVectorType(_) => {
+                unreachable!()
+            }
+        };
+
+        // create a `RefCountedArrayValue` global for ndarray.data
+        let data_global = build_refcounted_array_global(
+            ctx,
+            dtype,
+            sz as u32,
+            data_const,
+            &(id_str.clone() + ".data"),
+        );
+
+        // Get the constant itemsize.
+        let itemsize = ctx.sizeof(dtype);
+        assert_ne!(itemsize, 0);
+
+        // Create the strides needed for ndarray.strides
+        let strides = make_contiguous_strides(&shape_u64s, itemsize);
+        let strides =
+            strides.into_iter().map(|stride| llvm_usize.const_int(stride, false)).collect_vec();
+        let strides = llvm_usize.const_array(&strides);
+
+        // create a `RefCountedArrayValue` global for ndarray.strides
+        let strides_global = build_refcounted_array_global(
+            ctx,
+            llvm_usize.into(),
+            ndims as u32,
+            strides.into(),
+            &format!("${id_str}.strides"),
+        );
+
+        // Build the inner `RawNDArrayValue` instance
+        let ndarray_header_ty = ndarray_wrapper_ty
+            .get_field_type_at_index(0)
+            .map(BasicTypeEnum::into_struct_type)
+            .unwrap();
+        let ndarray_inner_ty = ndarray_wrapper_ty
+            .get_field_type_at_index(1)
+            .map(BasicTypeEnum::into_struct_type)
+            .unwrap();
+        let ndarray_inner_val = ndarray_inner_ty.const_named_struct(&[
+            llvm_usize.const_int(itemsize, false).into(),
+            llvm_usize.const_int(ndims, false).into(),
+            shape_global.as_pointer_value().into(),
+            strides_global.as_pointer_value().into(),
+            data_global.as_pointer_value().into(),
+            ctx.ptr.const_null().into(),
+            llvm_usize.const_zero().into(),
+        ]);
+
+        // Build the outer `NDArrayValue` instance
+        let ndarray_typeinfo_offset = llvm_ndarray
+            .object
+            .typeinfo(ctx)
+            .value
+            .const_to_int(ctx.size_t)
+            .const_sub(ctx.global_begin_ptr().const_to_int(ctx.size_t))
+            .const_truncate_or_bit_cast(ctx.i32);
+        let ndarray_header_val = ndarray_header_ty
+            .const_named_struct(&[ctx.i32.const_zero().into(), ndarray_typeinfo_offset.into()]);
+        let ndarray = ndarray_wrapper_ty
+            .const_named_struct(&[ndarray_header_val.into(), ndarray_inner_val.into()]);
+
+        let ndarray_global =
+            ctx.module.add_global(ndarray_wrapper_ty, Some(AddressSpace::default()), &id_str);
+        ndarray_global.set_initializer(&ndarray);
+
+        Ok(Some(ndarray_global.as_pointer_value().into()))
+    }
+
+    fn get_tuple_value<'ctx, 'py>(
+        &self,
+        py: Python<'py>,
+        obj: &Bound<'py, PyAny>,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        expected_ty: Type,
+    ) -> anyhow::Result<Option<BasicValueEnum<'ctx>>> {
+        let expected_ty_enum = ctx.unifier.get_ty_immutable(expected_ty);
+        let TypeEnum::TTuple { ty, is_vararg_ctx: false } = expected_ty_enum.as_ref() else {
+            unreachable!()
+        };
+
+        let tup_tys = ty.iter();
+        let elements = obj.cast::<PyTuple>().map_err(PyErr::from)?;
+        assert_eq!(elements.len(), tup_tys.len());
+        let val = elements
+            .iter()
+            .enumerate()
+            .zip(tup_tys)
+            .map(|((i, elem), ty)| {
+                Ok(self.get_obj_value(py, &elem, ctx, *ty).map_err(|e| {
+                    super::CompileError::new_err(format!("Error getting element {i}: {e}"))
+                })?)
+            })
+            .collect::<anyhow::Result<Option<Vec<_>>>>()?
+            .unwrap();
+
+        // Constant initializers must match the two-level layout of `TupleType`
+        //
+        // The `typeinfo_offset` in the header is needed for IRRT's refcount walker to recognize
+        // refcounted fields in tuples. The refcount is set to 0 to indicate that the tuple
+        // itself is not heap-allocated nor reference-counted.
+        let tuple_ty = TupleType::from_unifier_type(ctx, expected_ty);
+        let outer_struct_ty = tuple_ty.llvm_ty(ctx).into_struct_type();
+        let inner_val = tuple_ty.fields.const_named_struct(&val);
+        let header_ty =
+            unsafe { outer_struct_ty.get_field_type_at_index_unchecked(0).into_struct_type() };
+        let typeinfo_offset = tuple_ty
+            .typeinfo(ctx)
+            .value
+            .const_to_int(ctx.size_t)
+            .const_sub(ctx.global_begin_ptr().const_to_int(ctx.size_t))
+            .const_truncate_or_bit_cast(ctx.i32);
+        let header_val =
+            header_ty.const_named_struct(&[ctx.i32.const_zero().into(), typeinfo_offset.into()]);
+        let outer_val = outer_struct_ty.const_named_struct(&[header_val.into(), inner_val.into()]);
+        Ok(Some(outer_val.into()))
+    }
+
+    fn get_option_value<'ctx, 'py>(
+        &self,
+        py: Python<'py>,
+        obj: &Bound<'py, PyAny>,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        expected_ty: Type,
+        id: u64,
+    ) -> anyhow::Result<Option<BasicValueEnum<'ctx>>> {
+        let option_val_ty = match ctx.unifier.get_ty_immutable(expected_ty).as_ref() {
+            TypeEnum::TObj { obj_id, params, .. }
+                if *obj_id == ctx.primitives.option.obj_id(&ctx.unifier).unwrap() =>
+            {
+                *params.iter().next().unwrap().1
+            }
+            _ => unreachable!("must be option type"),
+        };
+        if id == self.primitive_ids.artiq.none {
+            // for option type, just a null ptr
+            Ok(Some(ctx.ptr.const_null().into()))
+        } else {
+            match self
+                .get_obj_value(py, &obj.getattr("_nac3_option").unwrap(), ctx, option_val_ty)
+                .map_err(|e| {
+                    super::CompileError::new_err(format!(
+                        "Error getting value of Option object: {e}"
+                    ))
+                })? {
+                Some(v) => {
+                    let global_str = format!("{id}_option");
+                    {
+                        if self.global_value_ids.read().contains_key(&id) {
+                            let global = ctx.module.get_global(&global_str).unwrap_or_else(|| {
+                                ctx.module.add_global(
+                                    v.get_type(),
+                                    Some(AddressSpace::default()),
+                                    &global_str,
+                                )
+                            });
+                            return Ok(Some(global.as_pointer_value().into()));
+                        }
+                        let typed = Self::make_typed_pyobject(
+                            py,
+                            obj,
+                            &mut ctx.unifier,
+                            &ctx.primitives,
+                            expected_ty,
+                        )?;
+                        self.global_value_ids.write().insert(id, typed);
+                    }
+                    let arr_const: BasicValueEnum = match v.get_type() {
+                        BasicTypeEnum::ArrayType(ty) => {
+                            ty.const_array([v.into_array_value()].as_ref()).into()
+                        }
+
+                        BasicTypeEnum::FloatType(ty) => {
+                            ty.const_array([v.into_float_value()].as_ref()).into()
+                        }
+
+                        BasicTypeEnum::IntType(ty) => {
+                            ty.const_array([v.into_int_value()].as_ref()).into()
+                        }
+
+                        BasicTypeEnum::PointerType(ty) => {
+                            ty.const_array([v.into_pointer_value()].as_ref()).into()
+                        }
+
+                        BasicTypeEnum::StructType(ty) => {
+                            ty.const_array([v.into_struct_value()].as_ref()).into()
+                        }
+
+                        BasicTypeEnum::VectorType(_) | BasicTypeEnum::ScalableVectorType(_) => {
+                            unreachable!()
+                        }
+                    };
+                    let arr_global = build_refcounted_array_global(
+                        ctx,
+                        v.get_type(),
+                        1,
+                        arr_const,
+                        &format!("{id}_arr"),
+                    );
+
+                    Ok(Some(arr_global.as_pointer_value().into()))
+                }
+                None => Ok(None),
+            }
+        }
+    }
+
+    fn get_user_defined_class_value<'ctx, 'py>(
+        &self,
+        py: Python<'py>,
+        obj: &Bound<'py, PyAny>,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        expected_ty: Type,
+        id: u64,
+        ty_id: u64,
+    ) -> anyhow::Result<Option<BasicValueEnum<'ctx>>> {
+        let id_str = id.to_string();
+
+        if let Some(global) = ctx.module.get_global(&id_str) {
+            return Ok(Some(global.as_pointer_value().into()));
+        }
+
+        let ty = self.get_obj_type(
+            py,
+            obj,
+            &mut ctx.unifier,
+            &ctx.top_level.definitions,
+            &ctx.primitives,
+            None,
+        )?;
+        // User-defined classes are reference-counted: the alloca type wraps the user struct
+        // with an `ObjectHeader` ({ refcount, typeinfo_offset }). We construct the global
+        // with the same wrapper layout so loads via `ClassType::inner_value` see the right
+        // offsets at runtime.
+        let class_ty = ClassType::from_unifier_type(ctx, ty);
+        let wrapper_ty = class_ty.alloca_ty(ctx).into_struct_type();
+        let header_ty = wrapper_ty.get_field_type_at_index(0).unwrap().into_struct_type();
+        let inner_ty = wrapper_ty.get_field_type_at_index(1).unwrap().into_struct_type();
+        {
+            if self.global_value_ids.read().contains_key(&id) {
+                let global = ctx.module.get_global(&id_str).unwrap_or_else(|| {
+                    ctx.module.add_global(wrapper_ty, Some(AddressSpace::default()), &id_str)
+                });
+                return Ok(Some(global.as_pointer_value().into()));
+            }
+            let typed =
+                Self::make_typed_pyobject(py, obj, &mut ctx.unifier, &ctx.primitives, expected_ty)?;
+            self.global_value_ids.write().insert(id, typed);
+        }
+        // should be classes
+        let top_level_defs = &ctx.top_level.definitions;
+        let TopLevelDef::Class { fields: fields_list, .. } =
+            &*top_level_defs[self.pyid_to_def.read()[&ty_id].0].read()
+        else {
+            unreachable!()
+        };
+
+        let TypeEnum::TObj { obj_id, fields, .. } = &*ctx.unifier.get_ty(ty) else {
+            // As guaranteed by invoking ctx.get_alloca_type(ty)
+            unreachable!("type {} must refer to a class instance", ctx.unifier.stringify(ty))
+        };
+        assert_eq!(
+            *obj_id,
+            self.pyid_to_def.read()[&ty_id],
+            "unifier failed to infer the same object"
+        );
+
+        let values = fields_list
+            .iter()
+            .map(|(name, _, _)| {
+                Ok(self
+                    .get_obj_value(
+                        py,
+                        &obj.getattr(name.to_string().as_str())?,
+                        ctx,
+                        fields[name].0,
+                    )
+                    .map_err(|e| {
+                        super::CompileError::new_err(format!("Error getting field {name}: {e}"))
+                    })?)
+            })
+            .collect::<anyhow::Result<Option<Vec<_>>>>()?;
+        if let Some(values) = values {
+            // Synthesize the object header constant. `refcount = 0` marks the object as
+            // non-refcounted so the runtime never frees this global. `typeinfo_offset` mirrors
+            // the IRRT formula `typeinfo - __nac3_global_begin`, expressed as an LLVM constant
+            // expression (resolved at link time).
+            let typeinfo = class_ty.object.typeinfo(ctx);
+            let typeinfo_offset = typeinfo
+                .value
+                .const_to_int(ctx.size_t)
+                .const_sub(ctx.global_begin_ptr().const_to_int(ctx.size_t))
+                .const_truncate_or_bit_cast(ctx.i32);
+            let header_val = header_ty
+                .const_named_struct(&[ctx.i32.const_zero().into(), typeinfo_offset.into()]);
+
+            let inner_val = inner_ty.const_named_struct(&values);
+            let val = wrapper_ty.const_named_struct(&[header_val.into(), inner_val.into()]);
+
+            let global = ctx.module.get_global(&id_str).unwrap_or_else(|| {
+                ctx.module.add_global(wrapper_ty, Some(AddressSpace::default()), &id_str)
+            });
+            global.set_initializer(&val);
+            Ok(Some(global.as_pointer_value().into()))
+        } else {
+            Ok(None)
+        }
+    }
+
     pub fn get_obj_value<'ctx, 'py>(
         &self,
         py: Python<'py>,
@@ -1241,648 +1901,17 @@ impl InnerResolver {
             self.id_to_primitive.write().insert(id, PrimitiveValue::F64(val));
             Ok(Some(ctx.f64.const_float(val).into()))
         } else if ty_id == self.primitive_ids.builtins.list {
-            let id_str = id.to_string();
-
-            if let Some(global) = ctx.module.get_global(&id_str) {
-                return Ok(Some(global.as_pointer_value().into()));
-            }
-
-            let len = py_interp::extract_len(obj)?;
-            let elem_ty = match ctx.unifier.get_ty_immutable(expected_ty).as_ref() {
-                TypeEnum::TObj { obj_id, params, .. } if *obj_id == PrimDef::List.id() => {
-                    iter_type_vars(params).nth(0).unwrap().ty
-                }
-                _ => unreachable!("must be list"),
-            };
-            let size_t = ctx.size_t;
-            let ty = if len == 0
-                && matches!(&*ctx.unifier.get_ty_immutable(elem_ty), TypeEnum::TVar { .. })
-            {
-                // The default type for zero-length lists of unknown element type is size_t
-                size_t.into()
-            } else {
-                ctx.get_llvm_type(elem_ty)
-            };
-
-            let list_ty = ListType::from_unifier_type(ctx, expected_ty);
-            let list_wrapper_ty = list_ty.alloca_ty(ctx).into_struct_type();
-
-            {
-                if self.global_value_ids.read().contains_key(&id) {
-                    let global = ctx.module.get_global(&id_str).unwrap_or_else(|| {
-                        ctx.module.add_global(
-                            list_wrapper_ty,
-                            Some(AddressSpace::default()),
-                            &id_str,
-                        )
-                    });
-                    return Ok(Some(global.as_pointer_value().into()));
-                }
-                let typed = Self::make_typed_pyobject(
-                    py,
-                    obj,
-                    &mut ctx.unifier,
-                    &ctx.primitives,
-                    expected_ty,
-                )?;
-                self.global_value_ids.write().insert(id, typed);
-            }
-
-            let arr = (0..len)
-                .map(|i| {
-                    let elem = obj.get_item(i)?;
-                    Ok(self.get_obj_value(py, &elem, ctx, elem_ty).map_err(|e| {
-                        super::CompileError::new_err(format!("Error getting element {i}: {e}"))
-                    })?)
-                })
-                .collect::<anyhow::Result<Option<Vec<_>>>>()?
-                .unwrap();
-
-            let elem_arr: BasicValueEnum = if ty.is_int_type() {
-                let arr: Vec<_> = arr.into_iter().map(BasicValueEnum::into_int_value).collect();
-                ty.into_int_type().const_array(&arr).into()
-            } else if ty.is_float_type() {
-                let arr: Vec<_> = arr.into_iter().map(BasicValueEnum::into_float_value).collect();
-                ty.into_float_type().const_array(&arr).into()
-            } else if ty.is_array_type() {
-                let arr: Vec<_> = arr.into_iter().map(BasicValueEnum::into_array_value).collect();
-                ty.into_array_type().const_array(&arr).into()
-            } else if ty.is_struct_type() {
-                let arr: Vec<_> = arr.into_iter().map(BasicValueEnum::into_struct_value).collect();
-                ty.into_struct_type().const_array(&arr).into()
-            } else if ty.is_pointer_type() {
-                let arr: Vec<_> = arr.into_iter().map(BasicValueEnum::into_pointer_value).collect();
-                ty.into_pointer_type().const_array(&arr).into()
-            } else {
-                unreachable!()
-            };
-
-            // Build the data array global with `RefCountedArrayType` layout.
-            let arr_global = build_refcounted_array_global(
-                ctx,
-                ty,
-                len as u32,
-                elem_arr,
-                &(id_str.clone() + "_"),
-            );
-
-            // Build the list global with `ListType` layout.
-            let list_header_ty =
-                list_wrapper_ty.get_field_type_at_index(0).unwrap().into_struct_type();
-            let list_inner_ty =
-                list_wrapper_ty.get_field_type_at_index(1).unwrap().into_struct_type();
-            let list_inner_val = list_inner_ty.const_named_struct(&[
-                arr_global.as_pointer_value().into(),
-                size_t.const_int(len as u64, false).into(),
-            ]);
-            let list_typeinfo_offset = list_ty
-                .object
-                .typeinfo(ctx)
-                .value
-                .const_to_int(ctx.size_t)
-                .const_sub(ctx.global_begin_ptr().const_to_int(ctx.size_t))
-                .const_truncate_or_bit_cast(ctx.i32);
-            let list_header_val = list_header_ty
-                .const_named_struct(&[ctx.i32.const_zero().into(), list_typeinfo_offset.into()]);
-            let val = list_wrapper_ty
-                .const_named_struct(&[list_header_val.into(), list_inner_val.into()]);
-
-            let global =
-                ctx.module.add_global(list_wrapper_ty, Some(AddressSpace::default()), &id_str);
-            global.set_initializer(&val);
-
-            Ok(Some(global.as_pointer_value().into()))
+            self.get_list_value(py, obj, ctx, expected_ty, id)
         } else if ty_id == self.primitive_ids.builtins.enumerate {
-            let id_str = id.to_string();
-
-            if let Some(global) = ctx.module.get_global(&id_str) {
-                return Ok(Some(global.as_pointer_value().into()));
-            }
-
-            {
-                if self.global_value_ids.read().contains_key(&id) {
-                    let enum_ty = EnumerateType::new(ctx);
-                    let global = ctx.module.get_global(&id_str).unwrap_or_else(|| {
-                        ctx.module.add_global(
-                            enum_ty.inner.llvm_ty,
-                            Some(AddressSpace::default()),
-                            &id_str,
-                        )
-                    });
-                    return Ok(Some(global.as_pointer_value().into()));
-                }
-                let typed = Self::make_typed_pyobject(
-                    py,
-                    obj,
-                    &mut ctx.unifier,
-                    &ctx.primitives,
-                    expected_ty,
-                )?;
-                self.global_value_ids.write().insert(id, typed);
-            }
-
-            let reduce_tuple = obj.call_method0("__reduce__")?;
-            let reduce_tuple = reduce_tuple.cast::<PyTuple>().map_err(PyErr::from)?;
-            let args_tuple = reduce_tuple.get_item(1)?;
-            let args_tuple = args_tuple.cast::<PyTuple>().map_err(PyErr::from)?;
-            let start_obj = args_tuple.get_item(1)?;
-            let start: i32 = start_obj.extract()?;
-
-            // Get element and iterable types using the helper function
-            let top_level_defs = &ctx.top_level.definitions;
-            let (_, iterable_ty) = self
-                .get_enumerate_elem_and_iterable_type(
-                    py,
-                    obj,
-                    &mut ctx.unifier,
-                    top_level_defs,
-                    &ctx.primitives,
-                )
-                .map_err(|e| super::CompileError::new_err(format!("{e}")))?;
-
-            // Get the actual iterable object for value generation
-            let iterable_obj = args_tuple.get_item(0)?;
-            let reduce_tuple = iterable_obj.call_method0("__reduce__")?;
-            let reduce_tuple = reduce_tuple.cast::<PyTuple>().map_err(PyErr::from)?;
-            let args = reduce_tuple.get_item(1)?;
-            let args = args.cast::<PyTuple>().map_err(PyErr::from)?;
-            let iterable = &args.get_item(0)?;
-            let list_len = py_interp::extract_len(iterable)?;
-
-            let iterable =
-                if iterable.is_instance_of::<PyList>() || iterable.is_instance_of::<PyTuple>() {
-                    let iterable_value = self
-                        .get_obj_value(py, iterable, ctx, iterable_ty)?
-                        .expect("must have iterable value");
-
-                    if iterable.is_instance_of::<PyList>() {
-                        iterable_value.into_pointer_value().into()
-                    } else {
-                        // Tuples are value types, so the iterable struct's `ptr` slot
-                        // cannot hold the tuple value inline; materialize it into its
-                        // own global and store the pointer instead.
-                        let tuple_global = ctx.module.add_global(
-                            iterable_value.get_type(),
-                            Some(AddressSpace::default()),
-                            &format!("{id_str}.iterable.data"),
-                        );
-                        tuple_global.set_initializer(&iterable_value);
-                        tuple_global.as_pointer_value().into()
-                    }
-                } else {
-                    unreachable!("unexpected iterable type for enumerate")
-                };
-
-            let iterable_struct_ty =
-                ctx.ctx.struct_type(&[ctx.ptr.into(), ctx.size_t.into()], false);
-
-            let iterable_struct_val = iterable_struct_ty.const_named_struct(&[
-                iterable,
-                ctx.size_t.const_int(list_len as u64, false).into(),
-            ]);
-
-            let iterable_global_name = format!("{id_str}_iterable");
-            let iterable_global = ctx.module.add_global(
-                iterable_struct_ty,
-                Some(AddressSpace::default()),
-                &iterable_global_name,
-            );
-            iterable_global.set_initializer(&iterable_struct_val);
-
-            // Enumerate struct layout:
-            // struct {
-            //     struct {                        // Inner struct for iterable state
-            //         iterable_struct_ty*,        // Pointer to iterable data
-            //         i32,                        // Len of the iterable
-            //     }*,                             // Pointer to the inner iterable struct
-            //     i32,                            // Start value (initial counter for enumerate)
-            // }
-            // Note: This matches EnumerateType in enumerate.rs where the structure wraps
-            // the iterable pointer and start value.
-            let enum_ty = EnumerateType::new(ctx);
-            let enum_struct_ty = enum_ty.inner.llvm_ty;
-
-            let enum_struct_val = enum_struct_ty.const_named_struct(&[
-                iterable_global.as_pointer_value().into(),
-                ctx.i32.const_int(start as u64, true).into(),
-            ]);
-
-            let enum_global =
-                ctx.module.add_global(enum_struct_ty, Some(AddressSpace::default()), &id_str);
-            enum_global.set_initializer(&enum_struct_val);
-
-            Ok(Some(enum_global.as_pointer_value().into()))
+            self.get_enumerate_value(py, obj, ctx, expected_ty, id)
         } else if ty_id == self.primitive_ids.numpy.ndarray {
-            let id_str = id.to_string();
-
-            if let Some(global) = ctx.module.get_global(&id_str) {
-                return Ok(Some(global.as_pointer_value().into()));
-            }
-
-            let ndarray_ty = if matches!(&*ctx.unifier.get_ty_immutable(expected_ty), TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id())
-            {
-                expected_ty
-            } else {
-                unreachable!("must be ndarray")
-            };
-            let (ndarray_dtype, _) = unpack_ndarray_var_tys(&mut ctx.unifier, ndarray_ty);
-
-            let llvm_usize = ctx.size_t;
-            let llvm_ndarray = NDArrayType::from_unifier_type(ctx, ndarray_ty);
-            let dtype = llvm_ndarray.object.dtype;
-            let ndarray_wrapper_ty = llvm_ndarray.alloca_ty(ctx).into_struct_type();
-
-            {
-                if self.global_value_ids.read().contains_key(&id) {
-                    let global = ctx.module.get_global(&id_str).unwrap_or_else(|| {
-                        ctx.module.add_global(
-                            ndarray_wrapper_ty,
-                            Some(AddressSpace::default()),
-                            &id_str,
-                        )
-                    });
-                    return Ok(Some(global.as_pointer_value().into()));
-                }
-                let typed = Self::make_typed_pyobject(
-                    py,
-                    obj,
-                    &mut ctx.unifier,
-                    &ctx.primitives,
-                    expected_ty,
-                )?;
-                self.global_value_ids.write().insert(id, typed);
-            }
-
-            let ndims = llvm_ndarray.object.ndims;
-
-            // Obtain the shape of the ndarray
-            let shape_tuple = obj.getattr("shape")?;
-            let shape_tuple = shape_tuple.cast::<PyTuple>().map_err(PyErr::from)?;
-            assert_eq!(shape_tuple.len(), ndims as usize);
-
-            let shape_values = shape_tuple
-                .iter()
-                .enumerate()
-                .map(|(i, elem)| {
-                    let value = self
-                        .get_obj_value(py, &elem, ctx, ctx.primitives.usize())
-                        .map_err(|e| {
-                            super::CompileError::new_err(format!("Error getting element {i}: {e}"))
-                        })?
-                        .unwrap();
-                    let value =
-                        ctx.builder.build_int_z_extend(value.into_int_value(), llvm_usize, "")?;
-                    Ok(value)
-                })
-                .collect::<anyhow::Result<Vec<_>>>()?;
-
-            // Also use this opportunity to get the constant values of `shape_values` for calculating strides.
-            let shape_u64s = shape_values
-                .iter()
-                .map(|dim| {
-                    assert!(dim.is_const());
-                    dim.get_zero_extended_constant().unwrap()
-                })
-                .collect_vec();
-            let shape_values_const = llvm_usize.const_array(&shape_values);
-
-            // create a `RefCountedArrayValue` global for ndarray.shape
-            let shape_global = build_refcounted_array_global(
-                ctx,
-                llvm_usize.into(),
-                ndims as u32,
-                shape_values_const.into(),
-                &(id_str.clone() + ".shape"),
-            );
-
-            // Obtain the (flattened) elements of the ndarray
-            let sz: usize = obj.getattr("size")?.extract()?;
-            let data = (0..sz)
-                .map(|i| {
-                    let elem = obj.getattr("flat")?.get_item(i)?;
-                    let value = self
-                        .get_obj_value(py, &elem, ctx, ndarray_dtype)
-                        .map_err(|e| {
-                            super::CompileError::new_err(format!("Error getting element {i}: {e}"))
-                        })?
-                        .unwrap();
-
-                    assert_eq!(value.get_type(), dtype);
-                    anyhow::Ok(value)
-                })
-                .collect::<anyhow::Result<Vec<_>>>()?;
-            let data = data.into_iter();
-            let data_const: BasicValueEnum = match dtype {
-                BasicTypeEnum::ArrayType(ty) => {
-                    ty.const_array(&data.map(BasicValueEnum::into_array_value).collect_vec()).into()
-                }
-
-                BasicTypeEnum::FloatType(ty) => {
-                    ty.const_array(&data.map(BasicValueEnum::into_float_value).collect_vec()).into()
-                }
-
-                BasicTypeEnum::IntType(ty) => {
-                    ty.const_array(&data.map(BasicValueEnum::into_int_value).collect_vec()).into()
-                }
-
-                BasicTypeEnum::PointerType(ty) => ty
-                    .const_array(&data.map(BasicValueEnum::into_pointer_value).collect_vec())
-                    .into(),
-
-                BasicTypeEnum::StructType(ty) => ty
-                    .const_array(&data.map(BasicValueEnum::into_struct_value).collect_vec())
-                    .into(),
-
-                BasicTypeEnum::VectorType(_) | BasicTypeEnum::ScalableVectorType(_) => {
-                    unreachable!()
-                }
-            };
-
-            // create a `RefCountedArrayValue` global for ndarray.data
-            let data_global = build_refcounted_array_global(
-                ctx,
-                dtype,
-                sz as u32,
-                data_const,
-                &(id_str.clone() + ".data"),
-            );
-
-            // Get the constant itemsize.
-            let itemsize = ctx.sizeof(dtype);
-            assert_ne!(itemsize, 0);
-
-            // Create the strides needed for ndarray.strides
-            let strides = make_contiguous_strides(&shape_u64s, itemsize);
-            let strides =
-                strides.into_iter().map(|stride| llvm_usize.const_int(stride, false)).collect_vec();
-            let strides = llvm_usize.const_array(&strides);
-
-            // create a `RefCountedArrayValue` global for ndarray.strides
-            let strides_global = build_refcounted_array_global(
-                ctx,
-                llvm_usize.into(),
-                ndims as u32,
-                strides.into(),
-                &format!("${id_str}.strides"),
-            );
-
-            // Build the inner `RawNDArrayValue` instance
-            let ndarray_header_ty = ndarray_wrapper_ty
-                .get_field_type_at_index(0)
-                .map(BasicTypeEnum::into_struct_type)
-                .unwrap();
-            let ndarray_inner_ty = ndarray_wrapper_ty
-                .get_field_type_at_index(1)
-                .map(BasicTypeEnum::into_struct_type)
-                .unwrap();
-            let ndarray_inner_val = ndarray_inner_ty.const_named_struct(&[
-                llvm_usize.const_int(itemsize, false).into(),
-                llvm_usize.const_int(ndims, false).into(),
-                shape_global.as_pointer_value().into(),
-                strides_global.as_pointer_value().into(),
-                data_global.as_pointer_value().into(),
-                ctx.ptr.const_null().into(),
-                llvm_usize.const_zero().into(),
-            ]);
-
-            // Build the outer `NDArrayValue` instance
-            let ndarray_typeinfo_offset = llvm_ndarray
-                .object
-                .typeinfo(ctx)
-                .value
-                .const_to_int(ctx.size_t)
-                .const_sub(ctx.global_begin_ptr().const_to_int(ctx.size_t))
-                .const_truncate_or_bit_cast(ctx.i32);
-            let ndarray_header_val = ndarray_header_ty
-                .const_named_struct(&[ctx.i32.const_zero().into(), ndarray_typeinfo_offset.into()]);
-            let ndarray = ndarray_wrapper_ty
-                .const_named_struct(&[ndarray_header_val.into(), ndarray_inner_val.into()]);
-
-            let ndarray_global =
-                ctx.module.add_global(ndarray_wrapper_ty, Some(AddressSpace::default()), &id_str);
-            ndarray_global.set_initializer(&ndarray);
-
-            Ok(Some(ndarray_global.as_pointer_value().into()))
+            self.get_ndarray_value(py, obj, ctx, expected_ty, id)
         } else if ty_id == self.primitive_ids.builtins.tuple {
-            let expected_ty_enum = ctx.unifier.get_ty_immutable(expected_ty);
-            let TypeEnum::TTuple { ty, is_vararg_ctx: false } = expected_ty_enum.as_ref() else {
-                unreachable!()
-            };
-
-            let tup_tys = ty.iter();
-            let elements = obj.cast::<PyTuple>().map_err(PyErr::from)?;
-            assert_eq!(elements.len(), tup_tys.len());
-            let val = elements
-                .iter()
-                .enumerate()
-                .zip(tup_tys)
-                .map(|((i, elem), ty)| {
-                    Ok(self.get_obj_value(py, &elem, ctx, *ty).map_err(|e| {
-                        super::CompileError::new_err(format!("Error getting element {i}: {e}"))
-                    })?)
-                })
-                .collect::<anyhow::Result<Option<Vec<_>>>>()?
-                .unwrap();
-
-            // Constant initializers must match the two-level layout of `TupleType`
-            //
-            // The `typeinfo_offset` in the header is needed for IRRT's refcount walker to recognize
-            // refcounted fields in tuples. The refcount is set to 0 to indicate that the tuple
-            // itself is not heap-allocated nor reference-counted.
-            let tuple_ty = TupleType::from_unifier_type(ctx, expected_ty);
-            let outer_struct_ty = tuple_ty.llvm_ty(ctx).into_struct_type();
-            let inner_val = tuple_ty.fields.const_named_struct(&val);
-            let header_ty =
-                unsafe { outer_struct_ty.get_field_type_at_index_unchecked(0).into_struct_type() };
-            let typeinfo_offset = tuple_ty
-                .typeinfo(ctx)
-                .value
-                .const_to_int(ctx.size_t)
-                .const_sub(ctx.global_begin_ptr().const_to_int(ctx.size_t))
-                .const_truncate_or_bit_cast(ctx.i32);
-            let header_val = header_ty
-                .const_named_struct(&[ctx.i32.const_zero().into(), typeinfo_offset.into()]);
-            let outer_val =
-                outer_struct_ty.const_named_struct(&[header_val.into(), inner_val.into()]);
-            Ok(Some(outer_val.into()))
+            self.get_tuple_value(py, obj, ctx, expected_ty)
         } else if ty_id == self.primitive_ids.artiq.option {
-            let option_val_ty = match ctx.unifier.get_ty_immutable(expected_ty).as_ref() {
-                TypeEnum::TObj { obj_id, params, .. }
-                    if *obj_id == ctx.primitives.option.obj_id(&ctx.unifier).unwrap() =>
-                {
-                    *params.iter().next().unwrap().1
-                }
-                _ => unreachable!("must be option type"),
-            };
-            if id == self.primitive_ids.artiq.none {
-                // for option type, just a null ptr
-                Ok(Some(ctx.ptr.const_null().into()))
-            } else {
-                match self
-                    .get_obj_value(py, &obj.getattr("_nac3_option").unwrap(), ctx, option_val_ty)
-                    .map_err(|e| {
-                        super::CompileError::new_err(format!(
-                            "Error getting value of Option object: {e}"
-                        ))
-                    })? {
-                    Some(v) => {
-                        let global_str = format!("{id}_option");
-                        {
-                            if self.global_value_ids.read().contains_key(&id) {
-                                let global =
-                                    ctx.module.get_global(&global_str).unwrap_or_else(|| {
-                                        ctx.module.add_global(
-                                            v.get_type(),
-                                            Some(AddressSpace::default()),
-                                            &global_str,
-                                        )
-                                    });
-                                return Ok(Some(global.as_pointer_value().into()));
-                            }
-                            let typed = Self::make_typed_pyobject(
-                                py,
-                                obj,
-                                &mut ctx.unifier,
-                                &ctx.primitives,
-                                expected_ty,
-                            )?;
-                            self.global_value_ids.write().insert(id, typed);
-                        }
-                        let arr_const: BasicValueEnum = match v.get_type() {
-                            BasicTypeEnum::ArrayType(ty) => {
-                                ty.const_array([v.into_array_value()].as_ref()).into()
-                            }
-
-                            BasicTypeEnum::FloatType(ty) => {
-                                ty.const_array([v.into_float_value()].as_ref()).into()
-                            }
-
-                            BasicTypeEnum::IntType(ty) => {
-                                ty.const_array([v.into_int_value()].as_ref()).into()
-                            }
-
-                            BasicTypeEnum::PointerType(ty) => {
-                                ty.const_array([v.into_pointer_value()].as_ref()).into()
-                            }
-
-                            BasicTypeEnum::StructType(ty) => {
-                                ty.const_array([v.into_struct_value()].as_ref()).into()
-                            }
-
-                            BasicTypeEnum::VectorType(_) | BasicTypeEnum::ScalableVectorType(_) => {
-                                unreachable!()
-                            }
-                        };
-                        let arr_global = build_refcounted_array_global(
-                            ctx,
-                            v.get_type(),
-                            1,
-                            arr_const,
-                            &format!("{id}_arr"),
-                        );
-
-                        Ok(Some(arr_global.as_pointer_value().into()))
-                    }
-                    None => Ok(None),
-                }
-            }
+            self.get_option_value(py, obj, ctx, expected_ty, id)
         } else {
-            let id_str = id.to_string();
-
-            if let Some(global) = ctx.module.get_global(&id_str) {
-                return Ok(Some(global.as_pointer_value().into()));
-            }
-
-            let ty = self.get_obj_type(
-                py,
-                obj,
-                &mut ctx.unifier,
-                &ctx.top_level.definitions,
-                &ctx.primitives,
-                None,
-            )?;
-            // User-defined classes are reference-counted: the alloca type wraps the user struct
-            // with an `ObjectHeader` ({ refcount, typeinfo_offset }). We construct the global
-            // with the same wrapper layout so loads via `ClassType::inner_value` see the right
-            // offsets at runtime.
-            let class_ty = ClassType::from_unifier_type(ctx, ty);
-            let wrapper_ty = class_ty.alloca_ty(ctx).into_struct_type();
-            let header_ty = wrapper_ty.get_field_type_at_index(0).unwrap().into_struct_type();
-            let inner_ty = wrapper_ty.get_field_type_at_index(1).unwrap().into_struct_type();
-            {
-                if self.global_value_ids.read().contains_key(&id) {
-                    let global = ctx.module.get_global(&id_str).unwrap_or_else(|| {
-                        ctx.module.add_global(wrapper_ty, Some(AddressSpace::default()), &id_str)
-                    });
-                    return Ok(Some(global.as_pointer_value().into()));
-                }
-                let typed = Self::make_typed_pyobject(
-                    py,
-                    obj,
-                    &mut ctx.unifier,
-                    &ctx.primitives,
-                    expected_ty,
-                )?;
-                self.global_value_ids.write().insert(id, typed);
-            }
-            // should be classes
-            let top_level_defs = &ctx.top_level.definitions;
-            let TopLevelDef::Class { fields: fields_list, .. } =
-                &*top_level_defs[self.pyid_to_def.read()[&ty_id].0].read()
-            else {
-                unreachable!()
-            };
-
-            let TypeEnum::TObj { obj_id, fields, .. } = &*ctx.unifier.get_ty(ty) else {
-                // As guaranteed by invoking ctx.get_alloca_type(ty)
-                unreachable!("type {} must refer to a class instance", ctx.unifier.stringify(ty))
-            };
-            assert_eq!(
-                *obj_id,
-                self.pyid_to_def.read()[&ty_id],
-                "unifier failed to infer the same object"
-            );
-
-            let values = fields_list
-                .iter()
-                .map(|(name, _, _)| {
-                    Ok(self
-                        .get_obj_value(
-                            py,
-                            &obj.getattr(name.to_string().as_str())?,
-                            ctx,
-                            fields[name].0,
-                        )
-                        .map_err(|e| {
-                            super::CompileError::new_err(format!("Error getting field {name}: {e}"))
-                        })?)
-                })
-                .collect::<anyhow::Result<Option<Vec<_>>>>()?;
-            if let Some(values) = values {
-                // Synthesize the object header constant. `refcount = 0` marks the object as
-                // non-refcounted so the runtime never frees this global. `typeinfo_offset` mirrors
-                // the IRRT formula `typeinfo - __nac3_global_begin`, expressed as an LLVM constant
-                // expression (resolved at link time).
-                let typeinfo = class_ty.object.typeinfo(ctx);
-                let typeinfo_offset = typeinfo
-                    .value
-                    .const_to_int(ctx.size_t)
-                    .const_sub(ctx.global_begin_ptr().const_to_int(ctx.size_t))
-                    .const_truncate_or_bit_cast(ctx.i32);
-                let header_val = header_ty
-                    .const_named_struct(&[ctx.i32.const_zero().into(), typeinfo_offset.into()]);
-
-                let inner_val = inner_ty.const_named_struct(&values);
-                let val = wrapper_ty.const_named_struct(&[header_val.into(), inner_val.into()]);
-
-                let global = ctx.module.get_global(&id_str).unwrap_or_else(|| {
-                    ctx.module.add_global(wrapper_ty, Some(AddressSpace::default()), &id_str)
-                });
-                global.set_initializer(&val);
-                Ok(Some(global.as_pointer_value().into()))
-            } else {
-                Ok(None)
-            }
+            self.get_user_defined_class_value(py, obj, ctx, expected_ty, id, ty_id)
         }
     }
 
