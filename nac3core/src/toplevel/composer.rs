@@ -1755,48 +1755,6 @@ impl TopLevelComposer {
         let definition_ast_list = &self.definition_ast_list;
         let unifier = &mut self.unifier;
 
-        // first, fix function typevar ids
-        // they may be changed with our use of placeholders
-        let mut mapped_type_ids: IndexMap<TypeVarId, TypeVarId> = IndexMap::new();
-        for (def, _) in definition_ast_list.iter().skip(self.builtin_num) {
-            if let TopLevelDef::Function { signature, var_id, .. } = &mut *def.write()
-                && let TypeEnum::TFunc(FunSignature { args, ret, vars }) =
-                    unifier.get_ty(*signature).as_ref()
-            {
-                let new_var_ids = vars
-                    .values()
-                    .map(|v| match &*unifier.get_ty(*v) {
-                        TypeEnum::TVar { id, .. } => *id,
-                        _ => unreachable!(),
-                    })
-                    .collect_vec();
-                if new_var_ids != *var_id {
-                    let new_signature = FunSignature {
-                        args: args.clone(),
-                        ret: *ret,
-                        vars: new_var_ids
-                            .iter()
-                            .zip(vars.values())
-                            .map(|(id, v)| (*id, *v))
-                            .collect(),
-                    };
-                    let mapped_types: IndexMap<TypeVarId, TypeVarId> = vars
-                        .keys()
-                        .zip(new_signature.vars.keys())
-                        .map(|(o_id, n_id)| (*o_id, *n_id))
-                        .collect();
-                    mapped_type_ids.extend(mapped_types);
-                    unifier
-                        .unification_table
-                        .set_value(*signature, Rc::new(TypeEnum::TFunc(new_signature)));
-                    *var_id = new_var_ids;
-                }
-            }
-        }
-
-        // relay the changed typevar ids to the unification table
-        unifier.subst_vars(&mapped_type_ids);
-
         let mut analyze = |i, def: &Arc<RwLock<TopLevelDef>>, ast: &Option<Stmt>| {
             if let TopLevelDef::Class {
                 constructor,
