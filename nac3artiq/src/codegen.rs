@@ -510,7 +510,7 @@ fn marshal_to_wire<'ctx>(
                         total_bytes,
                         Some("rpc.arr.wire"),
                     )?;
-                    ctx.build_repeat(None, length, |ctx, _hooks, i| {
+                    ctx.build_repeat("rpc.marshal.ndarray", length, |ctx, _hooks, i| {
                         let nac3_elem = list
                             .data(ctx)?
                             .inner_value(ctx, Some(length))?
@@ -529,7 +529,7 @@ fn marshal_to_wire<'ctx>(
                         length,
                         Some("rpc.list.wire"),
                     )?;
-                    ctx.build_repeat(None, length, |ctx, _hooks, i| {
+                    ctx.build_repeat("rpc.marshal.list", length, |ctx, _hooks, i| {
                         let nac3_elem = list
                             .data(ctx)?
                             .inner_value(ctx, Some(length))?
@@ -694,7 +694,7 @@ fn demarshal_from_wire<'ctx>(
                 // NAC3 ndarrays
                 let descriptor_size = ctx.sizeof(ctx.ptr) + ctx.sizeof(ctx.size_t) * ndims;
                 let descriptor_size = ctx.size_t.const_int(descriptor_size, false);
-                ctx.build_repeat(None, length, |ctx, _hooks, i| {
+                ctx.build_repeat("rpc.demarshal.ndarray", length, |ctx, _hooks, i| {
                     let offset = ctx.builder.build_int_mul(i, descriptor_size, "")?;
                     let descriptor =
                         unsafe { ctx.builder.build_gep(ctx.i8, elements_ptr, &[offset], "")? };
@@ -714,7 +714,7 @@ fn demarshal_from_wire<'ctx>(
                 let is_indirect = is_refcounted_type(&mut ctx.unifier, elem_ty);
                 let stride_ty: BasicTypeEnum<'ctx> =
                     if is_indirect { ctx.ptr.into() } else { wire_type_of(ctx, elem_ty) };
-                ctx.build_repeat(None, length, |ctx, _hooks, i| {
+                ctx.build_repeat("rpc.demarshal.list", length, |ctx, _hooks, i| {
                     let wire_elem_slot =
                         unsafe { ctx.builder.build_gep(stride_ty, elements_ptr, &[i], "")? };
                     let nac3_elem_slot = nac3_data.ptr_offset_unchecked(ctx, &i, None)?;
@@ -922,7 +922,7 @@ where
     ctx.builder.build_store(ptr_slot, initial_ptr)?;
 
     ctx.build_loop(
-        Some("rpc"),
+        "rpc",
         |ctx, hooks| {
             let ptr = ctx.builder.build_load(llvm_pi8, ptr_slot, "rpc.ptr")?.into_pointer_value();
             let alloc_size = ctx
@@ -936,7 +936,7 @@ where
                 llvm_i32.const_zero(),
                 "rpc.continue",
             )?;
-            let finish = ctx.branch(cond)?;
+            let finish = ctx.branch("rpc.cond", cond)?;
             ctx.in_block(finish, |ctx| hooks.build_break(&ctx.builder))?;
 
             let alloc_size =
@@ -1649,7 +1649,7 @@ fn polymorphic_print<'ctx>(
                 let len = val.inner_value(ctx)?.load(ctx, field!(len))?;
                 let last = ctx.builder.build_int_sub(len, llvm_usize.const_int(1, false), "")?;
 
-                ctx.build_repeat(None, len, |ctx, _, i| {
+                ctx.build_repeat("print.list", len, |ctx, _, i| {
                     let elem = val
                         .inner_value(ctx)?
                         .data(ctx)?
@@ -1659,7 +1659,9 @@ fn polymorphic_print<'ctx>(
                     polymorphic_print(ctx, &[(elem_ty, elem)], "", None, true, as_rtio)?;
 
                     let cmp = ctx.builder.build_int_compare(IntPredicate::ULT, i, last, "")?;
-                    ctx.build_if(cmp, |ctx| printf(ctx, ", \0".into(), Vec::default()))?;
+                    ctx.build_if("print.list.sep", cmp, |ctx| {
+                        printf(ctx, ", \0".into(), Vec::default())
+                    })?;
 
                     Ok(())
                 })?;
@@ -1685,7 +1687,9 @@ fn polymorphic_print<'ctx>(
                     // if (i != 0) puts(", ");
                     let not_first =
                         ctx.builder.build_int_compare(IntPredicate::NE, i, num_0, "")?;
-                    ctx.build_if(not_first, |ctx| printf(ctx, ", \0".into(), Vec::default()))?;
+                    ctx.build_if("print.ndarray.sep", not_first, |ctx| {
+                        printf(ctx, ", \0".into(), Vec::default())
+                    })?;
 
                     // Print element
                     polymorphic_print(ctx, &[(dtype, scalar.into())], "", None, true, as_rtio)?;

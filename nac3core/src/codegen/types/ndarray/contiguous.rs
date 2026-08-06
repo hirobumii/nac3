@@ -140,6 +140,7 @@ impl<'ctx> NDArrayValue<'ctx> {
 
         let is_c_contiguous = self.is_c_contiguous(ctx)?;
         ctx.build_if_else(
+            "ndarray.contiguous",
             is_c_contiguous,
             |ctx| {
                 // This ndarray is contiguous.

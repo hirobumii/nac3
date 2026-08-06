@@ -117,6 +117,7 @@ impl<'ctx> NDArrayValue<'ctx> {
         let (dtype, ndims) = get_list_object_dtype_and_ndims(ctx, list_ty);
 
         let ndarray = ctx.build_ternary(
+            "np_array.list.copy",
             copy,
             |ctx| {
                 let ndarray = Self::from_list_must_copy(ctx, (list_ty, list), name)?;
@@ -142,6 +143,7 @@ impl<'ctx> NDArrayValue<'ctx> {
         assert_eq!(copy.get_type(), ctx.i1);
 
         let ndarray_val = ctx.build_ternary(
+            "np_array.ndarray.copy",
             copy,
             |ctx| {
                 let ndarray = ndarray.make_copy(ctx)?; // Force copy

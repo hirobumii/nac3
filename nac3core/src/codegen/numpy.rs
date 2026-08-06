@@ -327,11 +327,11 @@ pub fn ndarray_dot<'ctx>(
 
             // Do dot product.
             ctx.build_loop(
-                Some("np_dot"),
+                "np_dot",
                 |ctx, hooks| {
                     // Only a_iter drives the condition, b_iter should have the same status.
                     let has_elem = a_iter.inner_value(ctx)?.has_element(ctx)?;
-                    let finish = ctx.branch(has_elem)?;
+                    let finish = ctx.branch("np_dot.cond", has_elem)?;
                     ctx.in_block(finish, |ctx| hooks.build_break(&ctx.builder))?;
 
                     let a_scalar = a_iter.inner_value(ctx)?.get_scalar(ctx)?;

@@ -1970,7 +1970,7 @@ impl<'a> BuiltinBuilder<'a> {
 
             let acc = a.fold(ctx, init, |ctx, hooks, acc, elem| {
                 let cond = ctx.builder.build_int_compare(IntPredicate::EQ, acc, sc_val, "")?;
-                ctx.build_if(cond, |ctx| {
+                ctx.build_if("np_any_all.break", cond, |ctx| {
                     if let Some(hooks) = hooks {
                         hooks.build_break(&ctx.builder)?;
                     }

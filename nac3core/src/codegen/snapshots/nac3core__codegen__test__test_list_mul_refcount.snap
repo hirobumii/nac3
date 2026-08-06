@@ -61,9 +61,9 @@ init:
   %15 = tail call { i64, i1 } @llvm.umul.with.overflow.i64(i64 %12, i64 15), !dbg !10
   %16 = extractvalue { i64, i1 } %15, 0, !dbg !10
   %17 = extractvalue { i64, i1 } %15, 1, !dbg !10
-  br i1 %17, label %fail62, label %succ72, !dbg !10, !prof !11
+  br i1 %17, label %assert.OverflowError.else63, label %assert.OverflowError.then62, !dbg !10, !prof !11
 
-succ72:                                           ; preds = %init
+assert.OverflowError.then62:                      ; preds = %init
   %18 = tail call ptr @__nac3_alloc(i64 24, i64 8), !dbg !10
   tail call void @__nac3_object_header_init(ptr %18, i1 true, ptr nonnull @"typeinfo for __nac3_list"), !dbg !10
   %19 = getelementptr i8, ptr %18, i64 8, !dbg !10
@@ -75,15 +75,15 @@ succ72:                                           ; preds = %init
   %23 = icmp ult i64 %16, 2305843009213693952, !dbg !10
   %24 = add i64 %22, 16, !dbg !10
   %25 = icmp ult i64 %22, -16, !dbg !10
-  %.not194 = and i1 %23, %25, !dbg !10
-  br i1 %.not194, label %succ84, label %fail74, !dbg !10, !prof !12
+  %.not178 = and i1 %23, %25, !dbg !10
+  br i1 %.not178, label %assert.OverflowError.then74, label %assert.OverflowError.else75, !dbg !10, !prof !12
 
-succ84:                                           ; preds = %succ72
+assert.OverflowError.then74:                      ; preds = %assert.OverflowError.then62
   %26 = add i64 %22, 31, !dbg !10
   %.not = icmp ult i64 %26, %24, !dbg !10
-  br i1 %.not, label %fail86, label %succ108, !dbg !10, !prof !11
+  br i1 %.not, label %assert.OverflowError.else87, label %assert.OverflowError.then98, !dbg !10, !prof !11
 
-succ108:                                          ; preds = %succ84
+assert.OverflowError.then98:                      ; preds = %assert.OverflowError.then74
   %27 = and i64 %26, -16, !dbg !10
   %28 = tail call ptr @__nac3_alloc(i64 %27, i64 8), !dbg !10
   tail call void @__nac3_object_header_init(ptr %28, i1 true, ptr nonnull @"typeinfo for __nac3_array"), !dbg !10
@@ -101,154 +101,154 @@ succ108:                                          ; preds = %succ84
   %.idx = shl i64 %12, 4, !dbg !10
   %35 = getelementptr inbounds i8, ptr %32, i64 %.idx, !dbg !10
   tail call void @llvm.memcpy.p0.p0.i64(ptr align 8 %35, ptr align 8 %14, i64 %33, i1 false), !dbg !10
-  %.idx208 = mul i64 %12, 24, !dbg !10
-  %36 = getelementptr inbounds i8, ptr %32, i64 %.idx208, !dbg !10
+  %.idx192 = mul i64 %12, 24, !dbg !10
+  %36 = getelementptr inbounds i8, ptr %32, i64 %.idx192, !dbg !10
   tail call void @llvm.memcpy.p0.p0.i64(ptr align 8 %36, ptr align 8 %14, i64 %33, i1 false), !dbg !10
-  %.idx209 = shl i64 %12, 5, !dbg !10
-  %37 = getelementptr inbounds i8, ptr %32, i64 %.idx209, !dbg !10
+  %.idx193 = shl i64 %12, 5, !dbg !10
+  %37 = getelementptr inbounds i8, ptr %32, i64 %.idx193, !dbg !10
   tail call void @llvm.memcpy.p0.p0.i64(ptr align 8 %37, ptr align 8 %14, i64 %33, i1 false), !dbg !10
-  %.idx210 = mul i64 %12, 40, !dbg !10
-  %38 = getelementptr inbounds i8, ptr %32, i64 %.idx210, !dbg !10
+  %.idx194 = mul i64 %12, 40, !dbg !10
+  %38 = getelementptr inbounds i8, ptr %32, i64 %.idx194, !dbg !10
   tail call void @llvm.memcpy.p0.p0.i64(ptr align 8 %38, ptr align 8 %14, i64 %33, i1 false), !dbg !10
-  %.idx211 = mul i64 %12, 48, !dbg !10
-  %39 = getelementptr inbounds i8, ptr %32, i64 %.idx211, !dbg !10
+  %.idx195 = mul i64 %12, 48, !dbg !10
+  %39 = getelementptr inbounds i8, ptr %32, i64 %.idx195, !dbg !10
   tail call void @llvm.memcpy.p0.p0.i64(ptr align 8 %39, ptr align 8 %14, i64 %33, i1 false), !dbg !10
-  %.idx212 = mul i64 %12, 56, !dbg !10
-  %40 = getelementptr inbounds i8, ptr %32, i64 %.idx212, !dbg !10
+  %.idx196 = mul i64 %12, 56, !dbg !10
+  %40 = getelementptr inbounds i8, ptr %32, i64 %.idx196, !dbg !10
   tail call void @llvm.memcpy.p0.p0.i64(ptr align 8 %40, ptr align 8 %14, i64 %33, i1 false), !dbg !10
-  %.idx213 = shl i64 %12, 6, !dbg !10
-  %41 = getelementptr inbounds i8, ptr %32, i64 %.idx213, !dbg !10
+  %.idx197 = shl i64 %12, 6, !dbg !10
+  %41 = getelementptr inbounds i8, ptr %32, i64 %.idx197, !dbg !10
   tail call void @llvm.memcpy.p0.p0.i64(ptr align 8 %41, ptr align 8 %14, i64 %33, i1 false), !dbg !10
-  %.idx214 = mul i64 %12, 72, !dbg !10
-  %42 = getelementptr inbounds i8, ptr %32, i64 %.idx214, !dbg !10
+  %.idx198 = mul i64 %12, 72, !dbg !10
+  %42 = getelementptr inbounds i8, ptr %32, i64 %.idx198, !dbg !10
   tail call void @llvm.memcpy.p0.p0.i64(ptr align 8 %42, ptr align 8 %14, i64 %33, i1 false), !dbg !10
-  %.idx215 = mul i64 %12, 80, !dbg !10
-  %43 = getelementptr inbounds i8, ptr %32, i64 %.idx215, !dbg !10
+  %.idx199 = mul i64 %12, 80, !dbg !10
+  %43 = getelementptr inbounds i8, ptr %32, i64 %.idx199, !dbg !10
   tail call void @llvm.memcpy.p0.p0.i64(ptr align 8 %43, ptr align 8 %14, i64 %33, i1 false), !dbg !10
-  %.idx216 = mul i64 %12, 88, !dbg !10
-  %44 = getelementptr inbounds i8, ptr %32, i64 %.idx216, !dbg !10
+  %.idx200 = mul i64 %12, 88, !dbg !10
+  %44 = getelementptr inbounds i8, ptr %32, i64 %.idx200, !dbg !10
   tail call void @llvm.memcpy.p0.p0.i64(ptr align 8 %44, ptr align 8 %14, i64 %33, i1 false), !dbg !10
-  %.idx217 = mul i64 %12, 96, !dbg !10
-  %45 = getelementptr inbounds i8, ptr %32, i64 %.idx217, !dbg !10
+  %.idx201 = mul i64 %12, 96, !dbg !10
+  %45 = getelementptr inbounds i8, ptr %32, i64 %.idx201, !dbg !10
   tail call void @llvm.memcpy.p0.p0.i64(ptr align 8 %45, ptr align 8 %14, i64 %33, i1 false), !dbg !10
-  %.idx218 = mul i64 %12, 104, !dbg !10
-  %46 = getelementptr inbounds i8, ptr %32, i64 %.idx218, !dbg !10
+  %.idx202 = mul i64 %12, 104, !dbg !10
+  %46 = getelementptr inbounds i8, ptr %32, i64 %.idx202, !dbg !10
   tail call void @llvm.memcpy.p0.p0.i64(ptr align 8 %46, ptr align 8 %14, i64 %33, i1 false), !dbg !10
-  %.idx219 = mul i64 %12, 112, !dbg !10
-  %47 = getelementptr inbounds i8, ptr %32, i64 %.idx219, !dbg !10
+  %.idx203 = mul i64 %12, 112, !dbg !10
+  %47 = getelementptr inbounds i8, ptr %32, i64 %.idx203, !dbg !10
   tail call void @llvm.memcpy.p0.p0.i64(ptr align 8 %47, ptr align 8 %14, i64 %33, i1 false), !dbg !10
   %48 = load ptr, ptr %7, align 8, !dbg !10
   %49 = getelementptr i8, ptr %48, i64 16, !dbg !10
-  %.not200 = icmp eq i64 %12, 0, !dbg !10
-  br i1 %.not200, label %then120, label %then113, !dbg !10
+  %.not184 = icmp eq i64 %12, 0, !dbg !10
+  br i1 %.not184, label %refcount.safe_inc.then, label %list.mul.incref.cond.then, !dbg !10
 
-then113:                                          ; preds = %succ108, %for.update111
-  %iter_counter109.0199 = phi i64 [ %52, %for.update111 ], [ 0, %succ108 ]
-  %50 = getelementptr inbounds ptr, ptr %49, i64 %iter_counter109.0199, !dbg !10
+list.mul.incref.cond.then:                        ; preds = %assert.OverflowError.then98, %list.mul.incref.update
+  %iter_counter109.0183 = phi i64 [ %52, %list.mul.incref.update ], [ 0, %assert.OverflowError.then98 ]
+  %50 = getelementptr inbounds ptr, ptr %49, i64 %iter_counter109.0183, !dbg !10
   %51 = load ptr, ptr %50, align 8, !dbg !10
-  %.not197 = icmp eq ptr %51, null, !dbg !10
-  br i1 %.not197, label %for.update111, label %then115, !dbg !10
+  %.not181 = icmp eq ptr %51, null, !dbg !10
+  br i1 %.not181, label %list.mul.incref.update, label %refcount.safe_inc_by.then, !dbg !10
 
-then115:                                          ; preds = %then113
+refcount.safe_inc_by.then:                        ; preds = %list.mul.incref.cond.then
   tail call void @__nac3_refcount_incr_by(ptr nonnull %51, i64 15), !dbg !10
-  br label %for.update111, !dbg !10
+  br label %list.mul.incref.update, !dbg !10
 
-for.update111:                                    ; preds = %then115, %then113
-  %52 = add nuw i64 %iter_counter109.0199, 1, !dbg !10
+list.mul.incref.update:                           ; preds = %refcount.safe_inc_by.then, %list.mul.incref.cond.then
+  %52 = add nuw i64 %iter_counter109.0183, 1, !dbg !10
   %exitcond.not = icmp eq i64 %52, %12, !dbg !10
-  br i1 %exitcond.not, label %for.end112, label %then113, !dbg !10
+  br i1 %exitcond.not, label %list.mul.incref.end, label %list.mul.incref.cond.then, !dbg !10
 
-for.end112:                                       ; preds = %for.update111
+list.mul.incref.end:                              ; preds = %list.mul.incref.update
   %cond = icmp eq ptr %18, null, !dbg !13
-  br i1 %cond, label %if.end128, label %then120, !dbg !13
+  br i1 %cond, label %refcount.safe_dec.end112, label %refcount.safe_inc.then, !dbg !13
 
-then120:                                          ; preds = %succ108, %for.end112
+refcount.safe_inc.then:                           ; preds = %assert.OverflowError.then98, %list.mul.incref.end
   tail call void @__nac3_refcount_incr(ptr nonnull %18), !dbg !13
   tail call void @__nac3_refcount_decr(ptr nonnull %18), !dbg !13
-  br label %if.end128, !dbg !13
+  br label %refcount.safe_dec.end112, !dbg !13
 
-fail86:                                           ; preds = %succ84
+assert.OverflowError.else87:                      ; preds = %assert.OverflowError.then74
   store i32 0, ptr %exn, align 8, !dbg !10
-  %exn.message.addr88 = getelementptr inbounds nuw i8, ptr %exn, i64 48, !dbg !10
-  store ptr @const.3, ptr %exn.message.addr88, align 8, !dbg !10
-  %.fca.1.gep177 = getelementptr inbounds nuw i8, ptr %exn, i64 56, !dbg !10
-  store i64 113, ptr %.fca.1.gep177, align 8, !dbg !10
-  %exn.param0.addr89 = getelementptr inbounds nuw i8, ptr %exn, i64 64, !dbg !10
-  store i64 %24, ptr %exn.param0.addr89, align 8, !dbg !10
-  %exn.param1.addr90 = getelementptr inbounds nuw i8, ptr %exn, i64 72, !dbg !10
-  store i64 16, ptr %exn.param1.addr90, align 8, !dbg !10
-  %exn.param2.addr91 = getelementptr inbounds nuw i8, ptr %exn, i64 80, !dbg !10
-  store i64 0, ptr %exn.param2.addr91, align 8, !dbg !10
-  %exn.file.addr92 = getelementptr inbounds nuw i8, ptr %exn, i64 8, !dbg !10
-  store ptr @const.1, ptr %exn.file.addr92, align 8, !dbg !10
-  %.fca.1.gep179 = getelementptr inbounds nuw i8, ptr %exn, i64 16, !dbg !10
-  store i64 7, ptr %.fca.1.gep179, align 8, !dbg !10
-  %exn.line.addr93 = getelementptr inbounds nuw i8, ptr %exn, i64 24, !dbg !10
-  store i32 1, ptr %exn.line.addr93, align 8, !dbg !10
-  %exn.col.addr94 = getelementptr inbounds nuw i8, ptr %exn, i64 28, !dbg !10
-  store i32 13, ptr %exn.col.addr94, align 4, !dbg !10
-  %exn.func.addr95 = getelementptr inbounds nuw i8, ptr %exn, i64 32, !dbg !10
-  store ptr @const.2, ptr %exn.func.addr95, align 8, !dbg !10
-  %.fca.1.gep181 = getelementptr inbounds nuw i8, ptr %exn, i64 40, !dbg !10
-  store i64 7, ptr %.fca.1.gep181, align 8, !dbg !10
+  %exn.message.addr89 = getelementptr inbounds nuw i8, ptr %exn, i64 48, !dbg !10
+  store ptr @const.3, ptr %exn.message.addr89, align 8, !dbg !10
+  %.fca.1.gep161 = getelementptr inbounds nuw i8, ptr %exn, i64 56, !dbg !10
+  store i64 113, ptr %.fca.1.gep161, align 8, !dbg !10
+  %exn.param0.addr90 = getelementptr inbounds nuw i8, ptr %exn, i64 64, !dbg !10
+  store i64 %24, ptr %exn.param0.addr90, align 8, !dbg !10
+  %exn.param1.addr91 = getelementptr inbounds nuw i8, ptr %exn, i64 72, !dbg !10
+  store i64 16, ptr %exn.param1.addr91, align 8, !dbg !10
+  %exn.param2.addr92 = getelementptr inbounds nuw i8, ptr %exn, i64 80, !dbg !10
+  store i64 0, ptr %exn.param2.addr92, align 8, !dbg !10
+  %exn.file.addr93 = getelementptr inbounds nuw i8, ptr %exn, i64 8, !dbg !10
+  store ptr @const.1, ptr %exn.file.addr93, align 8, !dbg !10
+  %.fca.1.gep163 = getelementptr inbounds nuw i8, ptr %exn, i64 16, !dbg !10
+  store i64 7, ptr %.fca.1.gep163, align 8, !dbg !10
+  %exn.line.addr94 = getelementptr inbounds nuw i8, ptr %exn, i64 24, !dbg !10
+  store i32 1, ptr %exn.line.addr94, align 8, !dbg !10
+  %exn.col.addr95 = getelementptr inbounds nuw i8, ptr %exn, i64 28, !dbg !10
+  store i32 13, ptr %exn.col.addr95, align 4, !dbg !10
+  %exn.func.addr96 = getelementptr inbounds nuw i8, ptr %exn, i64 32, !dbg !10
+  store ptr @const.2, ptr %exn.func.addr96, align 8, !dbg !10
+  %.fca.1.gep165 = getelementptr inbounds nuw i8, ptr %exn, i64 40, !dbg !10
+  store i64 7, ptr %.fca.1.gep165, align 8, !dbg !10
   call void @__nac3_raise(ptr nonnull %exn), !dbg !10
   unreachable, !dbg !10
 
-fail74:                                           ; preds = %succ72
+assert.OverflowError.else75:                      ; preds = %assert.OverflowError.then62
   store i32 0, ptr %exn, align 8, !dbg !10
-  %exn.message.addr76 = getelementptr inbounds nuw i8, ptr %exn, i64 48, !dbg !10
-  store ptr @const, ptr %exn.message.addr76, align 8, !dbg !10
-  %.fca.1.gep171 = getelementptr inbounds nuw i8, ptr %exn, i64 56, !dbg !10
-  store i64 82, ptr %.fca.1.gep171, align 8, !dbg !10
-  %exn.param0.addr77 = getelementptr inbounds nuw i8, ptr %exn, i64 64, !dbg !10
-  store i64 %16, ptr %exn.param0.addr77, align 8, !dbg !10
-  %exn.param1.addr78 = getelementptr inbounds nuw i8, ptr %exn, i64 72, !dbg !10
-  store i64 8, ptr %exn.param1.addr78, align 8, !dbg !10
-  %exn.param2.addr79 = getelementptr inbounds nuw i8, ptr %exn, i64 80, !dbg !10
-  store i64 0, ptr %exn.param2.addr79, align 8, !dbg !10
-  %exn.file.addr80 = getelementptr inbounds nuw i8, ptr %exn, i64 8, !dbg !10
-  store ptr @const.1, ptr %exn.file.addr80, align 8, !dbg !10
-  %.fca.1.gep173 = getelementptr inbounds nuw i8, ptr %exn, i64 16, !dbg !10
-  store i64 7, ptr %.fca.1.gep173, align 8, !dbg !10
-  %exn.line.addr81 = getelementptr inbounds nuw i8, ptr %exn, i64 24, !dbg !10
-  store i32 1, ptr %exn.line.addr81, align 8, !dbg !10
-  %exn.col.addr82 = getelementptr inbounds nuw i8, ptr %exn, i64 28, !dbg !10
-  store i32 13, ptr %exn.col.addr82, align 4, !dbg !10
-  %exn.func.addr83 = getelementptr inbounds nuw i8, ptr %exn, i64 32, !dbg !10
-  store ptr @const.2, ptr %exn.func.addr83, align 8, !dbg !10
-  %.fca.1.gep175 = getelementptr inbounds nuw i8, ptr %exn, i64 40, !dbg !10
-  store i64 7, ptr %.fca.1.gep175, align 8, !dbg !10
+  %exn.message.addr77 = getelementptr inbounds nuw i8, ptr %exn, i64 48, !dbg !10
+  store ptr @const, ptr %exn.message.addr77, align 8, !dbg !10
+  %.fca.1.gep155 = getelementptr inbounds nuw i8, ptr %exn, i64 56, !dbg !10
+  store i64 82, ptr %.fca.1.gep155, align 8, !dbg !10
+  %exn.param0.addr78 = getelementptr inbounds nuw i8, ptr %exn, i64 64, !dbg !10
+  store i64 %16, ptr %exn.param0.addr78, align 8, !dbg !10
+  %exn.param1.addr79 = getelementptr inbounds nuw i8, ptr %exn, i64 72, !dbg !10
+  store i64 8, ptr %exn.param1.addr79, align 8, !dbg !10
+  %exn.param2.addr80 = getelementptr inbounds nuw i8, ptr %exn, i64 80, !dbg !10
+  store i64 0, ptr %exn.param2.addr80, align 8, !dbg !10
+  %exn.file.addr81 = getelementptr inbounds nuw i8, ptr %exn, i64 8, !dbg !10
+  store ptr @const.1, ptr %exn.file.addr81, align 8, !dbg !10
+  %.fca.1.gep157 = getelementptr inbounds nuw i8, ptr %exn, i64 16, !dbg !10
+  store i64 7, ptr %.fca.1.gep157, align 8, !dbg !10
+  %exn.line.addr82 = getelementptr inbounds nuw i8, ptr %exn, i64 24, !dbg !10
+  store i32 1, ptr %exn.line.addr82, align 8, !dbg !10
+  %exn.col.addr83 = getelementptr inbounds nuw i8, ptr %exn, i64 28, !dbg !10
+  store i32 13, ptr %exn.col.addr83, align 4, !dbg !10
+  %exn.func.addr84 = getelementptr inbounds nuw i8, ptr %exn, i64 32, !dbg !10
+  store ptr @const.2, ptr %exn.func.addr84, align 8, !dbg !10
+  %.fca.1.gep159 = getelementptr inbounds nuw i8, ptr %exn, i64 40, !dbg !10
+  store i64 7, ptr %.fca.1.gep159, align 8, !dbg !10
   call void @__nac3_raise(ptr nonnull %exn), !dbg !10
   unreachable, !dbg !10
 
-fail62:                                           ; preds = %init
+assert.OverflowError.else63:                      ; preds = %init
   store i32 0, ptr %exn, align 8, !dbg !10
-  %exn.message.addr64 = getelementptr inbounds nuw i8, ptr %exn, i64 48, !dbg !10
-  store ptr @const.5, ptr %exn.message.addr64, align 8, !dbg !10
-  %.fca.1.gep165 = getelementptr inbounds nuw i8, ptr %exn, i64 56, !dbg !10
-  store i64 76, ptr %.fca.1.gep165, align 8, !dbg !10
-  %exn.param0.addr65 = getelementptr inbounds nuw i8, ptr %exn, i64 64, !dbg !10
-  store i64 %12, ptr %exn.param0.addr65, align 8, !dbg !10
-  %exn.param1.addr66 = getelementptr inbounds nuw i8, ptr %exn, i64 72, !dbg !10
-  store i64 15, ptr %exn.param1.addr66, align 8, !dbg !10
-  %exn.param2.addr67 = getelementptr inbounds nuw i8, ptr %exn, i64 80, !dbg !10
-  store i64 0, ptr %exn.param2.addr67, align 8, !dbg !10
-  %exn.file.addr68 = getelementptr inbounds nuw i8, ptr %exn, i64 8, !dbg !10
-  store ptr @const.1, ptr %exn.file.addr68, align 8, !dbg !10
-  %.fca.1.gep167 = getelementptr inbounds nuw i8, ptr %exn, i64 16, !dbg !10
-  store i64 7, ptr %.fca.1.gep167, align 8, !dbg !10
-  %exn.line.addr69 = getelementptr inbounds nuw i8, ptr %exn, i64 24, !dbg !10
-  store i32 1, ptr %exn.line.addr69, align 8, !dbg !10
-  %exn.col.addr70 = getelementptr inbounds nuw i8, ptr %exn, i64 28, !dbg !10
-  store i32 13, ptr %exn.col.addr70, align 4, !dbg !10
-  %exn.func.addr71 = getelementptr inbounds nuw i8, ptr %exn, i64 32, !dbg !10
-  store ptr @const.2, ptr %exn.func.addr71, align 8, !dbg !10
-  %.fca.1.gep169 = getelementptr inbounds nuw i8, ptr %exn, i64 40, !dbg !10
-  store i64 7, ptr %.fca.1.gep169, align 8, !dbg !10
+  %exn.message.addr65 = getelementptr inbounds nuw i8, ptr %exn, i64 48, !dbg !10
+  store ptr @const.5, ptr %exn.message.addr65, align 8, !dbg !10
+  %.fca.1.gep149 = getelementptr inbounds nuw i8, ptr %exn, i64 56, !dbg !10
+  store i64 76, ptr %.fca.1.gep149, align 8, !dbg !10
+  %exn.param0.addr66 = getelementptr inbounds nuw i8, ptr %exn, i64 64, !dbg !10
+  store i64 %12, ptr %exn.param0.addr66, align 8, !dbg !10
+  %exn.param1.addr67 = getelementptr inbounds nuw i8, ptr %exn, i64 72, !dbg !10
+  store i64 15, ptr %exn.param1.addr67, align 8, !dbg !10
+  %exn.param2.addr68 = getelementptr inbounds nuw i8, ptr %exn, i64 80, !dbg !10
+  store i64 0, ptr %exn.param2.addr68, align 8, !dbg !10
+  %exn.file.addr69 = getelementptr inbounds nuw i8, ptr %exn, i64 8, !dbg !10
+  store ptr @const.1, ptr %exn.file.addr69, align 8, !dbg !10
+  %.fca.1.gep151 = getelementptr inbounds nuw i8, ptr %exn, i64 16, !dbg !10
+  store i64 7, ptr %.fca.1.gep151, align 8, !dbg !10
+  %exn.line.addr70 = getelementptr inbounds nuw i8, ptr %exn, i64 24, !dbg !10
+  store i32 1, ptr %exn.line.addr70, align 8, !dbg !10
+  %exn.col.addr71 = getelementptr inbounds nuw i8, ptr %exn, i64 28, !dbg !10
+  store i32 13, ptr %exn.col.addr71, align 4, !dbg !10
+  %exn.func.addr72 = getelementptr inbounds nuw i8, ptr %exn, i64 32, !dbg !10
+  store ptr @const.2, ptr %exn.func.addr72, align 8, !dbg !10
+  %.fca.1.gep153 = getelementptr inbounds nuw i8, ptr %exn, i64 40, !dbg !10
+  store i64 7, ptr %.fca.1.gep153, align 8, !dbg !10
   call void @__nac3_raise(ptr nonnull %exn), !dbg !10
   unreachable, !dbg !10
 
-if.end128:                                        ; preds = %for.end112, %then120
+refcount.safe_dec.end112:                         ; preds = %list.mul.incref.end, %refcount.safe_inc.then
   ret i32 0, !dbg !13
 }
 

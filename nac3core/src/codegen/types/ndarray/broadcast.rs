@@ -177,12 +177,12 @@ where
     // Map element-wise and store results into `mapped_ndarray`.
     let out_nditer = NDIterValue::new(ctx, out_ndarray)?;
     ctx.build_loop(
-        Some("broadcast_starmap"),
+        "broadcast_starmap",
         |ctx, hooks| {
             // We can simply use `out_nditer`'s `has_element()`.
             // `in_nditers`' `has_element()`s should return the same value.
             let cond = out_nditer.inner_value(ctx)?.has_element(ctx)?;
-            let finish = ctx.branch(cond)?;
+            let finish = ctx.branch("broadcast_starmap.cond", cond)?;
             ctx.in_block(finish, |ctx| hooks.build_break(&ctx.builder))?;
 
             // Get all the scalars from the broadcasted input ndarrays, pass them to `mapping`,

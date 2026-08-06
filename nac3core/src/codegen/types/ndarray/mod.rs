@@ -639,7 +639,7 @@ impl<'ctx> ArrayLikeIndexer<'ctx, ArraySliceValue<'ctx, IntType<'ctx>>> for NDAr
         )?;
 
         let len = call_int_umin(ctx, indices_len, ndims, None)?;
-        ctx.build_repeat(None, len, |ctx, _, i| {
+        ctx.build_repeat("ndarray.ptr_offset", len, |ctx, _, i| {
             let (dim_idx, dim_sz) = (
                 idx.get_unchecked::<IntValue<'ctx>>(ctx, &i, None)?,
                 self.inner_value(ctx)?

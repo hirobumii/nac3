@@ -579,10 +579,11 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
         // even if this assumption is violated, it does not matter as exception unwinding is
         // slow anyway...
         let cond = call_expect(self, cond, i1_true, Some("expect"))?;
-        let exn_block = self.branch(cond)?;
-        exn_block.set_name("fail");
+        // use the exception name as the branch name prefix, so that the assertion context is
+        // identifiable in the IR
+        let exn = err_name.rsplit_once(':').map_or(err_name, |(_, exn)| exn);
+        let exn_block = self.branch(&format!("assert.{exn}"), cond)?;
         self.in_block(exn_block, |ctx| ctx.raise_exn(err_name, err_msg, params))?;
-        self.builder.get_insert_block().unwrap().set_name("succ");
         Ok(())
     }
 
@@ -611,12 +612,21 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
         result
     }
 
-    /// Performs a branch, creating two new BBs. Jumps to the `then` case and returns the `else` block.
-    pub fn branch(&mut self, value: IntValue<'ctx>) -> anyhow::Result<BasicBlock<'ctx>> {
+    /// Performs a branch, creating two new BBs. Jumps to the `then` case and returns the `else`
+    /// block.
+    ///
+    /// The `name` is prefixed to the names of the two new basic blocks. Prefer a name describing
+    /// what is being branched on over a generic one - otherwise the blocks belonging to one control
+    /// flow structure are impossible to tell apart in the generated IR.
+    pub fn branch(
+        &mut self,
+        name: &str,
+        value: IntValue<'ctx>,
+    ) -> anyhow::Result<BasicBlock<'ctx>> {
         assert!(value.get_type() == self.i1, "branch condition must be 'i1' type");
         let curr = self.builder.get_insert_block().expect("missing insert block");
-        let then_bb = self.ctx.insert_basic_block_after(curr, "then");
-        let else_bb = self.ctx.insert_basic_block_after(then_bb, "else");
+        let then_bb = self.ctx.insert_basic_block_after(curr, &format!("{name}.then"));
+        let else_bb = self.ctx.insert_basic_block_after(then_bb, &format!("{name}.else"));
         self.builder.build_conditional_branch(value, then_bb, else_bb)?;
         self.builder.position_at_end(then_bb);
         Ok(else_bb)
@@ -1190,7 +1200,7 @@ pub fn gen_prim_binop_expr<'ctx>(
                 // from the new list)
                 if is_refcounted_type(&mut ctx.unifier, list_ty.object.item_ty) {
                     let new_list_data_inner = new_list_data.inner_value(ctx, Some(new_len))?;
-                    ctx.build_repeat(None, new_len, |ctx, _, i| {
+                    ctx.build_repeat("list.concat.incref", new_len, |ctx, _, i| {
                         let elem: PointerValue<'ctx> =
                             new_list_data_inner.get_unchecked(ctx, &i, None)?;
                         OpaqueRefCountedType::new(ctx)
@@ -1278,7 +1288,7 @@ pub fn gen_prim_binop_expr<'ctx>(
                 let new_list = list_ty.construct(ctx, total_len, None)?;
                 let new_list_data = new_list.inner_value(ctx)?.data(ctx)?;
 
-                ctx.build_repeat(None, int_val, |ctx, _, i| {
+                ctx.build_repeat("list.mul.copy", int_val, |ctx, _, i| {
                     let offset = ctx.builder.build_int_mul(i, size, "")?;
                     let ptr = new_list_data
                         .inner_value(ctx, Some(total_len))?
@@ -1298,7 +1308,7 @@ pub fn gen_prim_binop_expr<'ctx>(
                 if is_refcounted_type(&mut ctx.unifier, list_ty.object.item_ty) {
                     let src_list_data_inner =
                         list_val.inner_value(ctx)?.data(ctx)?.inner_value(ctx, Some(size))?;
-                    ctx.build_repeat(None, size, |ctx, _, i| {
+                    ctx.build_repeat("list.mul.incref", size, |ctx, _, i| {
                         let elem: PointerValue<'ctx> =
                             src_list_data_inner.get_unchecked(ctx, &i, None)?;
                         OpaqueRefCountedType::new(ctx)
@@ -1781,12 +1791,12 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                         .builder
                         .build_int_compare(IntPredicate::EQ, left_size, right_size, "")?;
 
-                    ctx.build_ternary(eq_len,
+                    ctx.build_ternary("list.eq.len", eq_len,
                     |ctx| {
                         let acc_addr = ctx.alloc(ctx.i8, None)?;
                         ctx.builder.build_store(acc_addr, ctx.i8.const_all_ones())?;
 
-                        ctx.build_repeat(None, left_size, |ctx, hooks, i| {
+                        ctx.build_repeat("list.eq", left_size, |ctx, hooks, i| {
                             let left_v = left.inner_value(ctx)?.data(ctx)?.inner_value(ctx, Some(left_size))?.get_unchecked(ctx, &i, None)?;
                             let right_v = right.inner_value(ctx)?.data(ctx)?.inner_value(ctx, Some(right_size))?.get_unchecked(ctx, &i, None)?;
 
@@ -1805,7 +1815,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                                 "",
                             )?;
 
-                            ctx.build_if(bool_res, |ctx| {
+                            ctx.build_if("list.eq.break", bool_res, |ctx| {
                                 ctx.builder.build_store(acc_addr, false_)?;
                                 hooks.build_break(&ctx.builder)
                             })?;
@@ -1889,7 +1899,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                         "",
                     )?;
 
-                    ctx.build_if(cond, |ctx| {
+                    ctx.build_if("tuple.cmp.break", cond, |ctx| {
                         let bb = ctx.builder.get_insert_block().unwrap();
                         cmp_phi.add_incoming(&[(&llvm_i8.const_zero(), bb)]);
                         ctx.builder.build_unconditional_branch(post_foreach_cmp)?;
@@ -2203,6 +2213,7 @@ fn gen_ifexp_expr<'ctx, G: CodeGenerator>(
         })
     };
     ctx.build_if_else(
+        "if_exp",
         test,
         |ctx| {
             let a = generator.gen_expr(ctx, body)?;

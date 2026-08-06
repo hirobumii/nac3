@@ -127,7 +127,7 @@ pub fn list_slice_assignment<'ctx>(
     // update length
     let need_update =
         ctx.builder.build_int_compare(IntPredicate::NE, new_len, dest_len, "need_update")?;
-    ctx.build_if(need_update, |ctx| {
+    ctx.build_if("list.slice.len_update", need_update, |ctx| {
         let new_len = ctx.builder.build_int_z_extend_or_bit_cast(new_len, llvm_usize, "new_len")?;
         dest_arr.inner_value(ctx)?.store(ctx, field!(len), new_len)?;
         Ok(())

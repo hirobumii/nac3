@@ -70,6 +70,7 @@ impl<'ctx> NDArrayValue<'ctx> {
 
         let is_c_contiguous = self.is_c_contiguous(ctx)?;
         ctx.build_if_else(
+            "ndarray.reshape",
             is_c_contiguous,
             |ctx| {
                 // Reshape is possible without copying

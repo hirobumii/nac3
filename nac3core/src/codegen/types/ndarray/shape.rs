@@ -48,7 +48,7 @@ pub fn parse_numpy_int_sequence<'ctx>(
             let result = RefCountedArrayType::new(ctx, llvm_usize, None).alloca(ctx, len, None)?;
 
             // Load all the `int32`s from the input_sequence, cast them to `SizeT`, and store them into `result`
-            ctx.build_repeat(None, len, |ctx, _, i| {
+            ctx.build_repeat("ndarray.shape.from_list", len, |ctx, _, i| {
                 // Load the i-th int32 in the input sequence
                 let int: IntValue<'ctx> = input_seq
                     .inner_value(ctx)?

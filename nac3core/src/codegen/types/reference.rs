@@ -153,7 +153,7 @@ impl<'ctx> ObjectHeaderValue<'ctx> {
         ctx: &mut CodeGenContext<'ctx, '_>,
     ) -> anyhow::Result<()> {
         let not_null = ctx.builder.build_is_not_null(self.value, "")?;
-        ctx.build_if(not_null, |ctx| self.increment_refcount(ctx))
+        ctx.build_if("refcount.safe_inc", not_null, |ctx| self.increment_refcount(ctx))
     }
 
     /// Increments the reference count of this object by `count`.
@@ -179,7 +179,7 @@ impl<'ctx> ObjectHeaderValue<'ctx> {
         count: IntValue<'ctx>,
     ) -> anyhow::Result<()> {
         let non_null = ctx.builder.build_is_not_null(self.value, "")?;
-        ctx.build_if(non_null, |ctx| self.increment_refcount_by(ctx, count))
+        ctx.build_if("refcount.safe_inc_by", non_null, |ctx| self.increment_refcount_by(ctx, count))
     }
 
     /// Decrements the reference count of this object by one.
@@ -199,7 +199,7 @@ impl<'ctx> ObjectHeaderValue<'ctx> {
         ctx: &mut CodeGenContext<'ctx, '_>,
     ) -> anyhow::Result<()> {
         let non_null = ctx.builder.build_is_not_null(self.value, "")?;
-        ctx.build_if(non_null, |ctx| self.decrement_refcount(ctx))
+        ctx.build_if("refcount.safe_dec", non_null, |ctx| self.decrement_refcount(ctx))
     }
 
     /// Returns the reference count of this object.

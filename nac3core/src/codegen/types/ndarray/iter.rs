@@ -167,10 +167,10 @@ impl<'ctx> NDArrayValue<'ctx> {
         let nditer = NDIterValue::new(ctx, *self)?;
 
         ctx.build_loop(
-            Some("ndarray_foreach"),
+            "ndarray_foreach",
             |ctx, hooks| {
                 let cond = nditer.inner_value(ctx)?.has_element(ctx)?;
-                let finish = ctx.branch(cond)?;
+                let finish = ctx.branch("ndarray_foreach.cond", cond)?;
                 ctx.in_block(finish, |ctx| hooks.build_break(&ctx.builder))?;
                 body(ctx, hooks, nditer)
             },
@@ -206,10 +206,10 @@ impl<'ctx> NDArrayValue<'ctx> {
         let nditer = NDIterValue::new(ctx, *self)?;
 
         ctx.build_loop(
-            Some("ndarray_fold"),
+            "ndarray_fold",
             |ctx, hooks| {
                 let cond = nditer.inner_value(ctx)?.has_element(ctx)?;
-                let finish = ctx.branch(cond)?;
+                let finish = ctx.branch("ndarray_fold.cond", cond)?;
                 ctx.in_block(finish, |ctx| hooks.build_break(&ctx.builder))?;
                 let acc = V::try_from(ctx.builder.build_load(acc_ty, acc_ptr, "")?)
                     .map_err(|e| anyhow!("{e:?}"))?;

@@ -88,7 +88,7 @@ fn matmul_at_least_2d<'ctx>(
         let i = indices.get_unchecked::<IntValue<'ctx>>(ctx, &at_row, None)?;
         let j = indices.get_unchecked::<IntValue<'ctx>>(ctx, &at_col, None)?;
 
-        ctx.build_repeat(None, len, |ctx, _, k| {
+        ctx.build_repeat("matmul.dot", len, |ctx, _, k| {
             // `indices` is modified to index into `a` and `b`, and restored.
             indices.set_unchecked(ctx, &at_row, i, None)?;
             indices.set_unchecked(ctx, &at_col, k, None)?;
