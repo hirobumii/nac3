@@ -22,7 +22,7 @@ use crate::{
     typecheck::{
         type_inferencer::{CodeLocation, FunctionData, Inferencer, PrimitiveStore},
         typedef::{
-            CallId, FunSignature, FuncArg, Type, TypeEnum, TypeVar, TypeVarId, Unifier, VarMap,
+            CallId, FunSignature, FuncArg, Type, TypeEnum, TypeVar, Unifier, VarMap,
         },
     },
 };
