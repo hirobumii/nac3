@@ -40,9 +40,6 @@
           src = self;
           cargoLock = {
             lockFile = ./Cargo.lock;
-            outputHashes = {
-              "inkwell-0.9.0" = "sha256-K/+5C7RDnZchUIn2J5cUwnutRwKwwWiJEVrQYCoiQlY=";
-            };
           };
           passthru.cargoLock = cargoLock;
           nativeBuildInputs = [pkgs.python3 (pkgs.wrapClangMulti clang) llvm llvm-tools-irrt];
