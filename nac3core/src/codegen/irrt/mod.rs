@@ -47,9 +47,7 @@ pub fn load_irrt<'ctx>(
         unreachable!("Unsupported size_t type bit width, must be either 32-bit or 64-bit")
     };
 
-    let mut ir_bytes = ir_bytes.to_vec();
-    // inkwell 0.9 requires nul-terminated input
-    ir_bytes.push(b'\0');
+    let ir_bytes = ir_bytes.to_vec();
     let ir_buf = MemoryBuffer::create_from_memory_range_copy(&ir_bytes, "irrt_ir_buffer");
     let irrt_mod = ctx.create_module_from_ir(ir_buf).unwrap();
 
