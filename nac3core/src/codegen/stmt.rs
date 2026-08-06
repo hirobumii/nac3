@@ -770,46 +770,6 @@ fn restore_var_assignment(
     }
 }
 
-pub trait Mergeable<'ctx>: Sized {
-    fn merge(
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        a: (Self, BasicBlock<'ctx>),
-        b: (Self, BasicBlock<'ctx>),
-    ) -> anyhow::Result<Self>;
-}
-
-impl<'ctx, R> Mergeable<'ctx> for R
-where
-    R: BasicValue<'ctx> + TryFrom<BasicValueEnum<'ctx>, Error: std::fmt::Debug>,
-{
-    fn merge(
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        (a, a_blk): (Self, BasicBlock<'ctx>),
-        (b, b_blk): (Self, BasicBlock<'ctx>),
-    ) -> anyhow::Result<Self> {
-        let tv_ty = a.as_basic_value_enum().get_type();
-        assert_eq!(tv_ty, b.as_basic_value_enum().get_type());
-
-        let phi = ctx.builder.build_phi(tv_ty, "")?;
-        phi.add_incoming(&[(&a, a_blk), (&b, b_blk)]);
-
-        Ok(phi.as_basic_value().try_into().unwrap())
-    }
-}
-
-// `Mergable` cannot be implemented on () because conflict with impl above.
-struct NothingToMerge;
-
-impl<'ctx> Mergeable<'ctx> for NothingToMerge {
-    fn merge(
-        _ctx: &mut CodeGenContext<'ctx, '_>,
-        _a: (Self, BasicBlock<'ctx>),
-        _b: (Self, BasicBlock<'ctx>),
-    ) -> anyhow::Result<Self> {
-        Ok(Self)
-    }
-}
-
 impl<'ctx> CodeGenContext<'ctx, '_> {
     /// Generates a loop.
     ///
@@ -912,24 +872,23 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
         )
     }
 
-    /// Generates a C-style ternary operation, similar to the following C code:
+    /// Generates a two-armed branch on `cond`.
     ///
-    /// ```txt
-    /// T val = <cond> ? <then_fn> : <else_fn>
-    /// ```
+    /// Returns each arm's result paired with the basic block that arm terminated in - i.e., the
+    /// incoming edges a `phi` needs. The builder will be positioned at the merge block (`cont`)
+    /// when this function returns.
     ///
-    /// Like [`Self::build_ternary`] but allows you to thread values through the functions,
-    /// in case you encounter borrowing issues.
-    pub fn build_ternary_with_arg<M, T, U, ThenFn, ElseFn>(
+    /// Note that the return value `T` of `then_fn` is passed into `else_fn` - This is so that a
+    /// caller can move a borrow from `then_fn` to `else_fn` without capturing it in both closures.
+    fn build_branching<A, B, T, ThenFn, ElseFn>(
         &mut self,
         cond: IntValue<'ctx>,
         then_fn: ThenFn,
         else_fn: ElseFn,
-    ) -> anyhow::Result<(M, U)>
+    ) -> anyhow::Result<((A, BasicBlock<'ctx>), (B, BasicBlock<'ctx>))>
     where
-        ThenFn: FnOnce(&mut Self) -> anyhow::Result<(M, T)>,
-        ElseFn: FnOnce(&mut Self, T) -> anyhow::Result<(M, U)>,
-        M: Mergeable<'ctx>,
+        ThenFn: FnOnce(&mut Self) -> anyhow::Result<(A, T)>,
+        ElseFn: FnOnce(&mut Self, T) -> anyhow::Result<B>,
     {
         let var_assignment = self.var_assignment.clone();
 
@@ -942,13 +901,13 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
         restore_var_assignment(self, &var_assignment);
 
         self.builder.position_at_end(else_bb);
-        let (else_val, ret) = else_fn(self, arg)?;
+        let else_val = else_fn(self, arg)?;
         let else_end_bb = self.builder.get_insert_block().unwrap();
         self.jump_if_not_terminated(end_bb)?;
         restore_var_assignment(self, &var_assignment);
 
         self.builder.position_at_end(end_bb);
-        Ok((M::merge(self, (then_val, then_end_bb), (else_val, else_end_bb))?, ret))
+        Ok(((then_val, then_end_bb), (else_val, else_end_bb)))
     }
 
     /// Generates a C-style ternary operation, similar to the following C code:
@@ -956,26 +915,29 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
     /// ```txt
     /// T val = <cond> ? <then_fn> : <else_fn>
     /// ```
-    pub fn build_ternary<M, ThenFn, ElseFn>(
+    ///
+    /// Both arms must produce the same LLVM type; the results are merged with a `phi`.
+    pub fn build_ternary<V, ThenFn, ElseFn>(
         &mut self,
         cond: IntValue<'ctx>,
         then_fn: ThenFn,
         else_fn: ElseFn,
-    ) -> anyhow::Result<M>
+    ) -> anyhow::Result<V>
     where
-        ThenFn: FnOnce(&mut Self) -> anyhow::Result<M>,
-        ElseFn: FnOnce(&mut Self) -> anyhow::Result<M>,
-        M: Mergeable<'ctx>,
+        ThenFn: FnOnce(&mut Self) -> anyhow::Result<V>,
+        ElseFn: FnOnce(&mut Self) -> anyhow::Result<V>,
+        V: BasicValue<'ctx> + TryFrom<BasicValueEnum<'ctx>, Error: std::fmt::Debug>,
     {
-        fn with_dummy<T, E>(val: Result<T, E>) -> Result<(T, ()), E> {
-            val.map(|v| (v, ()))
-        }
-        self.build_ternary_with_arg(
-            cond,
-            |ctx| with_dummy(then_fn(ctx)),
-            |ctx, ()| with_dummy(else_fn(ctx)),
-        )
-        .map(|(val, ())| val)
+        let ((then_val, then_bb), (else_val, else_bb)) =
+            self.build_branching(cond, |ctx| Ok((then_fn(ctx)?, ())), |ctx, ()| else_fn(ctx))?;
+
+        let val_ty = then_val.as_basic_value_enum().get_type();
+        assert_eq!(val_ty, else_val.as_basic_value_enum().get_type());
+
+        let phi = self.builder.build_phi(val_ty, "")?;
+        phi.add_incoming(&[(&then_val, then_bb), (&else_val, else_bb)]);
+
+        Ok(phi.as_basic_value().try_into().unwrap())
     }
 
     /// Generates a C-style `if-else`, similar to the following C code:
@@ -983,6 +945,9 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
     /// ```txt
     /// if <cond> { <then_fn> } else { <else_fn> }
     /// ```
+    ///
+    /// Note that the return value `T` of `then_fn` is passed into `else_fn` - See
+    /// [`Self::build_branching`] for the purpose of this.
     pub fn build_if_else<T, U, ThenFn, ElseFn>(
         &mut self,
         cond: IntValue<'ctx>,
@@ -993,12 +958,8 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
         ThenFn: FnOnce(&mut Self) -> anyhow::Result<T>,
         ElseFn: FnOnce(&mut Self, T) -> anyhow::Result<U>,
     {
-        self.build_ternary_with_arg(
-            cond,
-            |ctx| Ok((NothingToMerge, then_fn(ctx)?)),
-            |ctx, arg| Ok((NothingToMerge, else_fn(ctx, arg)?)),
-        )
-        .map(|(_, val)| val)
+        self.build_branching(cond, |ctx| Ok(((), then_fn(ctx)?)), else_fn)
+            .map(|(((), _), (val, _))| val)
     }
 
     /// Generates a C-style `if`, similar to the following C code:
