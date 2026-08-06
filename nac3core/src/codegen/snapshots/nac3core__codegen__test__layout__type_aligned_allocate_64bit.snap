@@ -3,12 +3,12 @@ source: nac3core/src/codegen/test.rs
 expression: ir
 ---
 define fastcc void @dummy() {
-init:
+entry:
   %0 = icmp uge i64 add (i64 sub (i64 ptrtoint (ptr getelementptr ({ %__nac3_object_header, { i64, [0 x i8], [0 x i32] } }, ptr null, i32 1) to i64), i64 1), i64 4112), 4112
   %expect = call i1 @llvm.expect.i1(i1 %0, i1 true)
   br i1 %expect, label %assert.OverflowError.then, label %assert.OverflowError.else
 
-assert.OverflowError.then:                        ; preds = %init
+assert.OverflowError.then:                        ; preds = %entry
   %1 = udiv i64 add (i64 sub (i64 ptrtoint (ptr getelementptr ({ %__nac3_object_header, { i64, [0 x i8], [0 x i32] } }, ptr null, i32 1) to i64), i64 1), i64 4112), ptrtoint (ptr getelementptr ({ %__nac3_object_header, { i64, [0 x i8], [0 x i32] } }, ptr null, i32 1) to i64)
   %2 = call { i64, i1 } @llvm.umul.with.overflow.i64(i64 %1, i64 16)
   %3 = extractvalue { i64, i1 } %2, 0
@@ -35,7 +35,7 @@ assert.OverflowError.else3:                       ; preds = %assert.OverflowErro
   call void @__nac3_raise(ptr null)
   unreachable
 
-assert.OverflowError.else:                        ; preds = %init
+assert.OverflowError.else:                        ; preds = %entry
   store i32 0, ptr null, align 4
   store %str { ptr @const, i64 113 }, ptr getelementptr inbounds nuw (%exception, ptr null, i32 0, i32 5), align 8
   store i64 4112, ptr getelementptr inbounds nuw (%exception, ptr null, i32 0, i32 7), align 8

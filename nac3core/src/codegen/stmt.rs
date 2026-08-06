@@ -800,7 +800,10 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
             label: &str,
         ) -> anyhow::Result<([BasicBlock<'ctx>; 3], BreakContinueHooks<'ctx>)> {
             let mut bb = ctx.builder.get_insert_block().unwrap();
-            let bbs = ["body", "update", "end"].map(|name| {
+            // - `cond`: Loop header, contains the exit condition.
+            // - `update`: Loop update block, executed after each iteration of the body.
+            // - `end`: Loop exit block, executed after the loop terminates.
+            let bbs = ["cond", "update", "end"].map(|name| {
                 bb = ctx.ctx.insert_basic_block_after(bb, &format!("{label}.{name}"));
                 bb
             });
@@ -809,9 +812,9 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
             Ok((bbs, BreakContinueHooks { latch_bb: bbs[1], exit_bb: bbs[2] }))
         }
 
-        let ([body_bb, update_bb, cont_bb], hooks) = init_bbs(self, label)?;
+        let ([cond_bb, update_bb, end_bb], hooks) = init_bbs(self, label)?;
         // store loop bb information and restore it later
-        let loop_bb = self.loop_target.replace((update_bb, cont_bb));
+        let loop_bb = self.loop_target.replace((update_bb, end_bb));
         // var_assignment static values may be changed in another branch
         // if so, remove the static value as it may not be correct in this branch
         let var_assignment = self.var_assignment.clone();
@@ -822,9 +825,9 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
         self.builder.position_at_end(update_bb);
         let result = update(self, result)?;
         restore_var_assignment(self, &var_assignment);
-        self.jump_if_not_terminated(body_bb)?;
+        self.jump_if_not_terminated(cond_bb)?;
 
-        self.builder.position_at_end(cont_bb);
+        self.builder.position_at_end(end_bb);
         self.loop_target = loop_bb;
         Ok(result)
     }
@@ -850,7 +853,7 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
         ) -> anyhow::Result<IntValue<'ctx>> {
             let i = ctx.builder.build_load(n.get_type(), i_addr, "")?.into_int_value();
             let cmp = ctx.builder.build_int_compare(IntPredicate::ULT, i, n, "")?;
-            let finish = ctx.branch(&format!("{label}.cond"), cmp)?;
+            let finish = ctx.branch(label, cmp)?;
             ctx.in_block(finish, |ctx| hooks.build_break(&ctx.builder))?;
             Ok(i)
         }
@@ -1002,7 +1005,7 @@ fn build_tuple_elem_switch<'ctx>(
 ) -> anyhow::Result<BasicValueEnum<'ctx>> {
     let int32 = ctx.i32;
     let update_bb = ctx.builder.get_insert_block().unwrap();
-    let merge_bb = ctx.ctx.insert_basic_block_after(update_bb, "tuple.merge");
+    let merge_bb = ctx.ctx.insert_basic_block_after(update_bb, "tuple.end");
     let default_element_ty = ctx.get_llvm_type(element_ty.unwrap_or(ctx.primitives.int32));
 
     let mut tmp_bb = update_bb;
@@ -1084,7 +1087,7 @@ fn gen_for_enumerate<'ctx, G: CodeGenerator, U>(
                 length,
                 int32.const_int(1, false),
             )?;
-            let finish = ctx.branch("for.enumerate.cond", in_range)?;
+            let finish = ctx.branch("for.enumerate", in_range)?;
             let element_struct = ctx.ctx.struct_type(&[int32.into(), default_element_ty], false);
             let target_struct_ty = ctx.ctx.struct_type(&[ctx.ptr.into(), ctx.ptr.into()], false);
             match target_expr {
@@ -1200,7 +1203,7 @@ pub fn gen_for<G: CodeGenerator>(
                         stop,
                         step,
                     )?;
-                    let finish = ctx.branch("for.range.cond", in_range)?;
+                    let finish = ctx.branch("for.range", in_range)?;
                     ctx.builder.build_store(
                         target_i,
                         ctx.builder.build_load(int32, i, "")?.into_int_value(),
@@ -1355,7 +1358,7 @@ pub fn gen_for<G: CodeGenerator>(
                         ctx.builder.build_load(size_t, index_addr, "for.index")?.into_int_value();
                     let cmp =
                         ctx.builder.build_int_compare(IntPredicate::SLT, index, len, "cond")?;
-                    let finish = ctx.branch("for.list.cond", cmp)?;
+                    let finish = ctx.branch("for.list", cmp)?;
                     let index =
                         ctx.builder.build_load(size_t, index_addr, "for.index")?.into_int_value();
                     let val: BasicValueEnum = iter_val
@@ -1405,7 +1408,7 @@ pub fn gen_for<G: CodeGenerator>(
                         shape_dim0,
                         "cond",
                     )?;
-                    let finish = ctx.branch("for.ndarray.cond", cmp)?;
+                    let finish = ctx.branch("for.ndarray", cmp)?;
 
                     let val = ndarray
                         .index(
@@ -1502,7 +1505,7 @@ pub fn gen_while<G: CodeGenerator>(
         "while",
         |ctx, hooks| {
             let cond = generator.gen_expr(ctx, test)?.to_i1(ctx)?;
-            let finish = ctx.branch("while.cond", cond)?;
+            let finish = ctx.branch("while", cond)?;
             generator.gen_block(ctx, body.iter())?;
             ctx.in_block(finish, |ctx| {
                 generator.gen_block(ctx, orelse.iter())?;
@@ -1859,7 +1862,7 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
         post_handlers.push(current);
         ctx.builder.position_at_end(dispatcher_end);
         if let Some(exn_type) = exn_type {
-            let dispatcher_cont = ctx.ctx.append_basic_block(current_fun, "try.dispatcher_cont");
+            let dispatcher_cont = ctx.ctx.append_basic_block(current_fun, "try.dispatch.cont");
             let actual_id = exnid.unwrap();
             let expected_id = ctx
                 .builder
@@ -2334,7 +2337,7 @@ pub fn gen_with<'ctx, 'a, G: CodeGenerator>(
     let (final_state, mut final_targets, final_paths) = final_data.unwrap();
     let tail = ctx.ctx.append_basic_block(current_fun, "with.tail");
     final_targets.push(tail);
-    let finalizer = ctx.ctx.append_basic_block(current_fun, "with.exits");
+    let finalizer = ctx.ctx.append_basic_block(current_fun, "with.finally");
     ctx.builder.position_at_end(finalizer);
     exit_gen_lambda(ctx, generator)?;
     let dest = ctx.builder.build_load(ptr_type, final_state, "final_dest")?;

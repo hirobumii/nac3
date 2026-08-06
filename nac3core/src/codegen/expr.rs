@@ -472,7 +472,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
                 let current =
                     self.builder.get_insert_block().and_then(BasicBlock::get_parent).unwrap();
                 let then_block =
-                    self.ctx.append_basic_block(current, &format!("after.{call_name}"));
+                    self.ctx.append_basic_block(current, &format!("invoke.cont.{call_name}"));
                 self.fn_store.do_call(
                     self,
                     fun,
@@ -968,9 +968,9 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
     let current = ctx.builder.get_insert_block().and_then(BasicBlock::get_parent).unwrap();
 
     let init_bb = ctx.ctx.append_basic_block(current, "listcomp.init");
-    let test_bb = ctx.ctx.append_basic_block(current, "listcomp.test");
+    let test_bb = ctx.ctx.append_basic_block(current, "listcomp.cond");
     let body_bb = ctx.ctx.append_basic_block(current, "listcomp.body");
-    let cont_bb = ctx.ctx.append_basic_block(current, "listcomp.cont");
+    let cont_bb = ctx.ctx.append_basic_block(current, "listcomp.end");
 
     ctx.builder.build_unconditional_branch(init_bb)?;
 
@@ -1097,7 +1097,7 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
 
     for cond in ifs {
         let result = generator.gen_expr(ctx, cond)?.to_i1(ctx)?;
-        let succ = ctx.ctx.append_basic_block(current, "then");
+        let succ = ctx.ctx.append_basic_block(current, "listcomp.if.then");
         ctx.builder.build_conditional_branch(result, succ, test_bb)?;
 
         ctx.builder.position_at_end(succ);
@@ -2141,11 +2141,15 @@ fn gen_boolop_expr<'ctx, G: CodeGenerator>(
     let left = generator.gen_expr(ctx, &values[0])?.to_basic_value_enum(ctx)?.into_int_value();
     let left = bool_to_i1(ctx, left)?;
     let current = ctx.builder.get_insert_block().and_then(BasicBlock::get_parent).unwrap();
-    let a_begin_bb = ctx.ctx.append_basic_block(current, "a_begin");
-    let a_end_bb = ctx.ctx.append_basic_block(current, "a_end");
-    let b_begin_bb = ctx.ctx.append_basic_block(current, "b_begin");
-    let b_end_bb = ctx.ctx.append_basic_block(current, "b_end");
-    let cont_bb = ctx.ctx.append_basic_block(current, "cont");
+    let op_name = match op {
+        Boolop::And => "land",
+        Boolop::Or => "lor",
+    };
+    let a_begin_bb = ctx.ctx.append_basic_block(current, &format!("{op_name}.lhs.true"));
+    let a_end_bb = ctx.ctx.append_basic_block(current, &format!("{op_name}.lhs.true.end"));
+    let b_begin_bb = ctx.ctx.append_basic_block(current, &format!("{op_name}.lhs.false"));
+    let b_end_bb = ctx.ctx.append_basic_block(current, &format!("{op_name}.lhs.false.end"));
+    let cont_bb = ctx.ctx.append_basic_block(current, &format!("{op_name}.end"));
     ctx.builder.build_conditional_branch(left, a_begin_bb, b_begin_bb)?;
 
     ctx.builder.position_at_end(a_end_bb);
@@ -2362,9 +2366,9 @@ fn gen_call_expr<'ctx, G: CodeGenerator>(
                                 .and_then(BasicBlock::get_parent)
                                 .unwrap();
                             let unreachable_block =
-                                ctx.ctx.append_basic_block(current_fun, "unwrap_none_unreachable");
+                                ctx.ctx.append_basic_block(current_fun, "unwrap_none.unreachable");
                             let exn_block =
-                                ctx.ctx.append_basic_block(current_fun, "unwrap_none_exception");
+                                ctx.ctx.append_basic_block(current_fun, "unwrap_none.exception");
                             ctx.builder.build_unconditional_branch(exn_block)?;
                             ctx.builder.position_at_end(exn_block);
                             ctx.raise_exn("0:UnwrapNoneError", err_msg.into(), [None, None, None])?;

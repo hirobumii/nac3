@@ -182,7 +182,7 @@ where
             // We can simply use `out_nditer`'s `has_element()`.
             // `in_nditers`' `has_element()`s should return the same value.
             let cond = out_nditer.inner_value(ctx)?.has_element(ctx)?;
-            let finish = ctx.branch("broadcast_starmap.cond", cond)?;
+            let finish = ctx.branch("broadcast_starmap", cond)?;
             ctx.in_block(finish, |ctx| hooks.build_break(&ctx.builder))?;
 
             // Get all the scalars from the broadcasted input ndarrays, pass them to `mapping`,

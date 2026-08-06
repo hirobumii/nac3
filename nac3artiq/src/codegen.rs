@@ -936,7 +936,7 @@ where
                 llvm_i32.const_zero(),
                 "rpc.continue",
             )?;
-            let finish = ctx.branch("rpc.cond", cond)?;
+            let finish = ctx.branch("rpc", cond)?;
             ctx.in_block(finish, |ctx| hooks.build_break(&ctx.builder))?;
 
             let alloc_size =

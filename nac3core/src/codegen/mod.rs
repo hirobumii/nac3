@@ -789,7 +789,7 @@ pub fn gen_func_impl<
         fn_val.set_personality_function(personality);
     }
 
-    let init_bb = ctx.ctx.append_basic_block(fn_val, "init");
+    let init_bb = ctx.ctx.append_basic_block(fn_val, "entry");
     let builder = ctx.ctx.create_builder();
     builder.position_at_end(init_bb);
 
@@ -808,7 +808,7 @@ pub fn gen_func_impl<
     let finalize_bb = ctx.ctx.append_basic_block(fn_val, "finalize");
     // Only construct the function-level cleanup landingpad if a personality function is available,
     // otherwise the landingpad is unreachable
-    let cleanup_lp = personality.map(|_| ctx.ctx.append_basic_block(fn_val, "fn.cleanup.lp"));
+    let cleanup_lp = personality.map(|_| ctx.ctx.append_basic_block(fn_val, "lpad"));
 
     let return_buffer =
         ret_type.map(|v| anyhow::Ok(init_builder.build_alloca(v, "$ret")?)).transpose()?;
@@ -958,7 +958,7 @@ pub fn gen_func_impl<
                 personality.unwrap(),
                 &[],
                 true,
-                "fn.cleanup.lp",
+                "lpad.val",
             )?;
             emit_local_refcount_decrements(ctx)?;
             // Clear `unwind_target` before emitting the resume call to avoid infinite loop

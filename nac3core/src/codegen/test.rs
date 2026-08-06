@@ -597,7 +597,7 @@ mod layout {
         }) as Arc<dyn SymbolResolver + Send + Sync>;
         let (_, fn_val) = ctx.declare_internal("dummy", None, &[], false);
 
-        let init_bb = ctx.ctx.append_basic_block(fn_val, "init");
+        let init_bb = ctx.ctx.append_basic_block(fn_val, "entry");
         let init_builder = ctx.ctx.create_builder(); /* dummy */
         let builder = ctx.ctx.create_builder();
         builder.position_at_end(init_bb);
