@@ -370,6 +370,20 @@ fn catseq_source_profile_accepts_int32_ndarray_rank_literals() {
     });
 }
 
+#[test]
+fn catseq_source_profile_validates_instantiated_generic_builtins() {
+    analyze_catseq_function(indoc! {"
+        def compute(value: int) -> int:
+            absolute = abs(value)
+            minimum = min(value, 1)
+            maximum = max(value, 2)
+            return absolute + minimum + maximum
+    "})
+    .unwrap_or_else(|error| {
+        panic!("generic builtins instantiated with Int32 must type-check: {error}")
+    });
+}
+
 #[test_case("int64"; "int64")]
 #[test_case("uint32"; "uint32")]
 #[test_case("uint64"; "uint64")]
