@@ -236,6 +236,7 @@ fn validate_catseq_integer_binop(
 
 struct SourceProfileValidator<'a> {
     source_profile: SourceProfile,
+    top_level_defs: &'a [Arc<RwLock<TopLevelDef>>],
     unifier: &'a mut Unifier,
     primitives: &'a PrimitiveStore,
 }
@@ -288,7 +289,9 @@ impl Fold<Option<Type>> for SourceProfileValidator<'_> {
                 right,
             )?;
         }
-        if let Some(message) = self.source_profile.forbidden_numeric_type(self.unifier, ty) {
+        if let Some(message) =
+            self.source_profile.forbidden_numeric_type(self.top_level_defs, self.unifier, ty)
+        {
             return report_error(message, expression.location);
         }
         Ok(expression)
@@ -2176,8 +2179,11 @@ impl Inferencer<'_> {
         }
 
         let ty = expression.custom.expect("a folded expression must have an inferred type");
-        let message =
-            self.builtin_registry.source_profile().forbidden_numeric_type(self.unifier, ty);
+        let message = self.builtin_registry.source_profile().forbidden_numeric_type(
+            self.top_level_defs,
+            self.unifier,
+            ty,
+        );
 
         message.map_or(Ok(()), |message| report_error(message, expression.location))
     }
@@ -2192,6 +2198,7 @@ impl Inferencer<'_> {
         }
         let mut validator = SourceProfileValidator {
             source_profile,
+            top_level_defs: self.top_level_defs,
             unifier: self.unifier,
             primitives: self.primitives,
         };

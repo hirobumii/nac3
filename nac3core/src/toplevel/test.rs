@@ -725,6 +725,62 @@ fn catseq_source_profile_accepts_the_int32_minimum_literal() {
     .unwrap_or_else(|error| panic!("the Int32 minimum literal must type-check: {error}"));
 }
 
+#[test_case(
+    indoc! {"
+        def compute() -> int:
+            total = 0
+            for index, value in enumerate([1, 2]):
+                total = total + index + value
+            return total
+    "};
+    "enumerate"
+)]
+#[test_case(
+    indoc! {"
+        def compute(error: Exception) -> int:
+            return 0
+    "};
+    "exception"
+)]
+fn catseq_source_profile_ignores_builtin_representation_fields(source: &str) {
+    analyze_catseq_function(source).unwrap_or_else(|error| {
+        panic!("builtin ABI storage must not be treated as a source numeric value: {error}")
+    });
+}
+
+#[test]
+fn catseq_source_profile_ignores_inherited_exception_representation_fields() {
+    let (mut composer, internal_resolver, resolver) = new_catseq_composer();
+    let ast = parse_program(
+        indoc! {"
+            class ComputeError(Exception):
+                pass
+
+            def compute(value: int) -> int:
+                if value == 0:
+                    raise ComputeError(\"zero\")
+                return value
+        "},
+        FileName::default(),
+    )
+    .unwrap();
+    for definition in ast {
+        let (name, definition_id, ty) =
+            composer.register_top_level(definition, Some(resolver.clone()), "", true).unwrap();
+        internal_resolver.add_id_def(name, definition_id);
+        if let Some(ty) = ty {
+            internal_resolver.add_id_type(name, ty);
+        }
+    }
+
+    composer.start_analysis(true).unwrap_or_else(|errors| {
+        panic!(
+            "inherited exception ABI storage must not be treated as source values: {}",
+            errors.iter().join("\n")
+        )
+    });
+}
+
 #[test]
 fn catseq_source_profile_retains_target_independent_integer_operations() {
     let (mut composer, definition_id) = analyze_catseq_function(indoc! {"
