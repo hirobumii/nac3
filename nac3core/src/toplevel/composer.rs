@@ -17,11 +17,14 @@ use crate::{
         DefinitionId, FunInstance, GenCall, Location, Stmt, SymbolResolver, TopLevelContext,
         TopLevelDef, builtins, get_type_from_type_annotation_kinds,
         get_type_var_contained_in_type_annotation, helper::PrimDef, make_self_type_annotation,
-        parse_ast_to_type_annotation_kinds, type_annotation::TypeAnnotation,
+        numpy::unpack_ndarray_var_tys, parse_ast_to_type_annotation_kinds,
+        type_annotation::TypeAnnotation,
     },
     typecheck::{
         type_inferencer::{CodeLocation, FunctionData, Inferencer, PrimitiveStore},
-        typedef::{CallId, FunSignature, FuncArg, Type, TypeEnum, TypeVar, Unifier, VarMap},
+        typedef::{
+            AttrKind, CallId, FunSignature, FuncArg, Type, TypeEnum, TypeVar, Unifier, VarMap,
+        },
     },
 };
 
@@ -49,6 +52,112 @@ impl SourceProfile {
             Self::Default => None,
             Self::CatSeqInt32 => Some("catseq-int32-v1"),
         }
+    }
+
+    pub(crate) fn forbidden_numeric_type(
+        self,
+        unifier: &mut Unifier,
+        ty: Type,
+    ) -> Option<&'static str> {
+        match self {
+            Self::Default => None,
+            Self::CatSeqInt32 => catseq_forbidden_numeric_type(unifier, ty, &mut HashSet::new()),
+        }
+    }
+
+    pub(crate) fn forbidden_symbol_value(self, value: &SymbolValue) -> Option<&'static str> {
+        match self {
+            Self::Default => None,
+            Self::CatSeqInt32 => catseq_forbidden_symbol_values(std::slice::from_ref(value)),
+        }
+    }
+
+    pub(crate) fn forbidden_constant(self, value: &ast::Constant) -> Option<&'static str> {
+        match self {
+            Self::Default => None,
+            Self::CatSeqInt32 => match value {
+                ast::Constant::Float(_) => {
+                    Some("floating-point values are not supported by CatSeqInt32")
+                }
+                ast::Constant::Int(value) if i32::try_from(*value).is_err() => {
+                    Some("integer values outside Int32 are not supported by CatSeqInt32")
+                }
+                ast::Constant::Tuple(values) => {
+                    values.iter().find_map(|value| self.forbidden_constant(value))
+                }
+                _ => None,
+            },
+        }
+    }
+}
+
+fn catseq_forbidden_symbol_values(values: &[SymbolValue]) -> Option<&'static str> {
+    values.iter().find_map(|value| match value {
+        SymbolValue::I64(_) => Some("int64 values are not supported by CatSeqInt32"),
+        SymbolValue::U32(_) => Some("uint32 values are not supported by CatSeqInt32"),
+        SymbolValue::U64(_) => Some("uint64 values are not supported by CatSeqInt32"),
+        SymbolValue::Double(_) => Some("floating-point values are not supported by CatSeqInt32"),
+        SymbolValue::Tuple(values) => catseq_forbidden_symbol_values(values),
+        SymbolValue::OptionSome(value) => {
+            catseq_forbidden_symbol_values(std::slice::from_ref(value))
+        }
+        SymbolValue::I32(_)
+        | SymbolValue::Str(_)
+        | SymbolValue::Bool(_)
+        | SymbolValue::OptionNone => None,
+    })
+}
+
+fn catseq_forbidden_numeric_type(
+    unifier: &mut Unifier,
+    ty: Type,
+    visited: &mut HashSet<Type>,
+) -> Option<&'static str> {
+    if !visited.insert(ty) {
+        return None;
+    }
+
+    match &*unifier.get_ty_immutable(ty) {
+        TypeEnum::TObj { obj_id, fields, params } => {
+            if *obj_id == PrimDef::Float.id() {
+                Some("floating-point values are not supported by CatSeqInt32")
+            } else if *obj_id == PrimDef::Int64.id() {
+                Some("int64 values are not supported by CatSeqInt32")
+            } else if *obj_id == PrimDef::UInt32.id() {
+                Some("uint32 values are not supported by CatSeqInt32")
+            } else if *obj_id == PrimDef::UInt64.id() {
+                Some("uint64 values are not supported by CatSeqInt32")
+            } else {
+                let param_error = if *obj_id == PrimDef::NDArray.id() {
+                    let (dtype, _) = unpack_ndarray_var_tys(unifier, ty);
+                    catseq_forbidden_numeric_type(unifier, dtype, visited)
+                } else {
+                    params
+                        .values()
+                        .find_map(|ty| catseq_forbidden_numeric_type(unifier, *ty, visited))
+                };
+                param_error.or_else(|| {
+                    fields
+                        .values()
+                        .filter_map(|(ty, kind)| {
+                            matches!(kind, AttrKind::Field { .. }).then_some(*ty)
+                        })
+                        .find_map(|ty| catseq_forbidden_numeric_type(unifier, ty, visited))
+                })
+            }
+        }
+        TypeEnum::TTuple { ty, .. } => {
+            ty.iter().find_map(|ty| catseq_forbidden_numeric_type(unifier, *ty, visited))
+        }
+        TypeEnum::TVirtual { ty } => catseq_forbidden_numeric_type(unifier, *ty, visited),
+        TypeEnum::TLiteral { values, .. } => catseq_forbidden_symbol_values(values),
+        // Function signatures and type-variable ranges describe possible call instances, not
+        // runtime numeric values. Concrete signatures are checked when instantiated, and the
+        // typed function body is checked again after call/operator unification completes.
+        TypeEnum::TFunc(_)
+        | TypeEnum::TVar { .. }
+        | TypeEnum::TRigidVar { .. }
+        | TypeEnum::TCall(_) => None,
     }
 }
 
@@ -847,6 +956,7 @@ impl TopLevelComposer {
         let temp_def_list = self.extract_def_list();
         let unifier = &mut self.unifier;
         let primitives_store = &self.primitives_ty;
+        let source_profile = self.builtin_registry.source_profile();
 
         let mut errors: Vec<anyhow::Error> = Vec::new();
         let mut type_var_to_concrete_def: HashMap<Type, TypeAnnotation> = HashMap::new();
@@ -904,6 +1014,15 @@ impl TopLevelComposer {
                         &mut subst_list,
                     ) {
                         Ok(target_ty) => {
+                            if let Some(message) =
+                                source_profile.forbidden_numeric_type(unifier, target_ty)
+                            {
+                                errors.push(anyhow!(
+                                    "{message} (at {})",
+                                    class_ast.as_ref().unwrap().location
+                                ));
+                                continue;
+                            }
                             if let Err(e) = unifier.unify(*ty, target_ty) {
                                 errors.push(anyhow!("{}", e.to_display(unifier)));
                             }
@@ -1010,6 +1129,7 @@ impl TopLevelComposer {
         let temp_def_list = self.extract_def_list();
         let unifier = &mut self.unifier;
         let primitives_store = &self.primitives_ty;
+        let source_profile = self.builtin_registry.source_profile();
 
         let mut analyze = |function_def: &Arc<RwLock<TopLevelDef>>, function_ast: &Option<Stmt>| {
             let function_def = &mut *function_def.write();
@@ -1093,6 +1213,9 @@ impl TopLevelComposer {
                         &type_annotation,
                         &mut None,
                     )?;
+                    if let Some(message) = source_profile.forbidden_numeric_type(unifier, ty) {
+                        return Err(vec![anyhow!("{message} (at {})", annotation.location)]);
+                    }
 
                     Ok(FuncArg {
                         name: vararg.node.arg,
@@ -1184,6 +1307,9 @@ impl TopLevelComposer {
                             &type_annotation,
                             &mut None,
                         )?;
+                        if let Some(message) = source_profile.forbidden_numeric_type(unifier, ty) {
+                            return Err(vec![anyhow!("{message} (at {})", annotation.location)]);
+                        }
 
                         Ok(FuncArg {
                             name: x.node.arg,
@@ -1196,6 +1322,13 @@ impl TopLevelComposer {
                                         resolver,
                                         &*self.builtin_registry,
                                     )?;
+                                    if let Some(message) = source_profile.forbidden_symbol_value(&v)
+                                    {
+                                        return Err(vec![anyhow!(
+                                            "{message} (at {})",
+                                            default.location
+                                        )]);
+                                    }
                                     Self::check_default_param_type(
                                         &v,
                                         &type_annotation,
@@ -1254,13 +1387,17 @@ impl TopLevelComposer {
                         }
                     }
 
-                    get_type_from_type_annotation_kinds(
+                    let ty = get_type_from_type_annotation_kinds(
                         &temp_def_list,
                         unifier,
                         primitives_store,
                         &return_ty_annotation,
                         &mut None,
-                    )?
+                    )?;
+                    if let Some(message) = source_profile.forbidden_numeric_type(unifier, ty) {
+                        return Err(vec![anyhow!("{message} (at {})", returns.location)]);
+                    }
+                    ty
                 } else {
                     primitives_store.none
                 }
@@ -1438,6 +1575,15 @@ impl TopLevelComposer {
 
                                     Some({
                                         let v = Self::parse_parameter_default_value(&args.defaults[default_idx], class_resolver, builtin_registry)?;
+                                        if let Some(message) = builtin_registry
+                                            .source_profile()
+                                            .forbidden_symbol_value(&v)
+                                        {
+                                            return Err(vec![anyhow!(
+                                                "{message} (at {})",
+                                                args.defaults[default_idx].location
+                                            )]);
+                                        }
                                         Self::check_default_param_type(&v, &type_ann, primitives, unifier).map_err(|err| vec![anyhow!("{err} (at {})", x.location)])?;
                                         v
                                     })
@@ -1572,6 +1718,15 @@ impl TopLevelComposer {
                                                     ),
                                                 ])
                                                 }
+                                            }
+                                            if let Some(message) = builtin_registry
+                                                .source_profile()
+                                                .forbidden_constant(v)
+                                            {
+                                                return Err(vec![anyhow!(
+                                                    "{message} (at {})",
+                                                    boxed_expr.location
+                                                )]);
                                             }
                                             class_attributes_def.push((*attr, dummy_field_type, v.clone()));
                                         }
@@ -2094,6 +2249,19 @@ impl TopLevelComposer {
                         })
                         .collect_vec()
                 };
+                let source_profile = ctx.builtin_registry.source_profile();
+                let function_location = ast.as_ref().unwrap().location;
+                for arg in &inst_args {
+                    if let Some(message) = source_profile.forbidden_numeric_type(unifier, arg.ty) {
+                        return Err(vec![anyhow!(
+                            "{message} in parameter `{}` (at {function_location})",
+                            arg.name
+                        )]);
+                    }
+                }
+                if let Some(message) = source_profile.forbidden_numeric_type(unifier, inst_ret) {
+                    return Err(vec![anyhow!("{message} in return type (at {function_location})")]);
+                }
                 let self_type = {
                     uninst_self_type.clone().map(|(self_type, type_vars, _)| {
                         let subst_for_self = {
@@ -2184,6 +2352,7 @@ impl TopLevelComposer {
                         .collect::<Result<Vec<_>, _>>()?;
 
                 let returned = inferencer.check_block(fun_body.as_slice(), &mut identifiers)?;
+                inferencer.validate_source_profile_block(&fun_body)?;
                 {
                     // check virtuals
                     let defs = &ctx.definitions;

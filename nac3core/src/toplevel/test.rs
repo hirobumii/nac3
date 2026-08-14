@@ -215,13 +215,19 @@ fn test_simple_function_analyze(source: &[&str], tys: &[&str], names: &[&str]) {
     }
 }
 
-fn analyze_catseq_function(source: &str) -> Result<(TopLevelComposer, DefinitionId), String> {
-    let mut composer =
+fn new_catseq_composer()
+-> (TopLevelComposer, Arc<ResolverInternal>, Arc<dyn SymbolResolver + Send + Sync>) {
+    let composer =
         TopLevelComposer::new(Vec::new(), Vec::new(), Arc::new(CatSeqBuiltinRegistry), 64).0;
     let internal_resolver =
         Arc::new(ResolverInternal { id_to_def: Mutex::default(), id_to_type: Mutex::default() });
     let resolver =
         Arc::new(Resolver(internal_resolver.clone())) as Arc<dyn SymbolResolver + Send + Sync>;
+    (composer, internal_resolver, resolver)
+}
+
+fn analyze_catseq_function(source: &str) -> Result<(TopLevelComposer, DefinitionId), String> {
+    let (mut composer, internal_resolver, resolver) = new_catseq_composer();
     let ast = parse_program(source, FileName::default()).unwrap();
     let (name, definition_id, ty) =
         composer.register_top_level(ast[0].clone(), Some(resolver), "", true)?;
@@ -231,6 +237,73 @@ fn analyze_catseq_function(source: &str) -> Result<(TopLevelComposer, Definition
         .start_analysis(true)
         .map_err(|errors| errors.into_iter().map(|error| error.to_string()).join("\n"))?;
     Ok((composer, definition_id))
+}
+
+fn analyze_catseq_with_late_bound_value(source: &str) -> Result<(), String> {
+    let (mut composer, internal_resolver, resolver) = new_catseq_composer();
+    let value_type = composer.unifier.get_fresh_var_with_range(
+        &[composer.primitives_ty.int32, composer.primitives_ty.float],
+        Some("T".into()),
+        None,
+    );
+    internal_resolver.add_id_type("x".into(), value_type.ty);
+    let consume_float = composer.unifier.add_ty(TypeEnum::TFunc(FunSignature {
+        args: vec![crate::typecheck::typedef::FuncArg {
+            name: "value".into(),
+            ty: composer.primitives_ty.float,
+            default_value: None,
+            is_vararg: false,
+        }],
+        ret: composer.primitives_ty.none,
+        vars: VarMap::new(),
+    }));
+    internal_resolver.add_id_type("consume_float".into(), consume_float);
+    let consume_pair = composer.unifier.add_ty(TypeEnum::TFunc(FunSignature {
+        args: vec![
+            crate::typecheck::typedef::FuncArg {
+                name: "quotient".into(),
+                ty: composer.primitives_ty.float,
+                default_value: None,
+                is_vararg: false,
+            },
+            crate::typecheck::typedef::FuncArg {
+                name: "value".into(),
+                ty: composer.primitives_ty.int32,
+                default_value: None,
+                is_vararg: false,
+            },
+        ],
+        ret: composer.primitives_ty.none,
+        vars: VarMap::new(),
+    }));
+    internal_resolver.add_id_type("consume_pair".into(), consume_pair);
+    let consume_int_pair = composer.unifier.add_ty(TypeEnum::TFunc(FunSignature {
+        args: vec![
+            crate::typecheck::typedef::FuncArg {
+                name: "quotient".into(),
+                ty: composer.primitives_ty.int32,
+                default_value: None,
+                is_vararg: false,
+            },
+            crate::typecheck::typedef::FuncArg {
+                name: "value".into(),
+                ty: composer.primitives_ty.int32,
+                default_value: None,
+                is_vararg: false,
+            },
+        ],
+        ret: composer.primitives_ty.none,
+        vars: VarMap::new(),
+    }));
+    internal_resolver.add_id_type("consume_int_pair".into(), consume_int_pair);
+    let ast = parse_program(source, FileName::default()).unwrap();
+    let (name, definition_id, ty) =
+        composer.register_top_level(ast[0].clone(), Some(resolver), "", true)?;
+    internal_resolver.add_id_def(name, definition_id);
+    internal_resolver.add_id_type(name, ty.unwrap());
+    composer
+        .start_analysis(true)
+        .map_err(|errors| errors.into_iter().map(|error| error.to_string()).join("\n"))
 }
 
 #[test]
@@ -296,12 +369,7 @@ fn catseq_source_profile_rejects_float_results_from_builtins() {
 
 #[test]
 fn catseq_source_profile_rejects_forbidden_numeric_types_nested_in_values() {
-    let mut composer =
-        TopLevelComposer::new(Vec::new(), Vec::new(), Arc::new(CatSeqBuiltinRegistry), 64).0;
-    let internal_resolver =
-        Arc::new(ResolverInternal { id_to_def: Mutex::default(), id_to_type: Mutex::default() });
-    let resolver =
-        Arc::new(Resolver(internal_resolver.clone())) as Arc<dyn SymbolResolver + Send + Sync>;
+    let (mut composer, internal_resolver, resolver) = new_catseq_composer();
     let class_ast = parse_program(
         indoc! {"
             class ExternalRecord:
@@ -384,6 +452,135 @@ fn catseq_source_profile_validates_instantiated_generic_builtins() {
     });
 }
 
+#[test]
+fn catseq_source_profile_validates_non_builtin_generics_after_instantiation() {
+    let (mut composer, internal_resolver, resolver) = new_catseq_composer();
+    let generic = composer.unifier.get_fresh_var_with_range(
+        &[composer.primitives_ty.int32, composer.primitives_ty.float],
+        Some("T".into()),
+        None,
+    );
+    let identity = composer.unifier.add_ty(TypeEnum::TFunc(FunSignature {
+        args: vec![crate::typecheck::typedef::FuncArg {
+            name: "value".into(),
+            ty: generic.ty,
+            default_value: None,
+            is_vararg: false,
+        }],
+        ret: generic.ty,
+        vars: VarMap::from([(generic.id, generic.ty)]),
+    }));
+    internal_resolver.add_id_type("identity".into(), identity);
+    let ast = parse_program(
+        indoc! {"
+            def compute(value: int) -> int:
+                return identity(value)
+        "},
+        FileName::default(),
+    )
+    .unwrap();
+    let (name, definition_id, ty) =
+        composer.register_top_level(ast[0].clone(), Some(resolver), "", true).unwrap();
+    internal_resolver.add_id_def(name, definition_id);
+    internal_resolver.add_id_type(name, ty.unwrap());
+
+    composer.start_analysis(true).unwrap_or_else(|errors| {
+        panic!(
+            "unused generic alternatives must not be treated as runtime values: {}",
+            errors.iter().join("\n")
+        )
+    });
+}
+
+#[test]
+fn catseq_source_profile_revalidates_values_after_call_unification() {
+    let result = analyze_catseq_with_late_bound_value(indoc! {"
+        def compute() -> int:
+            consume_float(x)
+            return 0
+    "});
+    let Err(error) = result else {
+        panic!("a resolver value unified to float must not escape CatSeqInt32 validation")
+    };
+
+    assert!(error.contains("floating-point values are not supported by CatSeqInt32"), "{error}");
+    assert!(error.contains("at unknown:2:"), "{error}");
+}
+
+#[test_case(
+    indoc! {"
+        def compute() -> int:
+            consume_pair(x / 1, x)
+            return 0
+    "},
+    "operator `/` is not supported";
+    "true_division"
+)]
+#[test_case(
+    indoc! {"
+        def compute() -> int:
+            consume_int_pair(x // 0, x)
+            return 0
+    "},
+    "divisor for `//` must not be zero";
+    "floor_division_by_zero"
+)]
+fn catseq_source_profile_revalidates_operators_after_type_unification(
+    source: &str,
+    expected: &str,
+) {
+    let result = analyze_catseq_with_late_bound_value(source);
+    let Err(error) = result else {
+        panic!("an Int32 operator selected by late type unification must be revalidated")
+    };
+
+    assert!(error.contains(expected), "{error}");
+}
+
+#[test]
+fn catseq_source_profile_applies_integer_rules_only_to_integer_operators() {
+    let (mut composer, internal_resolver, resolver) = new_catseq_composer();
+    let ast = parse_program(
+        indoc! {"
+            class Number:
+                def __init__(self):
+                    pass
+
+                def __floordiv__(self, other: int) -> int:
+                    return 1
+
+                def __mod__(self, other: int) -> int:
+                    return 2
+
+                def __truediv__(self, other: int) -> int:
+                    return 3
+
+            def compute(value: Number) -> int:
+                floor_result: int = value // 0
+                remainder: int = value % 0
+                quotient: int = value / 0
+                return floor_result + remainder + quotient
+        "},
+        FileName::default(),
+    )
+    .unwrap();
+    for definition in ast {
+        let (name, definition_id, ty) =
+            composer.register_top_level(definition, Some(resolver.clone()), "", true).unwrap();
+        internal_resolver.add_id_def(name, definition_id);
+        if let Some(ty) = ty {
+            internal_resolver.add_id_type(name, ty);
+        }
+    }
+
+    composer.start_analysis(true).unwrap_or_else(|errors| {
+        panic!(
+            "Int32 operator restrictions must not reject user-defined overloads: {}",
+            errors.iter().join("\n")
+        )
+    });
+}
+
 #[test_case("int64"; "int64")]
 #[test_case("uint32"; "uint32")]
 #[test_case("uint64"; "uint64")]
@@ -396,6 +593,19 @@ fn catseq_source_profile_rejects_non_int32_numeric_annotations(annotation: &str)
     };
 
     assert!(error.contains(&format!("`{annotation}` is not a valid type annotation")), "{error}");
+    assert!(error.contains("at unknown:1:"), "{error}");
+}
+
+#[test_case("Literal[1.0]", "floating-point values"; "float_literal")]
+#[test_case("Literal[2147483648]", "int64 values"; "wide_integer_literal")]
+fn catseq_source_profile_rejects_forbidden_literal_annotations(annotation: &str, expected: &str) {
+    let source = format!("def compute(value: {annotation}) -> int:\n    return 0\n");
+    let result = analyze_catseq_function(&source);
+    let Err(error) = result else {
+        panic!("`{annotation}` must not be accepted by the CatSeq source profile")
+    };
+
+    assert!(error.contains(expected), "{error}");
     assert!(error.contains("at unknown:1:"), "{error}");
 }
 
@@ -431,6 +641,14 @@ fn catseq_source_profile_rejects_non_int32_numeric_annotations(annotation: &str)
     "%";
     "constant_saturating_shift"
 )]
+#[test_case(
+    indoc! {"
+        def compute(value: int) -> int:
+            return value // int(0)
+    "},
+    "//";
+    "explicit_int_conversion"
+)]
 fn catseq_source_profile_rejects_a_proven_zero_divisor(source: &str, operator: &str) {
     let result = analyze_catseq_function(source);
     let Err(error) = result else {
@@ -439,6 +657,34 @@ fn catseq_source_profile_rejects_a_proven_zero_divisor(source: &str, operator: &
 
     assert!(error.contains(&format!("divisor for `{operator}` must not be zero")), "{error}");
     assert!(error.contains("at unknown:2:"), "{error}");
+}
+
+#[test]
+fn catseq_source_profile_rejects_forbidden_class_constants() {
+    let (mut composer, internal_resolver, resolver) = new_catseq_composer();
+    let ast = parse_program(
+        indoc! {"
+            class Constants:
+                sample: int = 1.0
+        "},
+        FileName::default(),
+    )
+    .unwrap();
+    let (name, definition_id, ty) =
+        composer.register_top_level(ast[0].clone(), Some(resolver), "", true).unwrap();
+    internal_resolver.add_id_def(name, definition_id);
+    internal_resolver.add_id_type(name, ty.unwrap());
+
+    let errors = composer
+        .start_analysis(true)
+        .expect_err("floating-point class constants must not be accepted by CatSeqInt32");
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.to_string().contains("floating-point values are not supported")),
+        "{}",
+        errors.iter().join("\n")
+    );
 }
 
 #[test]

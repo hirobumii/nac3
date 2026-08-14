@@ -145,6 +145,18 @@ fn floor_divmod_i32(dividend: i32, divisor: i32) -> Option<(i32, i32)> {
     Some((quotient as i32, (dividend - quotient * divisor) as i32))
 }
 
+fn is_int32_numeric_type(unifier: &mut Unifier, primitives: &PrimitiveStore, ty: Type) -> bool {
+    if unifier.unioned(ty, primitives.int32) {
+        return true;
+    }
+    if ty.obj_id(unifier).is_some_and(|id| id == PrimDef::NDArray.id()) {
+        let (dtype, _) = unpack_ndarray_var_tys(unifier, ty);
+        unifier.unioned(dtype, primitives.int32)
+    } else {
+        false
+    }
+}
+
 fn constant_int32_value<T>(expression: &ast::Expr<T>) -> Option<i32> {
     match &expression.node {
         ExprKind::Constant { value: ast::Constant::Int(value), .. } => i32::try_from(*value).ok(),
@@ -177,84 +189,109 @@ fn constant_int32_value<T>(expression: &ast::Expr<T>) -> Option<i32> {
                 _ => None,
             }
         }
+        ExprKind::Call { func, args, keywords }
+            if args.len() == 1
+                && keywords.is_empty()
+                && matches!(
+                    &func.node,
+                    ExprKind::Name { id, .. } if id == &"int".into() || id == &"int32".into()
+                ) =>
+        {
+            constant_int32_value(&args[0])
+        }
         _ => None,
     }
 }
 
-fn catseq_forbidden_literal(values: &[SymbolValue]) -> Option<&'static str> {
-    values.iter().find_map(|value| match value {
-        SymbolValue::I64(_) => Some("int64 values are not supported by CatSeqInt32"),
-        SymbolValue::U32(_) => Some("uint32 values are not supported by CatSeqInt32"),
-        SymbolValue::U64(_) => Some("uint64 values are not supported by CatSeqInt32"),
-        SymbolValue::Double(_) => Some("floating-point values are not supported by CatSeqInt32"),
-        SymbolValue::Tuple(values) => catseq_forbidden_literal(values),
-        SymbolValue::OptionSome(value) => catseq_forbidden_literal(std::slice::from_ref(value)),
-        SymbolValue::I32(_)
-        | SymbolValue::Str(_)
-        | SymbolValue::Bool(_)
-        | SymbolValue::OptionNone => None,
-    })
+fn validate_catseq_integer_binop(
+    source_profile: SourceProfile,
+    unifier: &mut Unifier,
+    primitives: &PrimitiveStore,
+    location: Location,
+    left: &ast::Expr<Option<Type>>,
+    op: ast::Operator,
+    right: &ast::Expr<Option<Type>>,
+) -> Result<(), InferenceError> {
+    if source_profile != SourceProfile::CatSeqInt32
+        || !is_int32_numeric_type(unifier, primitives, left.custom.unwrap())
+        || !is_int32_numeric_type(unifier, primitives, right.custom.unwrap())
+    {
+        return Ok(());
+    }
+    if op == ast::Operator::Div {
+        return report_error("operator `/` is not supported by CatSeqInt32", location);
+    }
+    let operator = match op {
+        ast::Operator::FloorDiv => Some("//"),
+        ast::Operator::Mod => Some("%"),
+        _ => None,
+    };
+    if let Some(operator) = operator
+        && constant_int32_value(right) == Some(0)
+    {
+        return report_error(&format!("divisor for `{operator}` must not be zero"), right.location);
+    }
+    Ok(())
 }
 
-fn catseq_forbidden_numeric_type(
-    unifier: &Unifier,
-    ty: Type,
-    visited: &mut HashSet<Type>,
-) -> Option<&'static str> {
-    if !visited.insert(ty) {
-        return None;
+struct SourceProfileValidator<'a> {
+    source_profile: SourceProfile,
+    unifier: &'a mut Unifier,
+    primitives: &'a PrimitiveStore,
+}
+
+impl Fold<Option<Type>> for SourceProfileValidator<'_> {
+    type TargetU = Option<Type>;
+    type Error = InferenceError;
+
+    fn map_user(&mut self, user: Option<Type>) -> Result<Self::TargetU, Self::Error> {
+        Ok(user)
     }
 
-    match &*unifier.get_ty_immutable(ty) {
-        TypeEnum::TObj { obj_id, fields, params } => {
-            if *obj_id == PrimDef::Float.id() {
-                Some("floating-point values are not supported by CatSeqInt32")
-            } else if *obj_id == PrimDef::Int64.id() {
-                Some("int64 values are not supported by CatSeqInt32")
-            } else if *obj_id == PrimDef::UInt32.id() {
-                Some("uint32 values are not supported by CatSeqInt32")
-            } else if *obj_id == PrimDef::UInt64.id() {
-                Some("uint64 values are not supported by CatSeqInt32")
-            } else {
-                let param_error = if *obj_id == PrimDef::NDArray.id() {
-                    // The second ndarray parameter is a U64 rank literal, not runtime data.
-                    let dtype = params
-                        .iter()
-                        .map(|(var_id, ty)| (*var_id, *ty))
-                        .min_by_key(|(var_id, _)| *var_id)
-                        .expect("ndarray must retain dtype and rank parameters")
-                        .1;
-                    catseq_forbidden_numeric_type(unifier, dtype, visited)
-                } else {
-                    params
-                        .values()
-                        .find_map(|ty| catseq_forbidden_numeric_type(unifier, *ty, visited))
-                };
-                param_error.or_else(|| {
-                    fields
-                        .values()
-                        .filter_map(|(ty, kind)| {
-                            matches!(kind, AttrKind::Field { .. }).then_some(*ty)
-                        })
-                        .find_map(|ty| catseq_forbidden_numeric_type(unifier, ty, visited))
-                })
-            }
+    fn fold_stmt(
+        &mut self,
+        node: ast::Stmt<Option<Type>>,
+    ) -> Result<ast::Stmt<Self::TargetU>, Self::Error> {
+        let statement = fold::fold_stmt(self, node)?;
+        if let ast::StmtKind::AugAssign { target, op, value, .. } = &statement.node {
+            validate_catseq_integer_binop(
+                self.source_profile,
+                self.unifier,
+                self.primitives,
+                statement.location,
+                target,
+                *op,
+                value,
+            )?;
         }
-        TypeEnum::TTuple { ty, .. } => {
-            ty.iter().find_map(|ty| catseq_forbidden_numeric_type(unifier, *ty, visited))
+        Ok(statement)
+    }
+
+    fn fold_expr(
+        &mut self,
+        node: ast::Expr<Option<Type>>,
+    ) -> Result<ast::Expr<Self::TargetU>, Self::Error> {
+        let expression = fold::fold_expr(self, node)?;
+        // Type annotations remain in the typed AST but are deliberately folded by `NaiveFolder`,
+        // so `None` identifies syntax rather than a runtime value to validate.
+        let Some(ty) = expression.custom else {
+            return Ok(expression);
+        };
+        if let ExprKind::BinOp { left, op, right } = &expression.node {
+            validate_catseq_integer_binop(
+                self.source_profile,
+                self.unifier,
+                self.primitives,
+                expression.location,
+                left,
+                *op,
+                right,
+            )?;
         }
-        TypeEnum::TVirtual { ty } => catseq_forbidden_numeric_type(unifier, *ty, visited),
-        TypeEnum::TFunc(signature) => signature
-            .args
-            .iter()
-            .map(|arg| arg.ty)
-            .chain(once(signature.ret))
-            .find_map(|ty| catseq_forbidden_numeric_type(unifier, ty, visited)),
-        TypeEnum::TVar { range, .. } => {
-            range.iter().find_map(|ty| catseq_forbidden_numeric_type(unifier, *ty, visited))
+        if let Some(message) = self.source_profile.forbidden_numeric_type(self.unifier, ty) {
+            return report_error(message, expression.location);
         }
-        TypeEnum::TLiteral { values, .. } => catseq_forbidden_literal(values),
-        TypeEnum::TRigidVar { .. } | TypeEnum::TCall(_) => None,
+        Ok(expression)
     }
 }
 
@@ -2131,7 +2168,7 @@ impl Inferencer<'_> {
     }
 
     fn validate_source_profile_value(
-        &self,
+        &mut self,
         expression: &ast::Expr<Option<Type>>,
     ) -> Result<(), InferenceError> {
         if self.builtin_registry.source_profile() != SourceProfile::CatSeqInt32 {
@@ -2139,9 +2176,29 @@ impl Inferencer<'_> {
         }
 
         let ty = expression.custom.expect("a folded expression must have an inferred type");
-        let message = catseq_forbidden_numeric_type(self.unifier, ty, &mut HashSet::new());
+        let message =
+            self.builtin_registry.source_profile().forbidden_numeric_type(self.unifier, ty);
 
         message.map_or(Ok(()), |message| report_error(message, expression.location))
+    }
+
+    pub(crate) fn validate_source_profile_block(
+        &mut self,
+        body: &[ast::Stmt<Option<Type>>],
+    ) -> Result<(), InferenceError> {
+        let source_profile = self.builtin_registry.source_profile();
+        if source_profile == SourceProfile::Default {
+            return Ok(());
+        }
+        let mut validator = SourceProfileValidator {
+            source_profile,
+            unifier: self.unifier,
+            primitives: self.primitives,
+        };
+        for statement in body.iter().cloned() {
+            validator.fold_stmt(statement)?;
+        }
+        Ok(())
     }
 
     #[allow(clippy::unnecessary_wraps)]
@@ -2409,29 +2466,17 @@ impl Inferencer<'_> {
         op: Binop,
         right: &ast::Expr<Option<Type>>,
     ) -> InferenceResult {
-        if self.builtin_registry.source_profile() == SourceProfile::CatSeqInt32
-            && op.base == ast::Operator::Div
-        {
-            return report_error("operator `/` is not supported by CatSeqInt32", location);
-        }
-        if self.builtin_registry.source_profile() == SourceProfile::CatSeqInt32
-            && constant_int32_value(right) == Some(0)
-        {
-            let operator = match op.base {
-                ast::Operator::FloorDiv => Some("//"),
-                ast::Operator::Mod => Some("%"),
-                _ => None,
-            };
-            if let Some(operator) = operator {
-                return report_error(
-                    &format!("divisor for `{operator}` must not be zero"),
-                    right.location,
-                );
-            }
-        }
-
         let left_ty = left.custom.unwrap();
         let right_ty = right.custom.unwrap();
+        validate_catseq_integer_binop(
+            self.builtin_registry.source_profile(),
+            self.unifier,
+            self.primitives,
+            location,
+            left,
+            op.base,
+            right,
+        )?;
 
         let method = if let TypeEnum::TObj { fields, .. } =
             self.unifier.get_ty_immutable(left_ty).as_ref()
