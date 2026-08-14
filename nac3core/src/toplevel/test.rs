@@ -357,6 +357,19 @@ fn catseq_source_profile_rejects_forbidden_numeric_types_nested_in_values() {
     );
 }
 
+#[test]
+fn catseq_source_profile_accepts_int32_ndarray_rank_literals() {
+    analyze_catseq_function(indoc! {"
+        def compute(value: int) -> int:
+            array = np_array([1, 2])
+            filled = np_full((2,), 1)
+            return value
+    "})
+    .unwrap_or_else(|error| {
+        panic!("type-level ndarray rank literals must not be rejected as uint64 values: {error}")
+    });
+}
+
 #[test_case("int64"; "int64")]
 #[test_case("uint32"; "uint32")]
 #[test_case("uint64"; "uint64")]

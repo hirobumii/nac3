@@ -216,17 +216,28 @@ fn catseq_forbidden_numeric_type(
             } else if *obj_id == PrimDef::UInt64.id() {
                 Some("uint64 values are not supported by CatSeqInt32")
             } else {
-                params
-                    .values()
-                    .find_map(|ty| catseq_forbidden_numeric_type(unifier, *ty, visited))
-                    .or_else(|| {
-                        fields
-                            .values()
-                            .filter_map(|(ty, kind)| {
-                                matches!(kind, AttrKind::Field { .. }).then_some(*ty)
-                            })
-                            .find_map(|ty| catseq_forbidden_numeric_type(unifier, ty, visited))
-                    })
+                let param_error = if *obj_id == PrimDef::NDArray.id() {
+                    // The second ndarray parameter is a U64 rank literal, not runtime data.
+                    let dtype = params
+                        .iter()
+                        .map(|(var_id, ty)| (*var_id, *ty))
+                        .min_by_key(|(var_id, _)| *var_id)
+                        .expect("ndarray must retain dtype and rank parameters")
+                        .1;
+                    catseq_forbidden_numeric_type(unifier, dtype, visited)
+                } else {
+                    params
+                        .values()
+                        .find_map(|ty| catseq_forbidden_numeric_type(unifier, *ty, visited))
+                };
+                param_error.or_else(|| {
+                    fields
+                        .values()
+                        .filter_map(|(ty, kind)| {
+                            matches!(kind, AttrKind::Field { .. }).then_some(*ty)
+                        })
+                        .find_map(|ty| catseq_forbidden_numeric_type(unifier, ty, visited))
+                })
             }
         }
         TypeEnum::TTuple { ty, .. } => {
