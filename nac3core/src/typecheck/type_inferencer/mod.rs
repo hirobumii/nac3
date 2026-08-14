@@ -1,7 +1,7 @@
 use std::{
     cmp::max,
     collections::{HashMap, HashSet},
-    convert::From,
+    convert::{From, TryInto},
     iter::{once, repeat_n},
     sync::Arc,
 };
@@ -18,7 +18,7 @@ use crate::{
     symbol_resolver::{SymbolResolver, SymbolValue},
     toplevel::{
         FunAttribute, TopLevelDef,
-        composer::{BuiltinRegistry, promote_expr_type},
+        composer::{BuiltinRegistry, SourceProfile, promote_expr_type},
         helper::{PrimDef, arraylike_flatten_element_type, arraylike_get_ndims, extract_ndims},
         numpy::{make_ndarray_ty, unpack_ndarray_var_tys},
         type_annotation::TypeAnnotation,
@@ -128,7 +128,7 @@ fn report_error<T>(msg: &str, location: Location) -> Result<T, InferenceError> {
     Err(vec![anyhow!("{msg} (at {location})")])
 }
 
-fn signed_integer_literal(expression: &ast::Expr<()>) -> Option<i128> {
+fn signed_integer_literal<T>(expression: &ast::Expr<T>) -> Option<i128> {
     match &expression.node {
         ExprKind::Constant { value: ast::Constant::Int(value), .. } => Some(*value),
         ExprKind::UnaryOp { op, operand } => match op {
@@ -606,7 +606,9 @@ impl Fold<()> for Inferencer<'_> {
             }
             _ => return report_error("not supported", expr.location),
         };
-        Ok(ast::Expr { custom, location: expr.location, node: expr.node })
+        let expr = ast::Expr { custom, location: expr.location, node: expr.node };
+        self.validate_source_profile_value(&expr)?;
+        Ok(expr)
     }
 }
 
@@ -1114,33 +1116,6 @@ impl Inferencer<'_> {
         let Some(builtin) = self.builtin_registry.match_builtin(func) else {
             return Ok(None);
         };
-        if builtin == PrimDef::Range
-            && self.builtin_registry.default_integer_primitive() == PrimDef::Int64
-        {
-            for argument in args.iter_mut() {
-                let Some(value) = signed_integer_literal(argument) else {
-                    continue;
-                };
-                if i32::try_from(value).is_err() {
-                    return report_error("Integer out of bound", argument.location);
-                }
-                let location = argument.location;
-                let literal = argument.clone();
-                *argument = Located {
-                    location,
-                    custom: (),
-                    node: ExprKind::Call {
-                        func: Box::new(Located {
-                            location,
-                            custom: (),
-                            node: ExprKind::Name { id: "int32".into(), ctx: ExprContext::Load },
-                        }),
-                        args: vec![literal],
-                        keywords: Vec::new(),
-                    },
-                };
-            }
-        }
         let id = match &func.node {
             ExprKind::Name { id, .. } => *id,
             ExprKind::Attribute { attr, .. } => *attr,
@@ -1977,6 +1952,18 @@ impl Inferencer<'_> {
         &mut self,
         location: Location,
         func: ast::Expr<()>,
+        args: Vec<ast::Expr<()>>,
+        keywords: Vec<Located<ast::KeywordData>>,
+    ) -> Result<ast::Expr<Option<Type>>, InferenceError> {
+        let expression = self.fold_call_unvalidated(location, func, args, keywords)?;
+        self.validate_source_profile_value(&expression)?;
+        Ok(expression)
+    }
+
+    fn fold_call_unvalidated(
+        &mut self,
+        location: Location,
+        func: ast::Expr<()>,
         mut args: Vec<ast::Expr<()>>,
         keywords: Vec<Located<ast::KeywordData>>,
     ) -> Result<ast::Expr<Option<Type>>, InferenceError> {
@@ -2025,6 +2012,31 @@ impl Inferencer<'_> {
         Ok(Located { location, custom: Some(ret), node: ExprKind::Call { func, args, keywords } })
     }
 
+    fn validate_source_profile_value(
+        &self,
+        expression: &ast::Expr<Option<Type>>,
+    ) -> Result<(), InferenceError> {
+        if self.builtin_registry.source_profile() != SourceProfile::CatSeqInt32 {
+            return Ok(());
+        }
+
+        let ty = expression.custom.expect("a folded expression must have an inferred type");
+        let Some(obj_id) = ty.obj_id(self.unifier) else { return Ok(()) };
+        let message = if obj_id == PrimDef::Float.id() {
+            Some("floating-point values are not supported by CatSeqInt32")
+        } else if obj_id == PrimDef::Int64.id() {
+            Some("int64 values are not supported by CatSeqInt32")
+        } else if obj_id == PrimDef::UInt32.id() {
+            Some("uint32 values are not supported by CatSeqInt32")
+        } else if obj_id == PrimDef::UInt64.id() {
+            Some("uint64 values are not supported by CatSeqInt32")
+        } else {
+            None
+        };
+
+        message.map_or(Ok(()), |message| report_error(message, expression.location))
+    }
+
     #[allow(clippy::unnecessary_wraps)]
     fn infer_identifier(&mut self, id: StrRef) -> InferenceResult {
         Ok(if let Some(ty) = self.variable_mapping.get(&id) {
@@ -2046,14 +2058,20 @@ impl Inferencer<'_> {
     fn infer_constant(&mut self, constant: &ast::Constant, loc: &Location) -> InferenceResult {
         match constant {
             ast::Constant::Bool(_) => Ok(self.primitives.bool),
-            ast::Constant::Int(val) => match self.builtin_registry.default_integer_primitive() {
-                PrimDef::Int32 if i32::try_from(*val).is_ok() => Ok(self.primitives.int32),
-                PrimDef::Int64 if i64::try_from(*val).is_ok() => Ok(self.primitives.int64),
-                PrimDef::Int32 | PrimDef::Int64 => report_error("Integer out of bound", *loc),
-                _ => unreachable!(
-                    "BuiltinRegistry::default_integer_primitive must return Int32 or Int64"
-                ),
-            },
+            ast::Constant::Int(val) => {
+                let int32: Result<i32, _> = (*val).try_into();
+                // int64 and unsigned integers are handled separately in functions
+                if int32.is_ok() {
+                    Ok(self.primitives.int32)
+                } else {
+                    report_error("Integer out of bound", *loc)
+                }
+            }
+            ast::Constant::Float(_)
+                if self.builtin_registry.source_profile() == SourceProfile::CatSeqInt32 =>
+            {
+                report_error("floating-point literals are not supported by CatSeqInt32", *loc)
+            }
             ast::Constant::Float(_) => Ok(self.primitives.float),
             ast::Constant::Tuple(vals) => {
                 let ty: Result<Vec<_>, _> =
@@ -2284,6 +2302,27 @@ impl Inferencer<'_> {
         op: Binop,
         right: &ast::Expr<Option<Type>>,
     ) -> InferenceResult {
+        if self.builtin_registry.source_profile() == SourceProfile::CatSeqInt32
+            && op.base == ast::Operator::Div
+        {
+            return report_error("operator `/` is not supported by CatSeqInt32", location);
+        }
+        if self.builtin_registry.source_profile() == SourceProfile::CatSeqInt32
+            && signed_integer_literal(right) == Some(0)
+        {
+            let operator = match op.base {
+                ast::Operator::FloorDiv => Some("//"),
+                ast::Operator::Mod => Some("%"),
+                _ => None,
+            };
+            if let Some(operator) = operator {
+                return report_error(
+                    &format!("divisor for `{operator}` must not be zero"),
+                    right.location,
+                );
+            }
+        }
+
         let left_ty = left.custom.unwrap();
         let right_ty = right.custom.unwrap();
 

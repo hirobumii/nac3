@@ -5,7 +5,7 @@ use indoc::indoc;
 use itertools::Itertools as _;
 use nac3parser::{
     ast::{self, FileName, StrRef, fold::Fold},
-    parser::parse_program,
+    parser::{parse_expression, parse_program},
 };
 use parking_lot::{Mutex, RwLock};
 use test_case::test_case;
@@ -15,7 +15,10 @@ use crate::{
     symbol_resolver::{SymbolResolver, ValueEnum},
     toplevel::{
         DefinitionId, TopLevelDef,
-        composer::{DefaultBuiltinRegistry, Int64BuiltinRegistry, TopLevelComposer},
+        composer::{
+            BuiltinRegistry, CatSeqBuiltinRegistry, DefaultBuiltinRegistry, SourceProfile,
+            TopLevelComposer,
+        },
         helper::PrimDef,
     },
     typecheck::{
@@ -212,31 +215,134 @@ fn test_simple_function_analyze(source: &[&str], tys: &[&str], names: &[&str]) {
     }
 }
 
-#[test]
-fn int64_source_profile_types_int_annotations_literals_and_range_literals() {
+fn analyze_catseq_function(source: &str) -> Result<(TopLevelComposer, DefinitionId), String> {
     let mut composer =
-        TopLevelComposer::new(Vec::new(), Vec::new(), Arc::new(Int64BuiltinRegistry), 64).0;
+        TopLevelComposer::new(Vec::new(), Vec::new(), Arc::new(CatSeqBuiltinRegistry), 64).0;
     let internal_resolver =
         Arc::new(ResolverInternal { id_to_def: Mutex::default(), id_to_type: Mutex::default() });
     let resolver =
         Arc::new(Resolver(internal_resolver.clone())) as Arc<dyn SymbolResolver + Send + Sync>;
-    let ast = parse_program(
-        indoc! {"
-            def compute(value: int) -> int:
-                result = value + 1
-                for _ in range(4):
-                    result = result + 2
-                return result
-        "},
-        FileName::default(),
-    )
-    .unwrap();
+    let ast = parse_program(source, FileName::default()).unwrap();
     let (name, definition_id, ty) =
-        composer.register_top_level(ast[0].clone(), Some(resolver), "", true).unwrap();
+        composer.register_top_level(ast[0].clone(), Some(resolver), "", true)?;
     internal_resolver.add_id_def(name, definition_id);
     internal_resolver.add_id_type(name, ty.unwrap());
+    composer
+        .start_analysis(true)
+        .map_err(|errors| errors.into_iter().map(|error| error.to_string()).join("\n"))?;
+    Ok((composer, definition_id))
+}
 
-    composer.start_analysis(true).unwrap();
+#[test]
+fn catseq_source_profile_has_explicit_identity_without_changing_the_default() {
+    assert_eq!(DefaultBuiltinRegistry.source_profile(), SourceProfile::Default);
+    assert_eq!(CatSeqBuiltinRegistry.source_profile(), SourceProfile::CatSeqInt32);
+
+    let int = parse_expression("int").unwrap();
+    let int32 = parse_expression("int32").unwrap();
+    let int64 = parse_expression("int64").unwrap();
+    assert_eq!(DefaultBuiltinRegistry.match_builtin(&int), None);
+    assert_eq!(CatSeqBuiltinRegistry.match_builtin(&int), Some(PrimDef::Int32));
+    assert_eq!(CatSeqBuiltinRegistry.match_builtin(&int32), Some(PrimDef::Int32));
+    assert_eq!(CatSeqBuiltinRegistry.match_builtin(&int64), None);
+}
+
+#[test]
+fn catseq_source_profile_rejects_float_literals() {
+    let result = analyze_catseq_function(indoc! {"
+        def compute(value: int) -> int:
+            temporary = 1.0
+            return value
+    "});
+    let Err(error) = result else {
+        panic!("floating-point literals must not type-check in the CatSeq source profile")
+    };
+
+    assert!(error.contains("floating-point literals are not supported by CatSeqInt32"), "{error}");
+    assert!(error.contains("at unknown:2:17"), "{error}");
+}
+
+#[test]
+fn catseq_source_profile_rejects_true_division() {
+    let result = analyze_catseq_function(indoc! {"
+        def compute(value: int) -> int:
+            temporary = value / 2
+            return value
+    "});
+    let Err(error) = result else {
+        panic!("true division must not type-check in the CatSeq source profile")
+    };
+
+    assert!(error.contains("operator `/` is not supported by CatSeqInt32"), "{error}");
+    assert!(error.contains("at unknown:2:23"), "{error}");
+}
+
+#[test]
+fn catseq_source_profile_rejects_float_results_from_builtins() {
+    let result = analyze_catseq_function(indoc! {"
+        def compute(value: int) -> int:
+            temporary = np_arctan2(value, value)
+            return value
+    "});
+    let Err(error) = result else {
+        panic!("floating-point builtin results must not type-check in the CatSeq source profile")
+    };
+
+    assert!(error.contains("floating-point values are not supported by CatSeqInt32"), "{error}");
+    assert!(error.contains("at unknown:2:"), "{error}");
+}
+
+#[test_case("int64"; "int64")]
+#[test_case("uint32"; "uint32")]
+#[test_case("uint64"; "uint64")]
+#[test_case("float"; "float")]
+fn catseq_source_profile_rejects_non_int32_numeric_annotations(annotation: &str) {
+    let source = format!("def compute(value: {annotation}) -> int:\n    return 0\n");
+    let result = analyze_catseq_function(&source);
+    let Err(error) = result else {
+        panic!("`{annotation}` must not be accepted by the CatSeq source profile")
+    };
+
+    assert!(error.contains(&format!("`{annotation}` is not a valid type annotation")), "{error}");
+    assert!(error.contains("at unknown:1:"), "{error}");
+}
+
+#[test_case(
+    indoc! {"
+        def compute(value: int) -> int:
+            return value // 0
+    "},
+    "//";
+    "floor_division"
+)]
+#[test_case(
+    indoc! {"
+        def compute(value: int) -> int:
+            return value % 0
+    "},
+    "%";
+    "modulo"
+)]
+fn catseq_source_profile_rejects_a_literal_zero_divisor(source: &str, operator: &str) {
+    let result = analyze_catseq_function(source);
+    let Err(error) = result else {
+        panic!("a literal zero divisor for `{operator}` must be rejected")
+    };
+
+    assert!(error.contains(&format!("divisor for `{operator}` must not be zero")), "{error}");
+    assert!(error.contains("at unknown:2:"), "{error}");
+}
+
+#[test]
+fn catseq_source_profile_normalizes_int_spellings_literals_and_range_to_int32() {
+    let (mut composer, definition_id) = analyze_catseq_function(indoc! {"
+        def compute(value: int, explicit: int32) -> int:
+            result = value + explicit + 1
+            for offset in range(4):
+                result = result + offset
+            return result
+    "})
+    .unwrap_or_else(|error| panic!("the CatSeq Int32 profile must type-check: {error}"));
 
     let signature = {
         let definition = composer.definition_ast_list[definition_id.0].0.read();
@@ -250,36 +356,90 @@ fn int64_source_profile_types_int_annotations_literals_and_range_literals() {
     let TypeEnum::TFunc(signature) = composer.unifier.get_ty(signature).as_ref().clone() else {
         panic!("registered function must retain its function signature")
     };
-    assert_eq!(signature.args.len(), 1);
-    assert!(composer.unifier.unioned(signature.args[0].ty, composer.primitives_ty.int64));
-    assert!(composer.unifier.unioned(signature.ret, composer.primitives_ty.int64));
+    assert_eq!(signature.args.len(), 2);
+    assert!(composer.unifier.unioned(signature.args[0].ty, composer.primitives_ty.int32));
+    assert!(composer.unifier.unioned(signature.args[1].ty, composer.primitives_ty.int32));
+    assert!(composer.unifier.unioned(signature.ret, composer.primitives_ty.int32));
 }
 
 #[test]
-fn int64_source_profile_rejects_out_of_range_literals() {
-    let mut composer =
-        TopLevelComposer::new(Vec::new(), Vec::new(), Arc::new(Int64BuiltinRegistry), 64).0;
-    let internal_resolver =
-        Arc::new(ResolverInternal { id_to_def: Mutex::default(), id_to_type: Mutex::default() });
-    let resolver =
-        Arc::new(Resolver(internal_resolver.clone())) as Arc<dyn SymbolResolver + Send + Sync>;
-    let ast = parse_program(
-        indoc! {"
-            def compute() -> int:
-                return 9223372036854775808
-        "},
-        FileName::default(),
-    )
-    .unwrap();
-    let (name, definition_id, ty) =
-        composer.register_top_level(ast[0].clone(), Some(resolver), "", true).unwrap();
-    internal_resolver.add_id_def(name, definition_id);
-    internal_resolver.add_id_type(name, ty.unwrap());
+fn catseq_source_profile_accepts_the_int32_minimum_literal() {
+    analyze_catseq_function(indoc! {"
+        def compute() -> int:
+            return -2147483648
+    "})
+    .unwrap_or_else(|error| panic!("the Int32 minimum literal must type-check: {error}"));
+}
 
-    let errors = composer
-        .start_analysis(true)
-        .expect_err("an integer outside i64 must not type-check in the Int64 source profile");
-    assert!(errors.iter().any(|error| error.to_string().contains("Integer out of bound")));
+#[test]
+fn catseq_source_profile_retains_target_independent_integer_operations() {
+    let (composer, definition_id) = analyze_catseq_function(indoc! {"
+        def compute(value: int, divisor: int, shift: int) -> int:
+            sum = value + 1
+            difference = value - 1
+            product = value * 2
+            floor = value // divisor
+            remainder = value % divisor
+            negative_floor = -7 // 3
+            negative_remainder = 7 % -3
+            overflow = -2147483648 // -1
+            exact = -2147483648 % -1
+            dynamic_left = value << shift
+            wide_left = value << 32
+            negative_right = value >> -1
+            return sum + difference + product + floor + remainder + negative_floor + negative_remainder + overflow + exact + dynamic_left + wide_left + negative_right
+    "})
+    .unwrap_or_else(|error| panic!("CatSeq integer operations must type-check: {error}"));
+
+    let body = {
+        let definition = composer.definition_ast_list[definition_id.0].0.read();
+        let TopLevelDef::Function { instance_to_stmt, .. } = &*definition else {
+            panic!("registered source must remain a function")
+        };
+        let instance = instance_to_stmt.values().exactly_one().unwrap();
+        let body = Arc::clone(&instance.body);
+        drop(definition);
+        body
+    };
+    let operators = body
+        .iter()
+        .filter_map(|statement| {
+            let ast::StmtKind::Assign { value, .. } = &statement.node else { return None };
+            let ast::ExprKind::BinOp { op, .. } = &value.node else { return None };
+            Some(*op)
+        })
+        .collect_vec();
+
+    assert_eq!(
+        operators,
+        [
+            ast::Operator::Add,
+            ast::Operator::Sub,
+            ast::Operator::Mult,
+            ast::Operator::FloorDiv,
+            ast::Operator::Mod,
+            ast::Operator::FloorDiv,
+            ast::Operator::Mod,
+            ast::Operator::FloorDiv,
+            ast::Operator::Mod,
+            ast::Operator::LShift,
+            ast::Operator::LShift,
+            ast::Operator::RShift,
+        ]
+    );
+}
+
+#[test_case("2147483648"; "above_maximum")]
+#[test_case("-2147483649"; "below_minimum")]
+fn catseq_source_profile_rejects_out_of_range_literals(literal: &str) {
+    let source = format!("def compute() -> int:\n    return {literal}\n");
+    let result = analyze_catseq_function(&source);
+    let Err(error) = result else {
+        panic!("an integer outside i32 must not type-check in the CatSeq source profile")
+    };
+
+    assert!(error.contains("Integer out of bound"), "{error}");
+    assert!(error.contains("at unknown:2:"), "{error}");
 }
 
 #[test_case(

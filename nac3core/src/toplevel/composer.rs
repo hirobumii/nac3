@@ -25,6 +25,20 @@ use crate::{
     },
 };
 
+/// Target-independent source-language semantics selected for a compilation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SourceProfile {
+    /// Existing NAC3 behavior.
+    Default,
+    /// `CatSeq` Compute's signed Int32-only profile.
+    ///
+    /// `int` and `int32` are the same normalized type. Integer addition, subtraction, and
+    /// multiplication wrap modulo 2^32. `//` and `%` retain Python floor-division semantics;
+    /// shifts retain NAC3's fixed-width saturation semantics. Target instruction selection is not
+    /// part of this profile.
+    CatSeqInt32,
+}
+
 /// Default implementation of [`BuiltinRegistry`] using string-based matching.
 ///
 /// This zero-sized struct provides the standard builtin matching behavior
@@ -36,25 +50,46 @@ pub struct DefaultBuiltinRegistry;
 
 impl BuiltinRegistry for DefaultBuiltinRegistry {}
 
-/// Name-based builtin registry with [`PrimDef::Int64`] as the Python-style integer type.
+/// Name-based builtin registry for `CatSeq` Compute source.
 ///
-/// Structural APIs that explicitly require `int32`, such as `range`, retain their existing
-/// contracts.
+/// Python-style `int` and explicit `int32` both resolve to signed 32-bit integers. Wider and
+/// unsigned integer spellings, along with floating-point types, are not part of this profile.
 #[derive(Debug, Clone, Copy, Default)]
-pub struct Int64BuiltinRegistry;
+pub struct CatSeqBuiltinRegistry;
 
-impl BuiltinRegistry for Int64BuiltinRegistry {
-    fn default_integer_primitive(&self) -> PrimDef {
-        PrimDef::Int64
+impl BuiltinRegistry for CatSeqBuiltinRegistry {
+    fn source_profile(&self) -> SourceProfile {
+        SourceProfile::CatSeqInt32
+    }
+
+    fn match_builtin(&self, expr: &Located<ExprKind>) -> Option<PrimDef> {
+        match builtin_name(expr)?.as_str() {
+            "int" | "int32" => Some(PrimDef::Int32),
+            "int64" | "uint32" | "uint64" | "float" => None,
+            _ => DefaultBuiltinRegistry.match_builtin(expr),
+        }
+    }
+}
+
+fn builtin_name(expr: &Located<ExprKind>) -> Option<String> {
+    match &expr.node {
+        ExprKind::Name { id, .. } => Some(id.to_string()),
+        ExprKind::Subscript { value, .. } => {
+            if let ExprKind::Name { id, .. } = &value.node {
+                Some(id.to_string())
+            } else {
+                None
+            }
+        }
+        _ => None,
     }
 }
 
 /// Trait for matching AST expressions against builtin identifiers.
 pub trait BuiltinRegistry: Send + Sync {
-    /// Primitive used by the Python-style `int` annotation and ordinary integer literals.
-    /// Implementations must return either [`PrimDef::Int32`] or [`PrimDef::Int64`].
-    fn default_integer_primitive(&self) -> PrimDef {
-        PrimDef::Int32
+    /// Source-language semantic profile associated with this registry.
+    fn source_profile(&self) -> SourceProfile {
+        SourceProfile::Default
     }
 
     /// Match an AST expression against known builtin identifiers.
@@ -65,23 +100,10 @@ pub trait BuiltinRegistry: Send + Sync {
     /// # Arguments
     /// * `expr` - The AST expression to match
     fn match_builtin(&self, expr: &Located<ExprKind>) -> Option<PrimDef> {
-        let get_name = |e: &ExprKind| match e {
-            ExprKind::Name { id, .. } => Some(id.to_string()),
-            ExprKind::Subscript { value, .. } => {
-                if let ExprKind::Name { id, .. } = &value.node {
-                    Some(id.to_string())
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        };
-
-        let name = get_name(&expr.node)?;
+        let name = builtin_name(expr)?;
 
         Some(match name.as_str() {
             // Core primitives
-            "int" => self.default_integer_primitive(),
             "float" => PrimDef::Float,
             "bool" => PrimDef::Bool,
             "str" => PrimDef::Str,
