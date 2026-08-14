@@ -128,15 +128,112 @@ fn report_error<T>(msg: &str, location: Location) -> Result<T, InferenceError> {
     Err(vec![anyhow!("{msg} (at {location})")])
 }
 
-fn signed_integer_literal<T>(expression: &ast::Expr<T>) -> Option<i128> {
+fn floor_divmod_i32(dividend: i32, divisor: i32) -> Option<(i32, i32)> {
+    if divisor == 0 {
+        return None;
+    }
+
+    let dividend = i64::from(dividend);
+    let divisor = i64::from(divisor);
+    let quotient = dividend / divisor;
+    let remainder = dividend % divisor;
+    let quotient = if remainder != 0 && remainder.is_negative() != divisor.is_negative() {
+        quotient - 1
+    } else {
+        quotient
+    };
+    Some((quotient as i32, (dividend - quotient * divisor) as i32))
+}
+
+fn constant_int32_value<T>(expression: &ast::Expr<T>) -> Option<i32> {
     match &expression.node {
-        ExprKind::Constant { value: ast::Constant::Int(value), .. } => Some(*value),
+        ExprKind::Constant { value: ast::Constant::Int(value), .. } => i32::try_from(*value).ok(),
         ExprKind::UnaryOp { op, operand } => match op {
-            ast::Unaryop::UAdd => signed_integer_literal(operand),
-            ast::Unaryop::USub => signed_integer_literal(operand)?.checked_neg(),
-            _ => None,
+            ast::Unaryop::UAdd => constant_int32_value(operand),
+            ast::Unaryop::USub => Some(constant_int32_value(operand)?.wrapping_neg()),
+            ast::Unaryop::Invert => Some(!constant_int32_value(operand)?),
+            ast::Unaryop::Not => None,
         },
+        ExprKind::BinOp { left, op, right } => {
+            let left = constant_int32_value(left)?;
+            let right = constant_int32_value(right)?;
+            match op {
+                ast::Operator::Add => Some(left.wrapping_add(right)),
+                ast::Operator::Sub => Some(left.wrapping_sub(right)),
+                ast::Operator::Mult => Some(left.wrapping_mul(right)),
+                ast::Operator::FloorDiv => Some(floor_divmod_i32(left, right)?.0),
+                ast::Operator::Mod => Some(floor_divmod_i32(left, right)?.1),
+                ast::Operator::LShift => {
+                    let shift = right as u32;
+                    Some(if shift < i32::BITS { left.wrapping_shl(shift) } else { 0 })
+                }
+                ast::Operator::RShift => {
+                    let shift = right as u32;
+                    Some(if shift < i32::BITS { left >> shift } else { left >> 31 })
+                }
+                ast::Operator::BitOr => Some(left | right),
+                ast::Operator::BitXor => Some(left ^ right),
+                ast::Operator::BitAnd => Some(left & right),
+                _ => None,
+            }
+        }
         _ => None,
+    }
+}
+
+fn catseq_forbidden_literal(values: &[SymbolValue]) -> Option<&'static str> {
+    values.iter().find_map(|value| match value {
+        SymbolValue::I64(_) => Some("int64 values are not supported by CatSeqInt32"),
+        SymbolValue::U32(_) => Some("uint32 values are not supported by CatSeqInt32"),
+        SymbolValue::U64(_) => Some("uint64 values are not supported by CatSeqInt32"),
+        SymbolValue::Double(_) => Some("floating-point values are not supported by CatSeqInt32"),
+        SymbolValue::Tuple(values) => catseq_forbidden_literal(values),
+        SymbolValue::OptionSome(value) => catseq_forbidden_literal(std::slice::from_ref(value)),
+        SymbolValue::I32(_)
+        | SymbolValue::Str(_)
+        | SymbolValue::Bool(_)
+        | SymbolValue::OptionNone => None,
+    })
+}
+
+fn catseq_forbidden_numeric_type(
+    unifier: &Unifier,
+    ty: Type,
+    visited: &mut HashSet<Type>,
+) -> Option<&'static str> {
+    if !visited.insert(ty) {
+        return None;
+    }
+
+    match &*unifier.get_ty_immutable(ty) {
+        TypeEnum::TObj { obj_id, params, .. } => {
+            if *obj_id == PrimDef::Float.id() {
+                Some("floating-point values are not supported by CatSeqInt32")
+            } else if *obj_id == PrimDef::Int64.id() {
+                Some("int64 values are not supported by CatSeqInt32")
+            } else if *obj_id == PrimDef::UInt32.id() {
+                Some("uint32 values are not supported by CatSeqInt32")
+            } else if *obj_id == PrimDef::UInt64.id() {
+                Some("uint64 values are not supported by CatSeqInt32")
+            } else {
+                params.values().find_map(|ty| catseq_forbidden_numeric_type(unifier, *ty, visited))
+            }
+        }
+        TypeEnum::TTuple { ty, .. } => {
+            ty.iter().find_map(|ty| catseq_forbidden_numeric_type(unifier, *ty, visited))
+        }
+        TypeEnum::TVirtual { ty } => catseq_forbidden_numeric_type(unifier, *ty, visited),
+        TypeEnum::TFunc(signature) => signature
+            .args
+            .iter()
+            .map(|arg| arg.ty)
+            .chain(once(signature.ret))
+            .find_map(|ty| catseq_forbidden_numeric_type(unifier, ty, visited)),
+        TypeEnum::TVar { range, .. } => {
+            range.iter().find_map(|ty| catseq_forbidden_numeric_type(unifier, *ty, visited))
+        }
+        TypeEnum::TLiteral { values, .. } => catseq_forbidden_literal(values),
+        TypeEnum::TRigidVar { .. } | TypeEnum::TCall(_) => None,
     }
 }
 
@@ -2021,18 +2118,7 @@ impl Inferencer<'_> {
         }
 
         let ty = expression.custom.expect("a folded expression must have an inferred type");
-        let Some(obj_id) = ty.obj_id(self.unifier) else { return Ok(()) };
-        let message = if obj_id == PrimDef::Float.id() {
-            Some("floating-point values are not supported by CatSeqInt32")
-        } else if obj_id == PrimDef::Int64.id() {
-            Some("int64 values are not supported by CatSeqInt32")
-        } else if obj_id == PrimDef::UInt32.id() {
-            Some("uint32 values are not supported by CatSeqInt32")
-        } else if obj_id == PrimDef::UInt64.id() {
-            Some("uint64 values are not supported by CatSeqInt32")
-        } else {
-            None
-        };
+        let message = catseq_forbidden_numeric_type(self.unifier, ty, &mut HashSet::new());
 
         message.map_or(Ok(()), |message| report_error(message, expression.location))
     }
@@ -2308,7 +2394,7 @@ impl Inferencer<'_> {
             return report_error("operator `/` is not supported by CatSeqInt32", location);
         }
         if self.builtin_registry.source_profile() == SourceProfile::CatSeqInt32
-            && signed_integer_literal(right) == Some(0)
+            && constant_int32_value(right) == Some(0)
         {
             let operator = match op.base {
                 ast::Operator::FloorDiv => Some("//"),

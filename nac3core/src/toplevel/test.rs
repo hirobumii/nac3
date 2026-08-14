@@ -23,7 +23,7 @@ use crate::{
     },
     typecheck::{
         type_inferencer::PrimitiveStore,
-        typedef::{Type, TypeEnum, Unifier},
+        typedef::{FunSignature, Type, TypeEnum, Unifier, VarMap},
     },
 };
 
@@ -237,6 +237,8 @@ fn analyze_catseq_function(source: &str) -> Result<(TopLevelComposer, Definition
 fn catseq_source_profile_has_explicit_identity_without_changing_the_default() {
     assert_eq!(DefaultBuiltinRegistry.source_profile(), SourceProfile::Default);
     assert_eq!(CatSeqBuiltinRegistry.source_profile(), SourceProfile::CatSeqInt32);
+    assert_eq!(SourceProfile::Default.abi_tag(), None);
+    assert_eq!(SourceProfile::CatSeqInt32.abi_tag(), Some("catseq-int32-v1"));
 
     let int = parse_expression("int").unwrap();
     let int32 = parse_expression("int32").unwrap();
@@ -292,6 +294,48 @@ fn catseq_source_profile_rejects_float_results_from_builtins() {
     assert!(error.contains("at unknown:2:"), "{error}");
 }
 
+#[test]
+fn catseq_source_profile_rejects_forbidden_numeric_types_nested_in_values() {
+    let mut composer =
+        TopLevelComposer::new(Vec::new(), Vec::new(), Arc::new(CatSeqBuiltinRegistry), 64).0;
+    let internal_resolver =
+        Arc::new(ResolverInternal { id_to_def: Mutex::default(), id_to_type: Mutex::default() });
+    let external_result = composer.unifier.add_ty(TypeEnum::TTuple {
+        ty: vec![composer.primitives_ty.int32, composer.primitives_ty.float],
+        is_vararg_ctx: false,
+    });
+    let external_function = composer.unifier.add_ty(TypeEnum::TFunc(FunSignature {
+        args: Vec::new(),
+        ret: external_result,
+        vars: VarMap::new(),
+    }));
+    internal_resolver.add_id_type("read_pair".into(), external_function);
+    let resolver =
+        Arc::new(Resolver(internal_resolver.clone())) as Arc<dyn SymbolResolver + Send + Sync>;
+    let ast = parse_program(
+        indoc! {"
+            def compute(value: int) -> int:
+                temporary = read_pair()
+                return value
+        "},
+        FileName::default(),
+    )
+    .unwrap();
+    let (name, definition_id, ty) =
+        composer.register_top_level(ast[0].clone(), Some(resolver), "", true).unwrap();
+    internal_resolver.add_id_def(name, definition_id);
+    internal_resolver.add_id_type(name, ty.unwrap());
+
+    let errors = composer
+        .start_analysis(true)
+        .expect_err("a tuple containing float must not type-check in the CatSeq source profile");
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.to_string().contains("floating-point values are not supported"))
+    );
+}
+
 #[test_case("int64"; "int64")]
 #[test_case("uint32"; "uint32")]
 #[test_case("uint64"; "uint64")]
@@ -323,10 +367,26 @@ fn catseq_source_profile_rejects_non_int32_numeric_annotations(annotation: &str)
     "%";
     "modulo"
 )]
-fn catseq_source_profile_rejects_a_literal_zero_divisor(source: &str, operator: &str) {
+#[test_case(
+    indoc! {"
+        def compute(value: int) -> int:
+            return value // (1 - 1)
+    "},
+    "//";
+    "constant_arithmetic"
+)]
+#[test_case(
+    indoc! {"
+        def compute(value: int) -> int:
+            return value % (1 << 32)
+    "},
+    "%";
+    "constant_saturating_shift"
+)]
+fn catseq_source_profile_rejects_a_proven_zero_divisor(source: &str, operator: &str) {
     let result = analyze_catseq_function(source);
     let Err(error) = result else {
-        panic!("a literal zero divisor for `{operator}` must be rejected")
+        panic!("a compile-time proven zero divisor for `{operator}` must be rejected")
     };
 
     assert!(error.contains(&format!("divisor for `{operator}` must not be zero")), "{error}");
@@ -373,7 +433,7 @@ fn catseq_source_profile_accepts_the_int32_minimum_literal() {
 
 #[test]
 fn catseq_source_profile_retains_target_independent_integer_operations() {
-    let (composer, definition_id) = analyze_catseq_function(indoc! {"
+    let (mut composer, definition_id) = analyze_catseq_function(indoc! {"
         def compute(value: int, divisor: int, shift: int) -> int:
             sum = value + 1
             difference = value - 1
@@ -385,9 +445,12 @@ fn catseq_source_profile_retains_target_independent_integer_operations() {
             overflow = -2147483648 // -1
             exact = -2147483648 % -1
             dynamic_left = value << shift
+            dynamic_right = value >> shift
             wide_left = value << 32
+            wide_right = value >> 32
+            negative_left = value << -1
             negative_right = value >> -1
-            return sum + difference + product + floor + remainder + negative_floor + negative_remainder + overflow + exact + dynamic_left + wide_left + negative_right
+            return sum + difference + product + floor + remainder + negative_floor + negative_remainder + overflow + exact + dynamic_left + dynamic_right + wide_left + wide_right + negative_left + negative_right
     "})
     .unwrap_or_else(|error| panic!("CatSeq integer operations must type-check: {error}"));
 
@@ -401,14 +464,15 @@ fn catseq_source_profile_retains_target_independent_integer_operations() {
         drop(definition);
         body
     };
-    let operators = body
+    let operations = body
         .iter()
         .filter_map(|statement| {
             let ast::StmtKind::Assign { value, .. } = &statement.node else { return None };
             let ast::ExprKind::BinOp { op, .. } = &value.node else { return None };
-            Some(*op)
+            Some((*op, value.custom.unwrap()))
         })
         .collect_vec();
+    let operators = operations.iter().map(|(operator, _)| *operator).collect_vec();
 
     assert_eq!(
         operators,
@@ -423,10 +487,16 @@ fn catseq_source_profile_retains_target_independent_integer_operations() {
             ast::Operator::FloorDiv,
             ast::Operator::Mod,
             ast::Operator::LShift,
+            ast::Operator::RShift,
+            ast::Operator::LShift,
+            ast::Operator::RShift,
             ast::Operator::LShift,
             ast::Operator::RShift,
         ]
     );
+    for (_, ty) in operations {
+        assert!(composer.unifier.unioned(ty, composer.primitives_ty.int32));
+    }
 }
 
 #[test_case("2147483648"; "above_maximum")]

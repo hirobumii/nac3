@@ -39,6 +39,19 @@ pub enum SourceProfile {
     CatSeqInt32,
 }
 
+impl SourceProfile {
+    /// Stable tag for consumers that bind caches or ABIs to this profile's semantics.
+    ///
+    /// The default profile follows upstream NAC3 behavior and does not promise a stable ABI tag.
+    #[must_use]
+    pub const fn abi_tag(self) -> Option<&'static str> {
+        match self {
+            Self::Default => None,
+            Self::CatSeqInt32 => Some("catseq-int32-v1"),
+        }
+    }
+}
+
 /// Default implementation of [`BuiltinRegistry`] using string-based matching.
 ///
 /// This zero-sized struct provides the standard builtin matching behavior
