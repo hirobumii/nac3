@@ -30,6 +30,8 @@ use crate::{
 struct ResolverInternal {
     id_to_type: Mutex<HashMap<StrRef, Type>>,
     id_to_def: Mutex<HashMap<StrRef, DefinitionId>>,
+    auto_field_types: Mutex<HashMap<(StrRef, StrRef), Type>>,
+    deferred_unifications: Mutex<Vec<(Type, Type)>>,
 }
 
 impl ResolverInternal {
@@ -39,6 +41,10 @@ impl ResolverInternal {
 
     fn add_id_type(&self, id: StrRef, ty: Type) {
         self.id_to_type.lock().insert(id, ty);
+    }
+
+    fn add_auto_field_type(&self, class_name: StrRef, field_name: StrRef, ty: Type) {
+        self.auto_field_types.lock().insert((class_name, field_name), ty);
     }
 }
 
@@ -85,6 +91,31 @@ impl SymbolResolver for Resolver {
 
     fn get_exception_id(&self, _tyid: usize) -> usize {
         unimplemented!()
+    }
+
+    fn resolve_auto_field_type(
+        &self,
+        class_name: StrRef,
+        field_name: StrRef,
+        _: &mut Unifier,
+        _: &[Arc<RwLock<TopLevelDef>>],
+        _: &PrimitiveStore,
+    ) -> anyhow::Result<Option<Type>> {
+        Ok(self.0.auto_field_types.lock().get(&(class_name, field_name)).copied())
+    }
+
+    fn handle_deferred_eval(
+        &self,
+        unifier: &mut Unifier,
+        _: &[Arc<RwLock<TopLevelDef>>],
+        _: &PrimitiveStore,
+    ) -> anyhow::Result<()> {
+        for (actual, expected) in self.0.deferred_unifications.lock().iter() {
+            unifier
+                .unify(*actual, *expected)
+                .map_err(|error| anyhow!("{}", error.to_display(unifier)))?;
+        }
+        Ok(())
     }
 }
 
@@ -180,8 +211,12 @@ fn test_simple_function_analyze(source: &[&str], tys: &[&str], names: &[&str]) {
     let builtin_registry = Arc::new(DefaultBuiltinRegistry);
     let mut composer = TopLevelComposer::new(Vec::new(), Vec::new(), builtin_registry, 64).0;
 
-    let internal_resolver =
-        Arc::new(ResolverInternal { id_to_def: Mutex::default(), id_to_type: Mutex::default() });
+    let internal_resolver = Arc::new(ResolverInternal {
+        id_to_def: Mutex::default(),
+        id_to_type: Mutex::default(),
+        auto_field_types: Mutex::default(),
+        deferred_unifications: Mutex::default(),
+    });
     let resolver =
         Arc::new(Resolver(internal_resolver.clone())) as Arc<dyn SymbolResolver + Send + Sync>;
 
@@ -219,8 +254,12 @@ fn new_catseq_composer()
 -> (TopLevelComposer, Arc<ResolverInternal>, Arc<dyn SymbolResolver + Send + Sync>) {
     let composer =
         TopLevelComposer::new(Vec::new(), Vec::new(), Arc::new(CatSeqBuiltinRegistry), 64).0;
-    let internal_resolver =
-        Arc::new(ResolverInternal { id_to_def: Mutex::default(), id_to_type: Mutex::default() });
+    let internal_resolver = Arc::new(ResolverInternal {
+        id_to_def: Mutex::default(),
+        id_to_type: Mutex::default(),
+        auto_field_types: Mutex::default(),
+        deferred_unifications: Mutex::default(),
+    });
     let resolver =
         Arc::new(Resolver(internal_resolver.clone())) as Arc<dyn SymbolResolver + Send + Sync>;
     (composer, internal_resolver, resolver)
@@ -778,6 +817,99 @@ fn catseq_source_profile_ignores_inherited_exception_representation_fields() {
             "inherited exception ABI storage must not be treated as source values: {}",
             errors.iter().join("\n")
         )
+    });
+}
+
+#[test_case("Auto", false, "floating-point values"; "bare_auto")]
+#[test_case("tuple[Auto]", true, "int64 values"; "nested_auto")]
+fn catseq_source_profile_rejects_forbidden_resolved_auto_fields(
+    annotation: &str,
+    nested: bool,
+    expected: &str,
+) {
+    let (mut composer, internal_resolver, resolver) = new_catseq_composer();
+    let resolved_ty = if nested {
+        composer.unifier.add_ty(TypeEnum::TTuple {
+            ty: vec![composer.primitives_ty.int64],
+            is_vararg_ctx: false,
+        })
+    } else {
+        composer.primitives_ty.float
+    };
+    internal_resolver.add_auto_field_type("ExternalRecord".into(), "sample".into(), resolved_ty);
+    let ast = parse_program(
+        &format!("class ExternalRecord:\n    sample: {annotation}\n"),
+        FileName::default(),
+    )
+    .unwrap();
+    let (name, definition_id, ty) =
+        composer.register_top_level(ast[0].clone(), Some(resolver), "", true).unwrap();
+    internal_resolver.add_id_def(name, definition_id);
+    internal_resolver.add_id_type(name, ty.unwrap());
+
+    let errors = composer
+        .start_analysis(true)
+        .expect_err("a forbidden resolved Auto field must not pass CatSeqInt32 validation");
+    let error = errors.iter().map(ToString::to_string).join("\n");
+    assert!(error.contains(expected), "{error}");
+    assert!(error.contains("in field `sample`"), "{error}");
+    assert!(error.contains("at unknown:2:"), "{error}");
+}
+
+#[test]
+fn catseq_source_profile_rejects_auto_field_concretized_during_deferred_eval() {
+    let (mut composer, internal_resolver, resolver) = new_catseq_composer();
+    let deferred_ty = composer.unifier.get_dummy_var().ty;
+    internal_resolver.add_auto_field_type("ExternalRecord".into(), "sample".into(), deferred_ty);
+    internal_resolver
+        .deferred_unifications
+        .lock()
+        .push((deferred_ty, composer.primitives_ty.float));
+    let ast = parse_program(
+        indoc! {"
+            class ExternalRecord:
+                sample: Auto
+        "},
+        FileName::default(),
+    )
+    .unwrap();
+    let (name, definition_id, ty) =
+        composer.register_top_level(ast[0].clone(), Some(resolver), "", true).unwrap();
+    internal_resolver.add_id_def(name, definition_id);
+    internal_resolver.add_id_type(name, ty.unwrap());
+
+    let errors = composer
+        .start_analysis(true)
+        .expect_err("a field resolved to float during deferred evaluation must be rejected");
+    let error = errors.iter().map(ToString::to_string).join("\n");
+    assert!(error.contains("floating-point values"), "{error}");
+    assert!(error.contains("in field `sample`"), "{error}");
+    assert!(error.contains("at unknown:2:"), "{error}");
+}
+
+#[test]
+fn catseq_source_profile_accepts_int32_resolved_auto_fields() {
+    let (mut composer, internal_resolver, resolver) = new_catseq_composer();
+    internal_resolver.add_auto_field_type(
+        "ExternalRecord".into(),
+        "sample".into(),
+        composer.primitives_ty.int32,
+    );
+    let ast = parse_program(
+        indoc! {"
+            class ExternalRecord:
+                sample: Auto
+        "},
+        FileName::default(),
+    )
+    .unwrap();
+    let (name, definition_id, ty) =
+        composer.register_top_level(ast[0].clone(), Some(resolver), "", true).unwrap();
+    internal_resolver.add_id_def(name, definition_id);
+    internal_resolver.add_id_type(name, ty.unwrap());
+
+    composer.start_analysis(true).unwrap_or_else(|errors| {
+        panic!("an Auto field resolved to Int32 must remain valid: {}", errors.iter().join("\n"))
     });
 }
 
@@ -1472,6 +1604,8 @@ fn make_internal_resolver_with_tvar(
             })
             .collect::<HashMap<_, _>>()
             .into(),
+        auto_field_types: Mutex::default(),
+        deferred_unifications: Mutex::default(),
     }
     .into();
     if print {

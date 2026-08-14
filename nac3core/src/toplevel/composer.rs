@@ -1149,6 +1149,50 @@ impl TopLevelComposer {
             }
         }
 
+        // Resolver-provided Auto types may only become concrete during deferred evaluation. Check
+        // each source-declared field after that phase, without holding a definition lock while the
+        // recursive validator consults the same definition table.
+        if errors.is_empty() && source_profile != SourceProfile::Default {
+            for (definition, ast) in def_list.iter().skip(self.builtin_num) {
+                let Some(ast) = ast else {
+                    continue;
+                };
+                let ast::StmtKind::ClassDef { body, .. } = &ast.node else {
+                    continue;
+                };
+                let field_types = {
+                    let definition = definition.read();
+                    let TopLevelDef::Class { fields, .. } = &*definition else {
+                        continue;
+                    };
+                    let field_types =
+                        fields.iter().map(|(name, ty, _)| (*name, *ty)).collect::<HashMap<_, _>>();
+                    drop(definition);
+                    field_types
+                };
+                for statement in body {
+                    let ast::StmtKind::AnnAssign { target, annotation, .. } = &statement.node
+                    else {
+                        continue;
+                    };
+                    let ExprKind::Name { id: field_name, .. } = &target.node else {
+                        continue;
+                    };
+                    let Some(field_ty) = field_types.get(field_name) else {
+                        continue;
+                    };
+                    if let Some(message) =
+                        source_profile.forbidden_numeric_type(&temp_def_list, unifier, *field_ty)
+                    {
+                        errors.push(anyhow!(
+                            "{message} in field `{field_name}` (at {})",
+                            annotation.location
+                        ));
+                    }
+                }
+            }
+        }
+
         if !errors.is_empty() {
             return Err(errors);
         }
