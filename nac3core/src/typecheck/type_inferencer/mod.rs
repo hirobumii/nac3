@@ -1,7 +1,7 @@
 use std::{
     cmp::max,
     collections::{HashMap, HashSet},
-    convert::{From, TryInto},
+    convert::From,
     iter::{once, repeat_n},
     sync::Arc,
 };
@@ -126,6 +126,18 @@ impl Fold<()> for NaiveFolder {
 
 fn report_error<T>(msg: &str, location: Location) -> Result<T, InferenceError> {
     Err(vec![anyhow!("{msg} (at {location})")])
+}
+
+fn signed_integer_literal(expression: &ast::Expr<()>) -> Option<i128> {
+    match &expression.node {
+        ExprKind::Constant { value: ast::Constant::Int(value), .. } => Some(*value),
+        ExprKind::UnaryOp { op, operand } => match op {
+            ast::Unaryop::UAdd => signed_integer_literal(operand),
+            ast::Unaryop::USub => signed_integer_literal(operand)?.checked_neg(),
+            _ => None,
+        },
+        _ => None,
+    }
 }
 
 fn report_type_error<T>(err: TypeError, unifier: &Unifier) -> Result<T, InferenceError> {
@@ -1102,6 +1114,33 @@ impl Inferencer<'_> {
         let Some(builtin) = self.builtin_registry.match_builtin(func) else {
             return Ok(None);
         };
+        if builtin == PrimDef::Range
+            && self.builtin_registry.default_integer_primitive() == PrimDef::Int64
+        {
+            for argument in args.iter_mut() {
+                let Some(value) = signed_integer_literal(argument) else {
+                    continue;
+                };
+                if i32::try_from(value).is_err() {
+                    return report_error("Integer out of bound", argument.location);
+                }
+                let location = argument.location;
+                let literal = argument.clone();
+                *argument = Located {
+                    location,
+                    custom: (),
+                    node: ExprKind::Call {
+                        func: Box::new(Located {
+                            location,
+                            custom: (),
+                            node: ExprKind::Name { id: "int32".into(), ctx: ExprContext::Load },
+                        }),
+                        args: vec![literal],
+                        keywords: Vec::new(),
+                    },
+                };
+            }
+        }
         let id = match &func.node {
             ExprKind::Name { id, .. } => *id,
             ExprKind::Attribute { attr, .. } => *attr,
@@ -2007,15 +2046,14 @@ impl Inferencer<'_> {
     fn infer_constant(&mut self, constant: &ast::Constant, loc: &Location) -> InferenceResult {
         match constant {
             ast::Constant::Bool(_) => Ok(self.primitives.bool),
-            ast::Constant::Int(val) => {
-                let int32: Result<i32, _> = (*val).try_into();
-                // int64 and unsigned integers are handled separately in functions
-                if int32.is_ok() {
-                    Ok(self.primitives.int32)
-                } else {
-                    report_error("Integer out of bound", *loc)
-                }
-            }
+            ast::Constant::Int(val) => match self.builtin_registry.default_integer_primitive() {
+                PrimDef::Int32 if i32::try_from(*val).is_ok() => Ok(self.primitives.int32),
+                PrimDef::Int64 if i64::try_from(*val).is_ok() => Ok(self.primitives.int64),
+                PrimDef::Int32 | PrimDef::Int64 => report_error("Integer out of bound", *loc),
+                _ => unreachable!(
+                    "BuiltinRegistry::default_integer_primitive must return Int32 or Int64"
+                ),
+            },
             ast::Constant::Float(_) => Ok(self.primitives.float),
             ast::Constant::Tuple(vals) => {
                 let ty: Result<Vec<_>, _> =

@@ -15,12 +15,12 @@ use crate::{
     symbol_resolver::{SymbolResolver, ValueEnum},
     toplevel::{
         DefinitionId, TopLevelDef,
-        composer::{DefaultBuiltinRegistry, TopLevelComposer},
+        composer::{DefaultBuiltinRegistry, Int64BuiltinRegistry, TopLevelComposer},
         helper::PrimDef,
     },
     typecheck::{
         type_inferencer::PrimitiveStore,
-        typedef::{Type, Unifier},
+        typedef::{Type, TypeEnum, Unifier},
     },
 };
 
@@ -210,6 +210,76 @@ fn test_simple_function_analyze(source: &[&str], tys: &[&str], names: &[&str]) {
             assert_eq!(name, names[i]);
         }
     }
+}
+
+#[test]
+fn int64_source_profile_types_int_annotations_literals_and_range_literals() {
+    let mut composer =
+        TopLevelComposer::new(Vec::new(), Vec::new(), Arc::new(Int64BuiltinRegistry), 64).0;
+    let internal_resolver =
+        Arc::new(ResolverInternal { id_to_def: Mutex::default(), id_to_type: Mutex::default() });
+    let resolver =
+        Arc::new(Resolver(internal_resolver.clone())) as Arc<dyn SymbolResolver + Send + Sync>;
+    let ast = parse_program(
+        indoc! {"
+            def compute(value: int) -> int:
+                result = value + 1
+                for _ in range(4):
+                    result = result + 2
+                return result
+        "},
+        FileName::default(),
+    )
+    .unwrap();
+    let (name, definition_id, ty) =
+        composer.register_top_level(ast[0].clone(), Some(resolver), "", true).unwrap();
+    internal_resolver.add_id_def(name, definition_id);
+    internal_resolver.add_id_type(name, ty.unwrap());
+
+    composer.start_analysis(true).unwrap();
+
+    let signature = {
+        let definition = composer.definition_ast_list[definition_id.0].0.read();
+        let TopLevelDef::Function { signature, .. } = &*definition else {
+            panic!("registered source must remain a function")
+        };
+        let signature = *signature;
+        drop(definition);
+        signature
+    };
+    let TypeEnum::TFunc(signature) = composer.unifier.get_ty(signature).as_ref().clone() else {
+        panic!("registered function must retain its function signature")
+    };
+    assert_eq!(signature.args.len(), 1);
+    assert!(composer.unifier.unioned(signature.args[0].ty, composer.primitives_ty.int64));
+    assert!(composer.unifier.unioned(signature.ret, composer.primitives_ty.int64));
+}
+
+#[test]
+fn int64_source_profile_rejects_out_of_range_literals() {
+    let mut composer =
+        TopLevelComposer::new(Vec::new(), Vec::new(), Arc::new(Int64BuiltinRegistry), 64).0;
+    let internal_resolver =
+        Arc::new(ResolverInternal { id_to_def: Mutex::default(), id_to_type: Mutex::default() });
+    let resolver =
+        Arc::new(Resolver(internal_resolver.clone())) as Arc<dyn SymbolResolver + Send + Sync>;
+    let ast = parse_program(
+        indoc! {"
+            def compute() -> int:
+                return 9223372036854775808
+        "},
+        FileName::default(),
+    )
+    .unwrap();
+    let (name, definition_id, ty) =
+        composer.register_top_level(ast[0].clone(), Some(resolver), "", true).unwrap();
+    internal_resolver.add_id_def(name, definition_id);
+    internal_resolver.add_id_type(name, ty.unwrap());
+
+    let errors = composer
+        .start_analysis(true)
+        .expect_err("an integer outside i64 must not type-check in the Int64 source profile");
+    assert!(errors.iter().any(|error| error.to_string().contains("Integer out of bound")));
 }
 
 #[test_case(

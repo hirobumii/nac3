@@ -21,9 +21,7 @@ use crate::{
     },
     typecheck::{
         type_inferencer::{CodeLocation, FunctionData, Inferencer, PrimitiveStore},
-        typedef::{
-            CallId, FunSignature, FuncArg, Type, TypeEnum, TypeVar, Unifier, VarMap,
-        },
+        typedef::{CallId, FunSignature, FuncArg, Type, TypeEnum, TypeVar, Unifier, VarMap},
     },
 };
 
@@ -38,8 +36,27 @@ pub struct DefaultBuiltinRegistry;
 
 impl BuiltinRegistry for DefaultBuiltinRegistry {}
 
+/// Name-based builtin registry with [`PrimDef::Int64`] as the Python-style integer type.
+///
+/// Structural APIs that explicitly require `int32`, such as `range`, retain their existing
+/// contracts.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Int64BuiltinRegistry;
+
+impl BuiltinRegistry for Int64BuiltinRegistry {
+    fn default_integer_primitive(&self) -> PrimDef {
+        PrimDef::Int64
+    }
+}
+
 /// Trait for matching AST expressions against builtin identifiers.
 pub trait BuiltinRegistry: Send + Sync {
+    /// Primitive used by the Python-style `int` annotation and ordinary integer literals.
+    /// Implementations must return either [`PrimDef::Int32`] or [`PrimDef::Int64`].
+    fn default_integer_primitive(&self) -> PrimDef {
+        PrimDef::Int32
+    }
+
     /// Match an AST expression against known builtin identifiers.
     ///
     /// Returns `Some(PrimDef)` if the expression matches a recognized builtin,
@@ -64,6 +81,7 @@ pub trait BuiltinRegistry: Send + Sync {
 
         Some(match name.as_str() {
             // Core primitives
+            "int" => self.default_integer_primitive(),
             "float" => PrimDef::Float,
             "bool" => PrimDef::Bool,
             "str" => PrimDef::Str,
