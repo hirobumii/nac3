@@ -206,7 +206,7 @@ fn catseq_forbidden_numeric_type(
     }
 
     match &*unifier.get_ty_immutable(ty) {
-        TypeEnum::TObj { obj_id, params, .. } => {
+        TypeEnum::TObj { obj_id, fields, params } => {
             if *obj_id == PrimDef::Float.id() {
                 Some("floating-point values are not supported by CatSeqInt32")
             } else if *obj_id == PrimDef::Int64.id() {
@@ -216,7 +216,17 @@ fn catseq_forbidden_numeric_type(
             } else if *obj_id == PrimDef::UInt64.id() {
                 Some("uint64 values are not supported by CatSeqInt32")
             } else {
-                params.values().find_map(|ty| catseq_forbidden_numeric_type(unifier, *ty, visited))
+                params
+                    .values()
+                    .find_map(|ty| catseq_forbidden_numeric_type(unifier, *ty, visited))
+                    .or_else(|| {
+                        fields
+                            .values()
+                            .filter_map(|(ty, kind)| {
+                                matches!(kind, AttrKind::Field { .. }).then_some(*ty)
+                            })
+                            .find_map(|ty| catseq_forbidden_numeric_type(unifier, ty, visited))
+                    })
             }
         }
         TypeEnum::TTuple { ty, .. } => {

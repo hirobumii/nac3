@@ -23,7 +23,7 @@ use crate::{
     },
     typecheck::{
         type_inferencer::PrimitiveStore,
-        typedef::{FunSignature, Type, TypeEnum, Unifier, VarMap},
+        typedef::{AttrKind, FunSignature, Type, TypeEnum, Unifier, VarMap},
     },
 };
 
@@ -300,8 +300,31 @@ fn catseq_source_profile_rejects_forbidden_numeric_types_nested_in_values() {
         TopLevelComposer::new(Vec::new(), Vec::new(), Arc::new(CatSeqBuiltinRegistry), 64).0;
     let internal_resolver =
         Arc::new(ResolverInternal { id_to_def: Mutex::default(), id_to_type: Mutex::default() });
+    let resolver =
+        Arc::new(Resolver(internal_resolver.clone())) as Arc<dyn SymbolResolver + Send + Sync>;
+    let class_ast = parse_program(
+        indoc! {"
+            class ExternalRecord:
+                pass
+        "},
+        FileName::default(),
+    )
+    .unwrap();
+    let (class_name, class_id, class_ty) = composer
+        .register_top_level(class_ast[0].clone(), Some(resolver.clone()), "", true)
+        .unwrap();
+    internal_resolver.add_id_def(class_name, class_id);
+    internal_resolver.add_id_type(class_name, class_ty.unwrap());
+    let external_record = composer.unifier.add_ty(TypeEnum::TObj {
+        obj_id: class_id,
+        fields: HashMap::from([(
+            "sample".into(),
+            (composer.primitives_ty.float, AttrKind::Field { mutable: false }),
+        )]),
+        params: VarMap::new(),
+    });
     let external_result = composer.unifier.add_ty(TypeEnum::TTuple {
-        ty: vec![composer.primitives_ty.int32, composer.primitives_ty.float],
+        ty: vec![composer.primitives_ty.int32, external_record],
         is_vararg_ctx: false,
     });
     let external_function = composer.unifier.add_ty(TypeEnum::TFunc(FunSignature {
@@ -310,8 +333,6 @@ fn catseq_source_profile_rejects_forbidden_numeric_types_nested_in_values() {
         vars: VarMap::new(),
     }));
     internal_resolver.add_id_type("read_pair".into(), external_function);
-    let resolver =
-        Arc::new(Resolver(internal_resolver.clone())) as Arc<dyn SymbolResolver + Send + Sync>;
     let ast = parse_program(
         indoc! {"
             def compute(value: int) -> int:
@@ -328,7 +349,7 @@ fn catseq_source_profile_rejects_forbidden_numeric_types_nested_in_values() {
 
     let errors = composer
         .start_analysis(true)
-        .expect_err("a tuple containing float must not type-check in the CatSeq source profile");
+        .expect_err("a record containing float must not type-check in the CatSeq source profile");
     assert!(
         errors
             .iter()
