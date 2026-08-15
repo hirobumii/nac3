@@ -3,7 +3,10 @@ use std::iter::zip;
 use anyhow::anyhow;
 use indexmap::IndexMap;
 use indoc::indoc;
-use nac3parser::{ast::FileName, parser::parse_program};
+use nac3parser::{
+    ast::FileName,
+    parser::{parse_expression, parse_program},
+};
 use parking_lot::RwLock;
 use test_case::test_case;
 
@@ -18,6 +21,27 @@ use crate::{
     },
     typecheck::{magic_methods::with_fields, typedef::AttrKind},
 };
+
+#[test_case("-2147483648 // -1", i32::MIN; "int_min_floor_division_wraps")]
+#[test_case("-2147483648 % -1", 0; "int_min_remainder_is_zero")]
+#[test_case("7 // -3", -3; "positive_by_negative_floor")]
+#[test_case("-7 // 3", -3; "negative_by_positive_floor")]
+#[test_case("7 % 3", 1; "positive_positive_remainder")]
+#[test_case("7 % -3", -2; "positive_negative_remainder")]
+#[test_case("-7 % 3", 2; "negative_positive_remainder")]
+#[test_case("-7 % -3", -1; "negative_negative_remainder")]
+#[test_case("1 << 32", 0; "oversized_left_shift")]
+#[test_case("255 >> 32", 0; "oversized_positive_right_shift")]
+#[test_case("-8 >> 32", -1; "oversized_negative_right_shift")]
+#[test_case("1 << -1", 0; "negative_left_shift")]
+#[test_case("-8 >> -1", -1; "negative_right_shift")]
+fn catseq_source_profile_int32_constant_expressions_have_expected_results(
+    source: &str,
+    expected: i32,
+) {
+    let expression = parse_expression(source).unwrap();
+    assert_eq!(constant_int32_value(&expression), Some(expected));
+}
 
 struct Resolver {
     id_to_type: HashMap<StrRef, Type>,
@@ -269,11 +293,7 @@ impl TestEnvironment {
         Self {
             top_level_defs,
             unifier,
-            function_data: FunctionData {
-                resolver,
-                bound_variables: Vec::new(),
-                return_type: None,
-            },
+            function_data: FunctionData::new(resolver, None, Vec::new()),
             primitives,
             id_to_name,
             identifier_mapping,

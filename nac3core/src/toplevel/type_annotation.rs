@@ -10,7 +10,7 @@ use crate::{
     symbol_resolver::{SymbolResolver, SymbolValue},
     toplevel::{
         DefinitionId, TopLevelDef,
-        composer::{BuiltinRegistry, erase_expr_type},
+        composer::{BuiltinRegistry, erase_expr_type, validate_source_type_annotation},
         helper::{PrimDef, PrimDefDetails},
     },
     typecheck::{
@@ -381,6 +381,8 @@ pub fn parse_ast_to_type_annotation_kinds<T, S: std::hash::BuildHasher + Clone>(
     // the key stores the type_var of this topleveldef::class, we only need this field here
     locked: HashMap<DefinitionId, Vec<Type>, S>,
 ) -> Result<TypeAnnotation, Vec<anyhow::Error>> {
+    validate_source_type_annotation(builtin_registry, expr)?;
+
     match &expr.node {
         ast::ExprKind::Name { .. } => parse_name_as_type_annotation::<T, S>(
             resolver,

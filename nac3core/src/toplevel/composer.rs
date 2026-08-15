@@ -21,11 +21,121 @@ use crate::{
     },
     typecheck::{
         type_inferencer::{CodeLocation, FunctionData, Inferencer, PrimitiveStore},
-        typedef::{
-            CallId, FunSignature, FuncArg, Type, TypeEnum, TypeVar, Unifier, VarMap,
-        },
+        typedef::{CallId, FunSignature, FuncArg, Type, TypeEnum, TypeVar, Unifier, VarMap},
     },
 };
+
+/// Target-independent source-language semantics selected for a compilation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SourceProfile {
+    /// Existing NAC3 behavior.
+    Default,
+    /// `CatSeq` Compute's signed Int32-only profile.
+    ///
+    /// `int` and `int32` are the same normalized type. Integer addition, subtraction, and
+    /// multiplication wrap modulo 2^32. `//` and `%` retain Python floor-division semantics;
+    /// shifts retain NAC3's fixed-width saturation semantics. Target instruction selection is not
+    /// part of this profile.
+    CatSeqInt32V1,
+}
+
+impl SourceProfile {
+    /// Stable identity for downstream validation and cache construction.
+    ///
+    /// The default profile follows upstream NAC3 behavior and does not promise a stable identity.
+    #[must_use]
+    pub const fn profile_id(self) -> Option<&'static str> {
+        match self {
+            Self::Default => None,
+            Self::CatSeqInt32V1 => Some("catseq-int32-v1"),
+        }
+    }
+
+    pub(crate) const fn admits_builtin_call(self, builtin: PrimDef) -> bool {
+        match self {
+            Self::Default => true,
+            Self::CatSeqInt32V1 => matches!(builtin, PrimDef::Range),
+        }
+    }
+
+    pub(crate) const fn admits_type_annotation(self, builtin: Option<PrimDef>) -> bool {
+        match self {
+            Self::Default => true,
+            Self::CatSeqInt32V1 => {
+                matches!(builtin, Some(PrimDef::Int32 | PrimDef::Bool))
+            }
+        }
+    }
+
+    pub(crate) const fn admits_int32_binary_operator(self, operator: ast::Operator) -> bool {
+        match self {
+            Self::Default => true,
+            Self::CatSeqInt32V1 => matches!(
+                operator,
+                ast::Operator::Add
+                    | ast::Operator::Sub
+                    | ast::Operator::Mult
+                    | ast::Operator::FloorDiv
+                    | ast::Operator::Mod
+                    | ast::Operator::LShift
+                    | ast::Operator::RShift
+                    | ast::Operator::BitAnd
+            ),
+        }
+    }
+
+    pub(crate) fn admits_value_type(self, unifier: &Unifier, ty: Type) -> bool {
+        match self {
+            Self::Default => true,
+            Self::CatSeqInt32V1 => matches!(
+                &*unifier.get_ty_immutable(ty),
+                TypeEnum::TObj { obj_id, .. }
+                    if *obj_id == PrimDef::Int32.id() || *obj_id == PrimDef::Bool.id()
+            ),
+        }
+    }
+
+    pub(crate) const fn source_value_error(self, value: &SymbolValue) -> Option<&'static str> {
+        match self {
+            Self::Default => None,
+            Self::CatSeqInt32V1 => match value {
+                SymbolValue::I32(_) | SymbolValue::Bool(_) => None,
+                SymbolValue::I64(_) => Some("int64 values are not admitted by CatSeqInt32V1"),
+                SymbolValue::U32(_) => Some("uint32 values are not admitted by CatSeqInt32V1"),
+                SymbolValue::U64(_) => Some("uint64 values are not admitted by CatSeqInt32V1"),
+                SymbolValue::Double(_) => {
+                    Some("floating-point values are not admitted by CatSeqInt32V1")
+                }
+                SymbolValue::Str(_) => Some("string values are not admitted by CatSeqInt32V1"),
+                SymbolValue::Tuple(_) => Some("tuple values are not admitted by CatSeqInt32V1"),
+                SymbolValue::OptionSome(_) | SymbolValue::OptionNone => {
+                    Some("Option values are not admitted by CatSeqInt32V1")
+                }
+            },
+        }
+    }
+
+    pub(crate) fn source_constant_error(self, value: &ast::Constant) -> Option<&'static str> {
+        match self {
+            Self::Default => None,
+            Self::CatSeqInt32V1 => match value {
+                ast::Constant::Bool(_) => None,
+                ast::Constant::Int(value) if i32::try_from(*value).is_ok() => None,
+                ast::Constant::Int(_) => {
+                    Some("integer values outside Int32 are not admitted by CatSeqInt32V1")
+                }
+                ast::Constant::Float(_) | ast::Constant::Complex { .. } => {
+                    Some("floating-point values are not admitted by CatSeqInt32V1")
+                }
+                ast::Constant::Str(_) => Some("string values are not admitted by CatSeqInt32V1"),
+                ast::Constant::Tuple(_) => Some("tuple values are not admitted by CatSeqInt32V1"),
+                ast::Constant::None => Some("None is not admitted by CatSeqInt32V1"),
+                ast::Constant::Bytes(_) => Some("bytes values are not admitted by CatSeqInt32V1"),
+                ast::Constant::Ellipsis => Some("ellipsis is not admitted by CatSeqInt32V1"),
+            },
+        }
+    }
+}
 
 /// Default implementation of [`BuiltinRegistry`] using string-based matching.
 ///
@@ -38,8 +148,27 @@ pub struct DefaultBuiltinRegistry;
 
 impl BuiltinRegistry for DefaultBuiltinRegistry {}
 
+fn builtin_name(expr: &Located<ExprKind>) -> Option<String> {
+    match &expr.node {
+        ExprKind::Name { id, .. } => Some(id.to_string()),
+        ExprKind::Subscript { value, .. } => {
+            if let ExprKind::Name { id, .. } = &value.node {
+                Some(id.to_string())
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
 /// Trait for matching AST expressions against builtin identifiers.
 pub trait BuiltinRegistry: Send + Sync {
+    /// Source-language semantic profile associated with this registry.
+    fn source_profile(&self) -> SourceProfile {
+        SourceProfile::Default
+    }
+
     /// Match an AST expression against known builtin identifiers.
     ///
     /// Returns `Some(PrimDef)` if the expression matches a recognized builtin,
@@ -48,19 +177,7 @@ pub trait BuiltinRegistry: Send + Sync {
     /// # Arguments
     /// * `expr` - The AST expression to match
     fn match_builtin(&self, expr: &Located<ExprKind>) -> Option<PrimDef> {
-        let get_name = |e: &ExprKind| match e {
-            ExprKind::Name { id, .. } => Some(id.to_string()),
-            ExprKind::Subscript { value, .. } => {
-                if let ExprKind::Name { id, .. } = &value.node {
-                    Some(id.to_string())
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        };
-
-        let name = get_name(&expr.node)?;
+        let name = builtin_name(expr)?;
 
         Some(match name.as_str() {
             // Core primitives
@@ -249,6 +366,23 @@ pub trait BuiltinRegistry: Send + Sync {
     /// Returns false for standalone mode.
     fn supports_kernel_decorators(&self) -> bool {
         false
+    }
+}
+
+pub(crate) fn validate_source_type_annotation<T>(
+    builtin_registry: &dyn BuiltinRegistry,
+    expr: &ast::Expr<T>,
+) -> Result<(), Vec<anyhow::Error>> {
+    if builtin_registry
+        .source_profile()
+        .admits_type_annotation(builtin_registry.match_builtin(&erase_expr_type(expr)))
+    {
+        Ok(())
+    } else {
+        Err(vec![anyhow!(
+            "type annotation is not admitted by CatSeqInt32V1 (at {})",
+            expr.location
+        )])
     }
 }
 
@@ -694,7 +828,10 @@ impl TopLevelComposer {
         }
     }
 
-    /// Analyze the AST and modify the corresponding `TopLevelDef`
+    /// Analyze the AST and modify the corresponding `TopLevelDef`.
+    ///
+    /// An embedding frontend selects a non-default profile's definitions by registering exactly
+    /// the authorized closure in a dedicated composer.
     pub fn start_analysis(&mut self, inference: bool) -> Result<(), Vec<anyhow::Error>> {
         self.analyze_top_level_class_definition()?;
         self.analyze_top_level_class_fields_methods()?;
@@ -794,7 +931,6 @@ impl TopLevelComposer {
         let temp_def_list = self.extract_def_list();
         let unifier = &mut self.unifier;
         let primitives_store = &self.primitives_ty;
-
         let mut errors: Vec<anyhow::Error> = Vec::new();
         let mut type_var_to_concrete_def: HashMap<Type, TypeAnnotation> = HashMap::new();
 
@@ -957,6 +1093,7 @@ impl TopLevelComposer {
         let temp_def_list = self.extract_def_list();
         let unifier = &mut self.unifier;
         let primitives_store = &self.primitives_ty;
+        let source_profile = self.builtin_registry.source_profile();
 
         let mut analyze = |function_def: &Arc<RwLock<TopLevelDef>>, function_ast: &Option<Stmt>| {
             let function_def = &mut *function_def.write();
@@ -978,6 +1115,24 @@ impl TopLevelComposer {
             let ast::StmtKind::FunctionDef { args, returns, .. } = &function_ast.node else {
                 unreachable!("must be both function");
             };
+
+            if source_profile == SourceProfile::CatSeqInt32V1 {
+                let unsupported_parameter_kind = if !args.posonlyargs.is_empty() {
+                    Some("positional-only")
+                } else if !args.kwonlyargs.is_empty() {
+                    Some("keyword-only")
+                } else if args.kwarg.is_some() {
+                    Some("keyword-vararg")
+                } else {
+                    None
+                };
+                if let Some(parameter_kind) = unsupported_parameter_kind {
+                    return Err(vec![anyhow!(
+                        "{parameter_kind} parameters are not admitted by CatSeqInt32V1 (at {})",
+                        function_ast.location
+                    )]);
+                }
+            }
 
             let resolver = resolver.as_ref();
             let resolver = resolver.unwrap();
@@ -1040,7 +1195,6 @@ impl TopLevelComposer {
                         &type_annotation,
                         &mut None,
                     )?;
-
                     Ok(FuncArg {
                         name: vararg.node.arg,
                         ty,
@@ -1131,7 +1285,6 @@ impl TopLevelComposer {
                             &type_annotation,
                             &mut None,
                         )?;
-
                         Ok(FuncArg {
                             name: x.node.arg,
                             ty,
@@ -1143,6 +1296,12 @@ impl TopLevelComposer {
                                         resolver,
                                         &*self.builtin_registry,
                                     )?;
+                                    if let Some(message) = source_profile.source_value_error(&v) {
+                                        return Err(vec![anyhow!(
+                                            "{message} (at {})",
+                                            default.location
+                                        )]);
+                                    }
                                     Self::check_default_param_type(
                                         &v,
                                         &type_annotation,
@@ -1212,6 +1371,28 @@ impl TopLevelComposer {
                     primitives_store.none
                 }
             };
+            for argument in &arg_types {
+                if source_profile == SourceProfile::CatSeqInt32V1 && argument.is_vararg {
+                    return Err(vec![anyhow!(
+                        "vararg parameter `{}` is not admitted by CatSeqInt32V1 (at {})",
+                        argument.name,
+                        function_ast.location
+                    )]);
+                }
+                if !source_profile.admits_value_type(unifier, argument.ty) {
+                    return Err(vec![anyhow!(
+                        "parameter `{}` type is not admitted by CatSeqInt32V1 (at {})",
+                        argument.name,
+                        function_ast.location
+                    )]);
+                }
+            }
+            if !source_profile.admits_value_type(unifier, return_ty) {
+                return Err(vec![anyhow!(
+                    "return type is not admitted by CatSeqInt32V1 (at {})",
+                    function_ast.location
+                )]);
+            }
             var_id.extend_from_slice(function_var_map
                 .iter()
                 .filter_map(|(id, ty)| {
@@ -2077,24 +2258,25 @@ impl TopLevelComposer {
                     result
                 };
                 let mut calls: HashMap<CodeLocation, CallId> = HashMap::new();
+                let source_profile_call_start = unifier.calls.len();
                 let mut inferencer = Inferencer {
                     builtin_registry: &*ctx.builtin_registry,
                     top_level_defs: &ctx.definitions,
                     defined_identifiers: identifiers.clone(),
-                    function_data: &mut FunctionData {
-                        resolver: resolver.clone().unwrap(),
-                        return_type: if unifier.unioned(inst_ret, primitives_ty.none) {
+                    function_data: &mut FunctionData::new(
+                        resolver.clone().unwrap(),
+                        if unifier.unioned(inst_ret, primitives_ty.none) {
                             None
                         } else {
                             Some(inst_ret)
                         },
                         // NOTE: allowed type vars
-                        bound_variables: {
+                        {
                             let mut bv = no_range_vars.clone();
                             bv.extend(&field_tvars);
                             bv
                         },
-                    },
+                    ),
                     unifier,
                     variable_mapping: {
                         let mut result: HashMap<StrRef, Type> = HashMap::new();
@@ -2131,6 +2313,7 @@ impl TopLevelComposer {
                         .collect::<Result<Vec<_>, _>>()?;
 
                 let returned = inferencer.check_block(fun_body.as_slice(), &mut identifiers)?;
+                inferencer.validate_source_profile_operators(source_profile_call_start)?;
                 {
                     // check virtuals
                     let defs = &ctx.definitions;

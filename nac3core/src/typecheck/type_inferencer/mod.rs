@@ -18,7 +18,7 @@ use crate::{
     symbol_resolver::{SymbolResolver, SymbolValue},
     toplevel::{
         FunAttribute, TopLevelDef,
-        composer::{BuiltinRegistry, promote_expr_type},
+        composer::{BuiltinRegistry, SourceProfile, promote_expr_type},
         helper::{PrimDef, arraylike_flatten_element_type, arraylike_get_ndims, extract_ndims},
         numpy::{make_ndarray_ty, unpack_ndarray_var_tys},
         type_annotation::TypeAnnotation,
@@ -97,6 +97,23 @@ pub struct FunctionData {
     pub resolver: Arc<dyn SymbolResolver + Send + Sync>,
     pub return_type: Option<Type>,
     pub bound_variables: Vec<Type>,
+    source_profile_zero_divisor_candidates: Vec<(CallId, Location)>,
+}
+
+impl FunctionData {
+    #[must_use]
+    pub fn new(
+        resolver: Arc<dyn SymbolResolver + Send + Sync>,
+        return_type: Option<Type>,
+        bound_variables: Vec<Type>,
+    ) -> Self {
+        Self {
+            resolver,
+            return_type,
+            bound_variables,
+            source_profile_zero_divisor_candidates: Vec::new(),
+        }
+    }
 }
 
 pub struct Inferencer<'a> {
@@ -126,6 +143,123 @@ impl Fold<()> for NaiveFolder {
 
 fn report_error<T>(msg: &str, location: Location) -> Result<T, InferenceError> {
     Err(vec![anyhow!("{msg} (at {location})")])
+}
+
+fn floor_divmod_i32(dividend: i32, divisor: i32) -> Option<(i32, i32)> {
+    if divisor == 0 {
+        return None;
+    }
+
+    let dividend = i64::from(dividend);
+    let divisor = i64::from(divisor);
+    let quotient = dividend / divisor;
+    let remainder = dividend % divisor;
+    let quotient = if remainder != 0 && remainder.is_negative() != divisor.is_negative() {
+        quotient - 1
+    } else {
+        quotient
+    };
+    Some((quotient as i32, (dividend - quotient * divisor) as i32))
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CatSeqScalarType {
+    Int32,
+    Bool,
+}
+
+fn catseq_scalar_type(
+    unifier: &mut Unifier,
+    primitives: &PrimitiveStore,
+    ty: Type,
+) -> Option<CatSeqScalarType> {
+    if unifier.unioned(ty, primitives.int32) {
+        Some(CatSeqScalarType::Int32)
+    } else if unifier.unioned(ty, primitives.bool) {
+        Some(CatSeqScalarType::Bool)
+    } else {
+        None
+    }
+}
+
+fn constant_int32_value<T>(expression: &ast::Expr<T>) -> Option<i32> {
+    match &expression.node {
+        ExprKind::Constant { value: ast::Constant::Int(value), .. } => i32::try_from(*value).ok(),
+        ExprKind::UnaryOp { op, operand } => match op {
+            ast::Unaryop::UAdd => constant_int32_value(operand),
+            ast::Unaryop::USub => Some(constant_int32_value(operand)?.wrapping_neg()),
+            ast::Unaryop::Invert | ast::Unaryop::Not => None,
+        },
+        ExprKind::BinOp { left, op, right } => {
+            let left = constant_int32_value(left)?;
+            let right = constant_int32_value(right)?;
+            match op {
+                ast::Operator::Add => Some(left.wrapping_add(right)),
+                ast::Operator::Sub => Some(left.wrapping_sub(right)),
+                ast::Operator::Mult => Some(left.wrapping_mul(right)),
+                ast::Operator::FloorDiv => Some(floor_divmod_i32(left, right)?.0),
+                ast::Operator::Mod => Some(floor_divmod_i32(left, right)?.1),
+                ast::Operator::LShift => {
+                    let shift = right as u32;
+                    Some(if shift < i32::BITS { left.wrapping_shl(shift) } else { 0 })
+                }
+                ast::Operator::RShift => {
+                    let shift = right as u32;
+                    Some(if shift < i32::BITS { left >> shift } else { left >> 31 })
+                }
+                ast::Operator::BitAnd => Some(left & right),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+fn validate_catseq_integer_binop(
+    source_profile: SourceProfile,
+    unifier: &mut Unifier,
+    primitives: &PrimitiveStore,
+    location: Location,
+    left: &ast::Expr<Option<Type>>,
+    op: ast::Operator,
+    right: &ast::Expr<Option<Type>>,
+) -> Result<(), InferenceError> {
+    if source_profile != SourceProfile::CatSeqInt32V1
+        || catseq_scalar_type(unifier, primitives, left.custom.unwrap())
+            != Some(CatSeqScalarType::Int32)
+        || catseq_scalar_type(unifier, primitives, right.custom.unwrap())
+            != Some(CatSeqScalarType::Int32)
+    {
+        return Ok(());
+    }
+    if !source_profile.admits_int32_binary_operator(op) {
+        return report_error(
+            &format!(
+                "operator `{}` is not admitted by CatSeqInt32V1",
+                Binop::normal(op).op_info().symbol
+            ),
+            location,
+        );
+    }
+    Ok(())
+}
+
+fn validate_catseq_integer_unaryop(
+    source_profile: SourceProfile,
+    unifier: &mut Unifier,
+    primitives: &PrimitiveStore,
+    location: Location,
+    op: ast::Unaryop,
+    operand: &ast::Expr<Option<Type>>,
+) -> Result<(), InferenceError> {
+    if source_profile == SourceProfile::CatSeqInt32V1
+        && catseq_scalar_type(unifier, primitives, operand.custom.unwrap())
+            == Some(CatSeqScalarType::Int32)
+        && op == ast::Unaryop::Invert
+    {
+        return report_error("operator `~` is not admitted by CatSeqInt32V1", location);
+    }
+    Ok(())
 }
 
 fn report_type_error<T>(err: TypeError, unifier: &Unifier) -> Result<T, InferenceError> {
@@ -515,6 +649,12 @@ impl Fold<()> for Inferencer<'_> {
                 return self.fold_lambda(node.location, *args, *body);
             }
             ExprKind::ListComp { elt, generators } => {
+                if self.builtin_registry.source_profile() == SourceProfile::CatSeqInt32V1 {
+                    return report_error(
+                        "list values are not admitted by CatSeqInt32V1",
+                        node.location,
+                    );
+                }
                 return self.fold_listcomp(node.location, *elt, generators);
             }
             _ => fold::fold_expr(self, node)?,
@@ -525,6 +665,12 @@ impl Fold<()> for Inferencer<'_> {
             ExprKind::Name { id, .. } => {
                 // the name `none` is special since it may have different types
                 if id == &"none".into() {
+                    if self.builtin_registry.source_profile() == SourceProfile::CatSeqInt32V1 {
+                        return report_error(
+                            "Option values are not admitted by CatSeqInt32V1",
+                            expr.location,
+                        );
+                    }
                     if let TypeEnum::TObj { params, .. } =
                         self.unifier.get_ty_immutable(self.primitives.option).as_ref()
                     {
@@ -577,8 +723,24 @@ impl Fold<()> for Inferencer<'_> {
             ExprKind::Compare { left, ops, comparators } => {
                 Some(self.infer_compare(expr.location, left, ops, comparators)?)
             }
-            ExprKind::List { elts, .. } => Some(self.infer_list(elts)?),
-            ExprKind::Tuple { elts, .. } => Some(self.infer_tuple(elts)?),
+            ExprKind::List { elts, .. } => {
+                if self.builtin_registry.source_profile() == SourceProfile::CatSeqInt32V1 {
+                    return report_error(
+                        "list values are not admitted by CatSeqInt32V1",
+                        expr.location,
+                    );
+                }
+                Some(self.infer_list(elts)?)
+            }
+            ExprKind::Tuple { elts, .. } => {
+                if self.builtin_registry.source_profile() == SourceProfile::CatSeqInt32V1 {
+                    return report_error(
+                        "tuple values are not admitted by CatSeqInt32V1",
+                        expr.location,
+                    );
+                }
+                Some(self.infer_tuple(elts)?)
+            }
             ExprKind::Subscript { value, slice, .. } => {
                 Some(self.infer_getitem(value.as_ref(), slice.as_ref())?)
             }
@@ -764,11 +926,11 @@ impl Inferencer<'_> {
         params: Vec<Type>,
         ret: Option<Type>,
         operator_info: Option<OperatorInfo>,
-    ) -> InferenceResult {
+    ) -> Result<(Type, CallId), InferenceError> {
         let ret = ret.unwrap_or_else(|| self.unifier.get_dummy_var().ty);
         let fun = self.unifier.get_dummy_var().ty;
 
-        let call = self.unifier.add_call(Call {
+        let call_id = self.unifier.add_call(Call {
             posargs: params,
             kwargs: HashMap::new(),
             ret,
@@ -776,12 +938,12 @@ impl Inferencer<'_> {
             loc: Some(location),
             operator_info,
         });
-        self.calls.insert(location.into(), call);
-        let call = self.unifier.add_ty(TypeEnum::TCall(vec![call]));
+        self.calls.insert(location.into(), call_id);
+        let call = self.unifier.add_ty(TypeEnum::TCall(vec![call_id]));
         let fields = once((method.into(), RecordField::new(call, false, Some(location)))).collect();
         let record = self.unifier.add_record(fields);
         self.constrain(obj, record, &location)?;
-        Ok(ret)
+        Ok((ret, call_id))
     }
 
     fn fold_lambda(
@@ -1109,6 +1271,12 @@ impl Inferencer<'_> {
                 return Ok(None);
             }
         };
+        if !self.builtin_registry.source_profile().admits_builtin_call(builtin) {
+            return report_error(
+                &format!("runtime builtin call `{id}` is not admitted by CatSeqInt32V1"),
+                func.location,
+            );
+        }
         let mut promoted_func = promote_expr_type(func);
 
         match (builtin, args.len()) {
@@ -1986,6 +2154,106 @@ impl Inferencer<'_> {
         Ok(Located { location, custom: Some(ret), node: ExprKind::Call { func, args, keywords } })
     }
 
+    pub(crate) fn validate_source_profile_operators(
+        &mut self,
+        call_start: usize,
+    ) -> Result<(), InferenceError> {
+        if self.builtin_registry.source_profile() != SourceProfile::CatSeqInt32V1 {
+            return Ok(());
+        }
+
+        let operator_calls = self.unifier.calls[call_start..]
+            .iter()
+            .enumerate()
+            .filter_map(|(offset, call)| {
+                call.operator_info.clone().map(|operator| {
+                    (
+                        CallId(call_start + offset),
+                        operator,
+                        call.posargs.clone(),
+                        call.loc.expect("operator calls always carry a source location"),
+                    )
+                })
+            })
+            .collect_vec();
+        let zero_divisors = self.function_data.source_profile_zero_divisor_candidates.clone();
+
+        for (call_id, operator, operands, location) in operator_calls {
+            match operator {
+                OperatorInfo::IsBinaryOp { self_type, operator } => {
+                    let [right_type] = operands.as_slice() else {
+                        unreachable!("binary operator calls have exactly one explicit operand")
+                    };
+                    let left = catseq_scalar_type(self.unifier, self.primitives, self_type);
+                    let right = catseq_scalar_type(self.unifier, self.primitives, *right_type);
+                    let admitted = left == Some(CatSeqScalarType::Int32)
+                        && right == Some(CatSeqScalarType::Int32)
+                        && self
+                            .builtin_registry
+                            .source_profile()
+                            .admits_int32_binary_operator(operator.base);
+                    if !admitted {
+                        return report_error(
+                            &format!(
+                                "operator `{}` is not admitted by CatSeqInt32V1 for these operand types",
+                                operator.op_info().symbol
+                            ),
+                            location,
+                        );
+                    }
+                    if matches!(operator.base, ast::Operator::FloorDiv | ast::Operator::Mod)
+                        && let Some((_, divisor_location)) =
+                            zero_divisors.iter().find(|(candidate, _)| *candidate == call_id)
+                    {
+                        return report_error(
+                            &format!(
+                                "divisor for `{}` must not be zero",
+                                Binop::normal(operator.base).op_info().symbol
+                            ),
+                            *divisor_location,
+                        );
+                    }
+                }
+                OperatorInfo::IsUnaryOp { self_type, operator } => {
+                    let operand = catseq_scalar_type(self.unifier, self.primitives, self_type);
+                    let admitted = matches!(
+                        (operator, operand),
+                        (ast::Unaryop::UAdd | ast::Unaryop::USub, Some(CatSeqScalarType::Int32))
+                            | (ast::Unaryop::Not, Some(CatSeqScalarType::Bool))
+                    );
+                    if !admitted {
+                        return report_error(
+                            &format!(
+                                "operator `{}` is not admitted by CatSeqInt32V1 for this operand type",
+                                operator.op_info().symbol
+                            ),
+                            location,
+                        );
+                    }
+                }
+                OperatorInfo::IsComparisonOp { self_type, operator } => {
+                    let [right_type] = operands.as_slice() else {
+                        unreachable!("comparison calls have exactly one explicit operand")
+                    };
+                    let left = catseq_scalar_type(self.unifier, self.primitives, self_type);
+                    let right = catseq_scalar_type(self.unifier, self.primitives, *right_type);
+                    if left != Some(CatSeqScalarType::Int32)
+                        || right != Some(CatSeqScalarType::Int32)
+                    {
+                        return report_error(
+                            &format!(
+                                "operator `{}` is not admitted by CatSeqInt32V1 for these operand types",
+                                operator.op_info().symbol
+                            ),
+                            location,
+                        );
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     #[allow(clippy::unnecessary_wraps)]
     fn infer_identifier(&mut self, id: StrRef) -> InferenceResult {
         Ok(if let Some(ty) = self.variable_mapping.get(&id) {
@@ -2005,6 +2273,11 @@ impl Inferencer<'_> {
     }
 
     fn infer_constant(&mut self, constant: &ast::Constant, loc: &Location) -> InferenceResult {
+        if let Some(message) =
+            self.builtin_registry.source_profile().source_constant_error(constant)
+        {
+            return report_error(message, *loc);
+        }
         match constant {
             ast::Constant::Bool(_) => Ok(self.primitives.bool),
             ast::Constant::Int(val) => {
@@ -2248,6 +2521,15 @@ impl Inferencer<'_> {
     ) -> InferenceResult {
         let left_ty = left.custom.unwrap();
         let right_ty = right.custom.unwrap();
+        validate_catseq_integer_binop(
+            self.builtin_registry.source_profile(),
+            self.unifier,
+            self.primitives,
+            location,
+            left,
+            op.base,
+            right,
+        )?;
 
         let method = if let TypeEnum::TObj { fields, .. } =
             self.unifier.get_ty_immutable(left_ty).as_ref()
@@ -2278,14 +2560,21 @@ impl Inferencer<'_> {
             }
         };
 
-        self.build_method_call(
+        let (ret, call) = self.build_method_call(
             location,
             method.into(),
             left_ty,
             vec![right_ty],
             ret,
             Some(OperatorInfo::IsBinaryOp { self_type: left.custom.unwrap(), operator: op }),
-        )
+        )?;
+        if self.builtin_registry.source_profile() == SourceProfile::CatSeqInt32V1
+            && matches!(op.base, ast::Operator::FloorDiv | ast::Operator::Mod)
+            && constant_int32_value(right) == Some(0)
+        {
+            self.function_data.source_profile_zero_divisor_candidates.push((call, right.location));
+        }
+        Ok(ret)
     }
 
     fn infer_unary_ops(
@@ -2294,19 +2583,28 @@ impl Inferencer<'_> {
         op: ast::Unaryop,
         operand: &ast::Expr<Option<Type>>,
     ) -> InferenceResult {
+        validate_catseq_integer_unaryop(
+            self.builtin_registry.source_profile(),
+            self.unifier,
+            self.primitives,
+            location,
+            op,
+            operand,
+        )?;
         let method = op.op_info().method_name.into();
 
         let ret = typeof_unaryop(self.unifier, self.primitives, op, operand.custom.unwrap())
             .or_else(|e| report_error(&e, location))?;
 
-        self.build_method_call(
+        let (ret, _) = self.build_method_call(
             location,
             method,
             operand.custom.unwrap(),
             vec![],
             ret,
             Some(OperatorInfo::IsUnaryOp { self_type: operand.custom.unwrap(), operator: op }),
-        )
+        )?;
+        Ok(ret)
     }
 
     fn infer_compare(
@@ -2351,17 +2649,15 @@ impl Inferencer<'_> {
             )
             .or_else(|e| report_error(&e, b.location))?;
 
-            res.replace(self.build_method_call(
+            let (ret, _) = self.build_method_call(
                 location,
                 method,
                 a.custom.unwrap(),
                 vec![b.custom.unwrap()],
                 ret,
-                Some(OperatorInfo::IsComparisonOp {
-                    self_type: left.custom.unwrap(),
-                    operator: *c,
-                }),
-            )?);
+                Some(OperatorInfo::IsComparisonOp { self_type: a.custom.unwrap(), operator: *c }),
+            )?;
+            res.replace(ret);
         }
 
         Ok(res.unwrap())

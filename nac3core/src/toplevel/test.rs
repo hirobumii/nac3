@@ -1,11 +1,14 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use anyhow::anyhow;
 use indoc::indoc;
 use itertools::Itertools as _;
 use nac3parser::{
     ast::{self, FileName, StrRef, fold::Fold},
-    parser::parse_program,
+    parser::{parse_expression, parse_program},
 };
 use parking_lot::{Mutex, RwLock};
 use test_case::test_case;
@@ -15,12 +18,12 @@ use crate::{
     symbol_resolver::{SymbolResolver, ValueEnum},
     toplevel::{
         DefinitionId, TopLevelDef,
-        composer::{DefaultBuiltinRegistry, TopLevelComposer},
+        composer::{BuiltinRegistry, DefaultBuiltinRegistry, SourceProfile, TopLevelComposer},
         helper::PrimDef,
     },
     typecheck::{
         type_inferencer::PrimitiveStore,
-        typedef::{Type, Unifier},
+        typedef::{Type, TypeEnum, Unifier},
     },
 };
 
@@ -40,6 +43,31 @@ impl ResolverInternal {
 }
 
 struct Resolver(Arc<ResolverInternal>);
+
+/// Binding-aware test adapter for the `CatSeq` profile.
+///
+/// Production frontends identify builtins by object identity. These tests model the same seam by
+/// removing names that the parsed test module binds to ordinary definitions.
+struct CatSeqTestBuiltinRegistry {
+    ordinary_bindings: HashSet<StrRef>,
+}
+
+impl BuiltinRegistry for CatSeqTestBuiltinRegistry {
+    fn source_profile(&self) -> SourceProfile {
+        SourceProfile::CatSeqInt32V1
+    }
+
+    fn match_builtin(&self, expr: &ast::Expr) -> Option<PrimDef> {
+        let ast::ExprKind::Name { id, .. } = &expr.node else { return None };
+        if self.ordinary_bindings.contains(id) {
+            return None;
+        }
+        match id.to_string().as_str() {
+            "int" | "int32" => Some(PrimDef::Int32),
+            _ => DefaultBuiltinRegistry.match_builtin(expr),
+        }
+    }
+}
 
 impl SymbolResolver for Resolver {
     fn get_default_param_value(
@@ -210,6 +238,740 @@ fn test_simple_function_analyze(source: &[&str], tys: &[&str], names: &[&str]) {
             assert_eq!(name, names[i]);
         }
     }
+}
+
+fn new_catseq_composer(
+    ordinary_bindings: HashSet<StrRef>,
+) -> (TopLevelComposer, Arc<ResolverInternal>, Arc<dyn SymbolResolver + Send + Sync>) {
+    let composer = TopLevelComposer::new(
+        Vec::new(),
+        Vec::new(),
+        Arc::new(CatSeqTestBuiltinRegistry { ordinary_bindings }),
+        64,
+    )
+    .0;
+    let internal_resolver =
+        Arc::new(ResolverInternal { id_to_def: Mutex::default(), id_to_type: Mutex::default() });
+    let resolver =
+        Arc::new(Resolver(internal_resolver.clone())) as Arc<dyn SymbolResolver + Send + Sync>;
+    (composer, internal_resolver, resolver)
+}
+
+fn analyze_catseq_function(source: &str) -> Result<(TopLevelComposer, DefinitionId), String> {
+    let (composer, definition_ids) = analyze_catseq_program(source)?;
+    let [definition_id] = definition_ids.as_slice() else {
+        panic!("single-function tracer registered more than one definition")
+    };
+    Ok((composer, *definition_id))
+}
+
+fn analyze_catseq_program(source: &str) -> Result<(TopLevelComposer, Vec<DefinitionId>), String> {
+    let ast = parse_program(source, FileName::default()).unwrap();
+    let ordinary_bindings = ast
+        .iter()
+        .filter_map(|definition| match &definition.node {
+            ast::StmtKind::FunctionDef { name, .. } | ast::StmtKind::ClassDef { name, .. } => {
+                Some(*name)
+            }
+            _ => None,
+        })
+        .collect();
+    let (mut composer, internal_resolver, resolver) = new_catseq_composer(ordinary_bindings);
+    let mut definition_ids = Vec::with_capacity(ast.len());
+    for definition in ast {
+        let (name, definition_id, ty) =
+            composer.register_top_level(definition, Some(resolver.clone()), "", true)?;
+        internal_resolver.add_id_def(name, definition_id);
+        if let Some(ty) = ty {
+            internal_resolver.add_id_type(name, ty);
+        }
+        definition_ids.push(definition_id);
+    }
+    composer
+        .start_analysis(true)
+        .map_err(|errors| errors.into_iter().map(|error| error.to_string()).join("\n"))?;
+    Ok((composer, definition_ids))
+}
+
+#[test]
+fn catseq_source_profile_has_explicit_identity_without_changing_the_default() {
+    assert_eq!(DefaultBuiltinRegistry.source_profile(), SourceProfile::Default);
+    let registry = CatSeqTestBuiltinRegistry { ordinary_bindings: HashSet::new() };
+    assert_eq!(registry.source_profile(), SourceProfile::CatSeqInt32V1);
+    assert_eq!(SourceProfile::Default.profile_id(), None);
+    assert_eq!(SourceProfile::CatSeqInt32V1.profile_id(), Some("catseq-int32-v1"));
+
+    let int = parse_expression("int").unwrap();
+    let int32 = parse_expression("int32").unwrap();
+    let bool_type = parse_expression("bool").unwrap();
+    let range = parse_expression("range").unwrap();
+    let int64 = parse_expression("int64").unwrap();
+    let abs = parse_expression("abs").unwrap();
+    let list = parse_expression("list").unwrap();
+    assert_eq!(DefaultBuiltinRegistry.match_builtin(&int), None);
+    assert_eq!(registry.match_builtin(&int), Some(PrimDef::Int32));
+    assert_eq!(registry.match_builtin(&int32), Some(PrimDef::Int32));
+    assert_eq!(registry.match_builtin(&bool_type), Some(PrimDef::Bool));
+    assert_eq!(registry.match_builtin(&range), Some(PrimDef::Range));
+    assert_eq!(registry.match_builtin(&int64), Some(PrimDef::Int64));
+    assert_eq!(registry.match_builtin(&abs), Some(PrimDef::FunAbs));
+    assert_eq!(registry.match_builtin(&list), Some(PrimDef::List));
+}
+
+#[test]
+fn catseq_source_profile_rejects_float_literals() {
+    let result = analyze_catseq_function(indoc! {"
+        def compute(value: int) -> int:
+            temporary = 1.0
+            return value
+    "});
+    let Err(error) = result else {
+        panic!("floating-point literals must not type-check in the CatSeq source profile")
+    };
+
+    assert!(error.contains("floating-point values are not admitted by CatSeqInt32V1"), "{error}");
+    assert!(error.contains("at unknown:2:17"), "{error}");
+}
+
+#[test]
+fn catseq_source_profile_rejects_true_division() {
+    let result = analyze_catseq_function(indoc! {"
+        def compute(value: int) -> int:
+            temporary = value / 2
+            return value
+    "});
+    let Err(error) = result else {
+        panic!("true division must not type-check in the CatSeq source profile")
+    };
+
+    assert!(error.contains("operator `/` is not admitted by CatSeqInt32V1"), "{error}");
+    assert!(error.contains("at unknown:2:23"), "{error}");
+}
+
+#[test]
+fn catseq_source_profile_rejects_unlisted_intrinsics() {
+    let result = analyze_catseq_function(indoc! {"
+        def compute(value: int) -> int:
+            return abs(value)
+    "});
+    let Err(error) = result else {
+        panic!("unlisted NAC3 intrinsics must not enter CatSeqInt32V1")
+    };
+
+    assert!(error.contains("abs"), "{error}");
+    assert!(error.contains("at unknown:2:"), "{error}");
+}
+
+#[test_case("int"; "int")]
+#[test_case("int32"; "int32")]
+#[test_case("bool"; "bool")]
+fn catseq_source_profile_rejects_runtime_scalar_conversions(conversion: &str) {
+    let source = format!("def compute(value: int) -> int:\n    return {conversion}(value)\n");
+    let result = analyze_catseq_function(&source);
+    let Err(error) = result else {
+        panic!("type spellings must not implicitly admit runtime conversions")
+    };
+
+    assert!(error.contains(conversion), "{error}");
+    assert!(error.contains("at unknown:2:"), "{error}");
+}
+
+#[test]
+fn catseq_source_profile_rejects_list_literals_at_the_source_seam() {
+    let result = analyze_catseq_function(indoc! {"
+        def compute(value: int) -> int:
+            temporary = [1, 2]
+            return value
+    "});
+    let Err(error) = result else { panic!("list construction must not enter CatSeqInt32V1") };
+
+    assert!(error.contains("list values are not admitted by CatSeqInt32V1"), "{error}");
+    assert!(error.contains("at unknown:2:"), "{error}");
+}
+
+#[test]
+fn catseq_source_profile_rejects_list_comprehensions_at_the_source_seam() {
+    let result = analyze_catseq_function(indoc! {"
+        def compute(value: int) -> int:
+            temporary = [offset for offset in range(2)]
+            return value
+    "});
+    let Err(error) = result else { panic!("list comprehensions must not enter CatSeqInt32V1") };
+
+    assert!(error.contains("list values are not admitted by CatSeqInt32V1"), "{error}");
+    assert!(error.contains("at unknown:2:"), "{error}");
+}
+
+#[test]
+fn catseq_source_profile_rejects_tuple_literals_at_the_source_seam() {
+    let result = analyze_catseq_function(indoc! {"
+        def compute(value: int) -> int:
+            temporary = (1, 2)
+            return value
+    "});
+    let Err(error) = result else { panic!("tuple construction must not enter CatSeqInt32V1") };
+
+    assert!(error.contains("tuple values are not admitted by CatSeqInt32V1"), "{error}");
+    assert!(error.contains("at unknown:2:"), "{error}");
+}
+
+#[test]
+fn catseq_source_profile_rejects_string_literals_at_the_source_seam() {
+    let result = analyze_catseq_function(indoc! {r#"
+        def compute(value: int) -> int:
+            temporary = "not runtime data"
+            return value
+    "#});
+    let Err(error) = result else { panic!("string construction must not enter CatSeqInt32V1") };
+
+    assert!(error.contains("string values are not admitted by CatSeqInt32V1"), "{error}");
+    assert!(error.contains("at unknown:2:"), "{error}");
+}
+
+#[test]
+fn catseq_source_profile_rejects_no_result_compute_signatures() {
+    let result = analyze_catseq_function(indoc! {"
+        def compute(value: int):
+            value + 1
+    "});
+    let Err(error) = result else {
+        panic!("selected Compute functions must return a CatSeqInt32V1 scalar value")
+    };
+
+    assert!(error.contains("return type is not admitted by CatSeqInt32V1"), "{error}");
+    assert!(error.contains("at unknown:1:"), "{error}");
+}
+
+#[test]
+fn catseq_source_profile_rejects_vararg_compute_parameters() {
+    let result = analyze_catseq_function(indoc! {"
+        def compute(*values: int) -> int:
+            return 0
+    "});
+    let Err(error) = result else {
+        panic!("varargs must not introduce an implicit tuple into CatSeqInt32V1")
+    };
+
+    assert!(
+        error.contains("vararg parameter `values` is not admitted by CatSeqInt32V1"),
+        "{error}"
+    );
+    assert!(error.contains("at unknown:1:"), "{error}");
+}
+
+#[test_case(
+    indoc! {"
+        def compute(value: int, /) -> int:
+            return value
+    "},
+    "positional-only";
+    "positional_only"
+)]
+#[test_case(
+    indoc! {"
+        def compute(*, value: int) -> int:
+            return value
+    "},
+    "keyword-only";
+    "keyword_only"
+)]
+#[test_case(
+    indoc! {"
+        def compute(value: int, **values: int) -> int:
+            return value
+    "},
+    "keyword-vararg";
+    "keyword_vararg"
+)]
+fn catseq_source_profile_rejects_parameter_kinds_absent_from_the_normalized_interface(
+    source: &str,
+    parameter_kind: &str,
+) {
+    let result = analyze_catseq_function(source);
+    let Err(error) = result else {
+        panic!("{parameter_kind} parameters must not disappear from the normalized interface")
+    };
+
+    assert!(error.contains(parameter_kind), "{error}");
+    assert!(error.contains("not admitted by CatSeqInt32V1"), "{error}");
+    assert!(error.contains("at unknown:1:"), "{error}");
+}
+
+#[test_case("|"; "bit_or")]
+#[test_case("^"; "bit_xor")]
+#[test_case("**"; "power")]
+#[test_case("@"; "matrix_multiply")]
+fn catseq_source_profile_rejects_unlisted_integer_operators(operator: &str) {
+    let source = format!("def compute(value: int) -> int:\n    return value {operator} 1\n");
+    let result = analyze_catseq_function(&source);
+    let Err(error) = result else {
+        panic!("integer operators outside the V1 allowlist must be rejected")
+    };
+
+    assert!(
+        error.contains(&format!("operator `{operator}` is not admitted by CatSeqInt32V1")),
+        "{error}"
+    );
+    assert!(error.contains("at unknown:2:"), "{error}");
+}
+
+#[test]
+fn catseq_source_profile_rejects_unlisted_integer_unary_operators() {
+    let result = analyze_catseq_function(indoc! {"
+        def compute(value: int) -> int:
+            return ~value
+    "});
+    let Err(error) = result else {
+        panic!("integer unary operators outside the V1 allowlist must be rejected")
+    };
+
+    assert!(error.contains("operator `~` is not admitted by CatSeqInt32V1"), "{error}");
+    assert!(error.contains("at unknown:2:"), "{error}");
+}
+
+#[test]
+fn catseq_source_profile_rejects_boolean_bitwise_operators() {
+    let result = analyze_catseq_function(indoc! {"
+        def compute(value: bool) -> bool:
+            return value & True
+    "});
+    let Err(error) = result else {
+        panic!("boolean values must use `and`/`or` rather than bitwise operators")
+    };
+
+    assert!(error.contains("at unknown:2:"), "{error}");
+}
+
+#[test_case(
+    indoc! {"
+        def twice(value: int) -> int:
+            return value * 2
+
+        def compute(value: int) -> int:
+            return twice(value) / 1
+    "},
+    "operator `/` is not admitted by CatSeqInt32V1";
+    "true_division"
+)]
+#[test_case(
+    indoc! {"
+        def twice(value: int) -> int:
+            return value * 2
+
+        def compute(value: int) -> int:
+            return twice(value) // 0
+    "},
+    "divisor for `//` must not be zero";
+    "floor_division_by_zero"
+)]
+fn catseq_source_profile_revalidates_operators_after_type_unification(
+    source: &str,
+    expected: &str,
+) {
+    let result = analyze_catseq_program(source);
+    let Err(error) = result else {
+        panic!("an Int32 operator selected by late type unification must be revalidated")
+    };
+
+    assert!(error.contains(expected), "{error}");
+    assert!(error.contains("at unknown:5:"), "{error}");
+}
+
+#[test_case(
+    indoc! {"
+        def compute(flag: bool) -> int:
+            return +flag
+    "};
+    "unary_plus_requires_int32"
+)]
+#[test_case(
+    indoc! {"
+        def compute(value: int) -> bool:
+            return not value
+    "};
+    "not_requires_bool"
+)]
+#[test_case(
+    indoc! {"
+        def compute(left: bool, right: bool) -> bool:
+            return left == right
+    "};
+    "comparisons_require_int32"
+)]
+#[test_case(
+    indoc! {"
+        def identity_bool(value: bool) -> bool:
+            return value
+
+        def compute(value: bool) -> int:
+            return +identity_bool(value)
+    "};
+    "late_unification_keeps_the_pair_strict"
+)]
+fn catseq_source_profile_rejects_unlisted_operator_type_pairs(source: &str) {
+    let result = analyze_catseq_program(source);
+    let Err(error) = result else {
+        panic!("operator/type pairs outside the V1 allowlist must be rejected")
+    };
+
+    assert!(error.contains("not admitted by CatSeqInt32V1"), "{error}");
+}
+
+#[test]
+fn catseq_source_profile_leaves_ordinary_callee_authority_to_the_resolver() {
+    analyze_catseq_program(indoc! {"
+        def abs(value: int) -> int:
+            return value + 1
+
+        def range(value: int) -> int:
+            return value + 2
+
+        def compute(value: int) -> int:
+            return range(abs(value))
+    "})
+    .unwrap_or_else(|error| {
+        panic!("an exact Compute callee may share an excluded intrinsic name: {error}")
+    });
+}
+
+#[test_case("int64"; "int64")]
+#[test_case("uint32"; "uint32")]
+#[test_case("uint64"; "uint64")]
+#[test_case("float"; "float")]
+fn catseq_source_profile_rejects_non_int32_numeric_annotations(annotation: &str) {
+    let source = format!("def compute(value: {annotation}) -> int:\n    return 0\n");
+    let result = analyze_catseq_function(&source);
+    let Err(error) = result else {
+        panic!("`{annotation}` must not be accepted by the CatSeq source profile")
+    };
+
+    assert!(error.contains("type annotation is not admitted by CatSeqInt32V1"), "{error}");
+    assert!(error.contains("at unknown:1:"), "{error}");
+}
+
+#[test_case("list[int]"; "list")]
+#[test_case("tuple[int]"; "tuple")]
+#[test_case("ndarray[int, 1]"; "ndarray")]
+#[test_case("Option[int]"; "option")]
+#[test_case("Auto"; "auto")]
+#[test_case("str"; "string")]
+#[test_case("Exception"; "exception")]
+fn catseq_source_profile_rejects_unadmitted_type_annotations(annotation: &str) {
+    let source = format!("def compute(value: {annotation}) -> int:\n    return 0\n");
+    let result = analyze_catseq_function(&source);
+    let Err(error) = result else { panic!("`{annotation}` must not be accepted by CatSeqInt32V1") };
+
+    assert!(error.contains("at unknown:1:"), "{error}");
+}
+
+#[test]
+fn catseq_source_profile_rejects_auto_at_a_local_annotation_seam() {
+    let result = analyze_catseq_function(indoc! {"
+        def compute(value: int) -> int:
+            local: Auto = value
+            return local
+    "});
+    let Err(error) = result else {
+        panic!("Auto must not become an inferred local type under CatSeqInt32V1")
+    };
+
+    assert!(error.contains("type annotation is not admitted by CatSeqInt32V1"), "{error}");
+    assert!(error.contains("at unknown:2:"), "{error}");
+}
+
+#[test]
+fn catseq_source_profile_rejects_record_compute_signatures_without_scanning_fields() {
+    let result = analyze_catseq_program(indoc! {"
+        class Record:
+            value: int
+
+        def compute(value: Record) -> int:
+            return value.value
+    "});
+    let Err(error) = result else {
+        panic!("record values must not cross a CatSeqInt32V1 Compute interface")
+    };
+
+    assert!(error.contains("type annotation is not admitted by CatSeqInt32V1"), "{error}");
+    assert!(error.contains("at unknown:4:"), "{error}");
+}
+
+#[test]
+fn catseq_source_profile_rejects_first_class_none_values() {
+    let result = analyze_catseq_function(indoc! {"
+        def compute(value: int) -> int:
+            temporary = None
+            return value
+    "});
+    let Err(error) = result else { panic!("first-class None must not enter CatSeqInt32V1") };
+
+    assert!(error.contains("None is not admitted by CatSeqInt32V1"), "{error}");
+    assert!(error.contains("at unknown:2:"), "{error}");
+}
+
+#[test]
+fn catseq_source_profile_rejects_lowercase_none_at_the_source_seam() {
+    let result = analyze_catseq_function(indoc! {"
+        def compute(value: int) -> int:
+            temporary = none
+            return value
+    "});
+    let Err(error) = result else {
+        panic!("the NAC3 Option-none value must not enter CatSeqInt32V1")
+    };
+
+    assert!(error.contains("Option values are not admitted by CatSeqInt32V1"), "{error}");
+    assert!(error.contains("at unknown:2:"), "{error}");
+}
+
+#[test_case(
+    indoc! {"
+        def compute(value: int) -> int:
+            return value // 0
+    "},
+    "//";
+    "floor_division"
+)]
+#[test_case(
+    indoc! {"
+        def compute(value: int) -> int:
+            return value % 0
+    "},
+    "%";
+    "modulo"
+)]
+#[test_case(
+    indoc! {"
+        def compute(value: int) -> int:
+            return value // (1 - 1)
+    "},
+    "//";
+    "constant_arithmetic"
+)]
+#[test_case(
+    indoc! {"
+        def compute(value: int) -> int:
+            return value % (1 << 32)
+    "},
+    "%";
+    "constant_saturating_shift"
+)]
+#[test_case(
+    indoc! {"
+        def compute(value: int) -> int:
+            return value // ((-7 // 3) + 3)
+    "},
+    "//";
+    "negative_floor_semantics"
+)]
+#[test_case(
+    indoc! {"
+        def compute(value: int) -> int:
+            return value // ((7 % -3) + 2)
+    "},
+    "//";
+    "divisor_signed_remainder"
+)]
+#[test_case(
+    indoc! {"
+        def compute(value: int) -> int:
+            return value // (-2147483648 % -1)
+    "},
+    "//";
+    "int_min_remainder"
+)]
+fn catseq_source_profile_rejects_a_proven_zero_divisor(source: &str, operator: &str) {
+    let result = analyze_catseq_function(source);
+    let Err(error) = result else {
+        panic!("a compile-time proven zero divisor for `{operator}` must be rejected")
+    };
+
+    assert!(error.contains(&format!("divisor for `{operator}` must not be zero")), "{error}");
+    assert!(error.contains("at unknown:2:"), "{error}");
+}
+
+#[test]
+fn catseq_source_profile_does_not_perform_local_constant_propagation_for_divisors() {
+    analyze_catseq_function(indoc! {"
+        def compute(value: int) -> int:
+            zero = 0
+            return value // zero
+    "})
+    .unwrap_or_else(|error| {
+        panic!("local names are outside the syntax-local constant grammar: {error}")
+    });
+}
+
+#[test]
+fn catseq_source_profile_applies_zero_rules_only_after_int32_pair_resolution() {
+    let result = analyze_catseq_program(indoc! {"
+        class Number:
+            def __floordiv__(self, other: int) -> int:
+                return 1
+
+        def compute(value: int) -> int:
+            temporary: int = Number() // 0
+            return value
+    "});
+    let Err(error) = result else {
+        panic!("an overloaded record operator must not enter the scalar Compute profile")
+    };
+
+    assert!(
+        !error.contains("divisor for `//` must not be zero"),
+        "the Int32 zero-divisor rule must not preempt another operand type: {error}"
+    );
+    assert!(
+        error.contains("operator `//` is not admitted by CatSeqInt32V1 for these operand types"),
+        "non-profile operand types must fail closed at the operator seam: {error}"
+    );
+}
+
+#[test]
+fn catseq_source_profile_normalizes_int_spellings_literals_and_range_to_int32() {
+    let (mut composer, definition_id) = analyze_catseq_function(indoc! {"
+        def compute(value: int, explicit: int32) -> int:
+            result = value + explicit + 1
+            for offset in range(4):
+                result = result + offset
+            return result
+    "})
+    .unwrap_or_else(|error| panic!("the CatSeq Int32 profile must type-check: {error}"));
+
+    let signature = {
+        let definition = composer.definition_ast_list[definition_id.0].0.read();
+        let TopLevelDef::Function { signature, .. } = &*definition else {
+            panic!("registered source must remain a function")
+        };
+        let signature = *signature;
+        drop(definition);
+        signature
+    };
+    let TypeEnum::TFunc(signature) = composer.unifier.get_ty(signature).as_ref().clone() else {
+        panic!("registered function must retain its function signature")
+    };
+    assert_eq!(signature.args.len(), 2);
+    assert!(composer.unifier.unioned(signature.args[0].ty, composer.primitives_ty.int32));
+    assert!(composer.unifier.unioned(signature.args[1].ty, composer.primitives_ty.int32));
+    assert!(composer.unifier.unioned(signature.ret, composer.primitives_ty.int32));
+}
+
+#[test]
+fn catseq_source_profile_accepts_the_scalar_demo_subset() {
+    analyze_catseq_function(indoc! {"
+        def compute(value: int, limit: int32) -> bool:
+            total = +value
+            for offset in range(2):
+                total = ((total * 3) + offset - -1) & 255
+            if not total < 0 and (total < limit or total == limit):
+                return True
+            return False
+    "})
+    .unwrap_or_else(|error| panic!("the accepted scalar demo subset must type-check: {error}"));
+}
+
+#[test]
+fn catseq_source_profile_accepts_all_int32_comparisons() {
+    analyze_catseq_function(indoc! {"
+        def compute(left: int, right: int) -> bool:
+            return left < right or left <= right or left > right or left >= right or left == right or left != right
+    "})
+    .unwrap_or_else(|error| panic!("all Int32 comparison pairs must type-check: {error}"));
+}
+
+#[test]
+fn catseq_source_profile_accepts_the_int32_minimum_literal() {
+    analyze_catseq_function(indoc! {"
+        def compute() -> int:
+            return -2147483648
+    "})
+    .unwrap_or_else(|error| panic!("the Int32 minimum literal must type-check: {error}"));
+}
+
+#[test]
+fn catseq_source_profile_retains_target_independent_integer_operations() {
+    let (mut composer, definition_id) = analyze_catseq_function(indoc! {"
+        def compute(value: int, divisor: int, shift: int) -> int:
+            sum = value + 1
+            difference = value - 1
+            product = value * 2
+            masked = value & 255
+            floor = value // divisor
+            remainder = value % divisor
+            negative_floor = -7 // 3
+            negative_remainder = 7 % -3
+            overflow = -2147483648 // -1
+            exact = -2147483648 % -1
+            dynamic_left = value << shift
+            dynamic_right = value >> shift
+            wide_left = value << 32
+            wide_right = value >> 32
+            negative_left = value << -1
+            negative_right = value >> -1
+            return sum + difference + product + masked + floor + remainder + negative_floor + negative_remainder + overflow + exact + dynamic_left + dynamic_right + wide_left + wide_right + negative_left + negative_right
+    "})
+    .unwrap_or_else(|error| panic!("CatSeq integer operations must type-check: {error}"));
+
+    let body = {
+        let definition = composer.definition_ast_list[definition_id.0].0.read();
+        let TopLevelDef::Function { instance_to_stmt, .. } = &*definition else {
+            panic!("registered source must remain a function")
+        };
+        let instance = instance_to_stmt.values().exactly_one().unwrap();
+        let body = Arc::clone(&instance.body);
+        drop(definition);
+        body
+    };
+    let operations = body
+        .iter()
+        .filter_map(|statement| {
+            let ast::StmtKind::Assign { value, .. } = &statement.node else { return None };
+            let ast::ExprKind::BinOp { op, .. } = &value.node else { return None };
+            Some((*op, value.custom.unwrap()))
+        })
+        .collect_vec();
+    let operators = operations.iter().map(|(operator, _)| *operator).collect_vec();
+
+    assert_eq!(
+        operators,
+        [
+            ast::Operator::Add,
+            ast::Operator::Sub,
+            ast::Operator::Mult,
+            ast::Operator::BitAnd,
+            ast::Operator::FloorDiv,
+            ast::Operator::Mod,
+            ast::Operator::FloorDiv,
+            ast::Operator::Mod,
+            ast::Operator::FloorDiv,
+            ast::Operator::Mod,
+            ast::Operator::LShift,
+            ast::Operator::RShift,
+            ast::Operator::LShift,
+            ast::Operator::RShift,
+            ast::Operator::LShift,
+            ast::Operator::RShift,
+        ]
+    );
+    for (_, ty) in operations {
+        assert!(composer.unifier.unioned(ty, composer.primitives_ty.int32));
+    }
+}
+
+#[test_case("2147483648"; "above_maximum")]
+#[test_case("-2147483649"; "below_minimum")]
+fn catseq_source_profile_rejects_out_of_range_literals(literal: &str) {
+    let source = format!("def compute() -> int:\n    return {literal}\n");
+    let result = analyze_catseq_function(&source);
+    let Err(error) = result else {
+        panic!("an integer outside i32 must not type-check in the CatSeq source profile")
+    };
+
+    assert!(
+        error.contains("integer values outside Int32 are not admitted by CatSeqInt32V1"),
+        "{error}"
+    );
+    assert!(error.contains("at unknown:2:"), "{error}");
 }
 
 #[test_case(
