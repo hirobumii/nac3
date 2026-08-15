@@ -143,11 +143,7 @@ fn test_primitives() {
     let signature = store.from_signature(&mut unifier, &primitives, &signature, &mut cache);
     let signature = store.add_cty(signature);
 
-    let mut function_data = FunctionData {
-        resolver: resolver.clone(),
-        bound_variables: Vec::new(),
-        return_type: Some(primitives.int32),
-    };
+    let mut function_data = FunctionData::new(resolver.clone(), Some(primitives.int32), Vec::new());
     let mut virtual_checks = Vec::new();
     let mut calls = HashMap::new();
     let mut identifiers: HashSet<_, _> = ["a".into(), "b".into()].into();
@@ -266,11 +262,7 @@ fn test_simple_call() {
     }
 
     let threads = vec![DefaultCodeGenerator::new("test".into()).into()];
-    let mut function_data = FunctionData {
-        resolver: resolver.clone(),
-        bound_variables: Vec::new(),
-        return_type: Some(primitives.int32),
-    };
+    let mut function_data = FunctionData::new(resolver.clone(), Some(primitives.int32), Vec::new());
     let mut virtual_checks = Vec::new();
     let mut calls = HashMap::new();
     let mut identifiers: HashSet<_, _> = ["a".into(), "foo".into()].into();
@@ -387,11 +379,7 @@ fn test_list_mul_refcount() {
     let signature = store.from_signature(&mut unifier, &primitives, &signature, &mut cache);
     let signature = store.add_cty(signature);
 
-    let mut function_data = FunctionData {
-        resolver: resolver.clone(),
-        bound_variables: Vec::new(),
-        return_type: Some(primitives.int32),
-    };
+    let mut function_data = FunctionData::new(resolver.clone(), Some(primitives.int32), Vec::new());
     let mut virtual_checks = Vec::new();
     let mut calls = HashMap::new();
     let mut identifiers: HashSet<_, _> = HashSet::new();

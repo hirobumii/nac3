@@ -407,6 +407,8 @@ pub fn parse_type_annotation<T>(
     expr: &Expr<T>,
     builtin_registry: &dyn BuiltinRegistry,
 ) -> Result<Type, Vec<anyhow::Error>> {
+    crate::toplevel::composer::validate_source_type_annotation(builtin_registry, expr)?;
+
     let name_handling = |name_expr: &Expr<T>, id: &StrRef, unifier: &mut Unifier| {
         if let Some(builtin) = builtin_registry.match_builtin(&erase_expr_type(name_expr))
             && let PrimDefDetails::PrimClass { get_ty_fn, .. } = builtin.details()
